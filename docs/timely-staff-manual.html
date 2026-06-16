@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TimelySchool 受付アプリ スタッフ向け取扱説明書</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ivory: #F8F4ED;
+  --ivory-deep: #EFE8DA;
+  --tiffany: #0ABAB5;
+  --tiffany-deep: #089A95;
+  --tiffany-soft: #E8F4F3;
+  --gold: #C9A961;
+  --gold-deep: #A88A4A;
+  --ink: #1A1F26;
+  --ink-soft: #4A5158;
+  --line: #DDD4C2;
+  --line-soft: #EAE4D4;
+  --error: #B23E4C;
+  --success: #5A8A6A;
+  --white: #FFFFFF;
+  --serif-en: 'Cormorant Garamond', serif;
+  --serif-jp: 'Noto Serif JP', serif;
+  --sans: 'Inter', sans-serif;
+  --transition: 0.2s ease;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--serif-jp);
+  color: var(--ink);
+  background: var(--ivory);
+  line-height: 1.8;
+  padding: 0;
+}
+
+.manual-container {
+  max-width: 880px;
+  margin: 0 auto;
+  background: var(--white);
+  padding: 64px 72px;
+  min-height: 100vh;
+}
+
+/* 表紙 */
+.cover {
+  text-align: center;
+  padding: 80px 0 100px;
+  border-bottom: 1px solid var(--gold);
+  margin-bottom: 64px;
+}
+.cover-eyebrow {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--gold-deep);
+  letter-spacing: 0.3em;
+  margin-bottom: 24px;
+}
+.cover-title-en {
+  font-family: var(--serif-en);
+  font-size: 56px;
+  font-weight: 400;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+  margin-bottom: 12px;
+  font-style: italic;
+}
+.cover-title-en .school {
+  color: var(--tiffany);
+}
+.cover-title-jp {
+  font-family: var(--serif-jp);
+  font-size: 22px;
+  color: var(--ink);
+  letter-spacing: 0.2em;
+  margin-bottom: 40px;
+}
+.cover-ornament {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin: 32px 0;
+}
+.cover-ornament .line {
+  width: 80px;
+  height: 1px;
+  background: var(--gold);
+}
+.cover-ornament .diamond {
+  color: var(--gold);
+  font-size: 14px;
+}
+.cover-subtitle {
+  font-family: var(--serif-jp);
+  font-size: 20px;
+  color: var(--ink);
+  margin-top: 32px;
+  letter-spacing: 0.15em;
+}
+.cover-brand {
+  margin-top: 48px;
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--gold-deep);
+  letter-spacing: 0.15em;
+}
+.cover-version {
+  font-family: var(--serif-en);
+  font-size: 12px;
+  color: var(--ink-soft);
+  letter-spacing: 0.2em;
+  margin-top: 8px;
+}
+
+/* 目次 */
+.toc {
+  background: var(--ivory);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--gold);
+  padding: 32px 40px;
+  margin-bottom: 64px;
+  border-radius: 2px;
+}
+.toc-title {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--gold-deep);
+  letter-spacing: 0.2em;
+  margin-bottom: 4px;
+}
+.toc-title-jp {
+  font-family: var(--serif-jp);
+  font-size: 18px;
+  color: var(--ink);
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gold);
+  letter-spacing: 0.15em;
+}
+.toc-list {
+  list-style: none;
+}
+.toc-list li {
+  padding: 6px 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-family: var(--serif-jp);
+}
+.toc-num {
+  font-family: var(--serif-en);
+  font-style: italic;
+  color: var(--gold-deep);
+  font-size: 13px;
+  min-width: 32px;
+}
+.toc-list a {
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 14px;
+  transition: all var(--transition);
+}
+.toc-list a:hover {
+  color: var(--tiffany-deep);
+}
+
+/* セクション */
+.section {
+  margin-bottom: 72px;
+  page-break-inside: avoid;
+}
+.section-num {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--gold-deep);
+  letter-spacing: 0.25em;
+  margin-bottom: 4px;
+}
+.section-title {
+  font-family: var(--serif-jp);
+  font-size: 28px;
+  color: var(--ink);
+  font-weight: 500;
+  margin-bottom: 4px;
+  letter-spacing: 0.1em;
+}
+.section-title-en {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--ink-soft);
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0 32px;
+}
+.section-divider .line {
+  flex: 1;
+  height: 1px;
+  background: var(--gold);
+}
+.section-divider .diamond {
+  color: var(--gold);
+  font-size: 10px;
+}
+
+/* サブセクション */
+.subsection {
+  margin-bottom: 32px;
+}
+.subsection-title {
+  font-family: var(--serif-jp);
+  font-size: 18px;
+  color: var(--ink);
+  font-weight: 500;
+  margin-bottom: 16px;
+  padding-left: 16px;
+  border-left: 3px solid var(--gold);
+  letter-spacing: 0.05em;
+}
+
+/* テキスト */
+p {
+  font-family: var(--serif-jp);
+  font-size: 14.5px;
+  color: var(--ink);
+  margin-bottom: 16px;
+  line-height: 1.85;
+}
+strong {
+  font-weight: 500;
+  color: var(--tiffany-deep);
+}
+
+/* ステップ */
+.step {
+  display: flex;
+  gap: 20px;
+  padding: 20px 24px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--tiffany);
+  margin-bottom: 16px;
+  border-radius: 2px;
+}
+.step-num {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  background: var(--ink);
+  color: var(--white);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--serif-en);
+  font-size: 15px;
+  font-style: italic;
+  font-weight: 500;
+}
+.step-content { flex: 1; }
+.step-title {
+  font-family: var(--serif-jp);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+.step-desc {
+  font-family: var(--serif-jp);
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  line-height: 1.8;
+}
+
+/* 注意ボックス */
+.note {
+  background: var(--tiffany-soft);
+  border: 1px solid var(--tiffany);
+  border-left: 3px solid var(--tiffany);
+  padding: 16px 22px;
+  margin: 20px 0;
+  border-radius: 2px;
+  position: relative;
+}
+.note::before {
+  content: '◆';
+  position: absolute;
+  top: -8px;
+  left: 22px;
+  background: var(--white);
+  color: var(--tiffany);
+  padding: 0 8px;
+  font-size: 10px;
+}
+.note-label {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 11px;
+  color: var(--tiffany-deep);
+  letter-spacing: 0.15em;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.note-text {
+  font-family: var(--serif-jp);
+  font-size: 13.5px;
+  color: var(--ink);
+  line-height: 1.75;
+}
+
+/* 警告ボックス */
+.warning {
+  background: rgba(178, 62, 76, 0.05);
+  border: 1px solid rgba(178, 62, 76, 0.3);
+  border-left: 3px solid var(--error);
+  padding: 16px 22px;
+  margin: 20px 0;
+  border-radius: 2px;
+}
+.warning-label {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 11px;
+  color: var(--error);
+  letter-spacing: 0.15em;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.warning-text {
+  font-family: var(--serif-jp);
+  font-size: 13.5px;
+  color: var(--ink);
+  line-height: 1.75;
+}
+.warning-text strong { color: var(--error); }
+
+/* ティップス */
+.tip {
+  background: var(--ivory);
+  border-left: 3px solid var(--gold);
+  padding: 14px 20px;
+  margin: 16px 0;
+  border-radius: 2px;
+}
+.tip-label {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 11px;
+  color: var(--gold-deep);
+  letter-spacing: 0.15em;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.tip-text {
+  font-family: var(--serif-jp);
+  font-size: 13.5px;
+  color: var(--ink);
+  line-height: 1.7;
+}
+
+/* キーボードキー風ボタン表示 */
+.btn-ref {
+  display: inline-block;
+  padding: 2px 10px;
+  background: var(--ink);
+  color: var(--white);
+  font-family: var(--serif-jp);
+  font-size: 12px;
+  border-radius: 2px;
+  margin: 0 2px;
+  letter-spacing: 0.05em;
+}
+.btn-ref.gold {
+  background: var(--gold);
+  color: var(--white);
+}
+.btn-ref.outline {
+  background: var(--white);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+/* テーブル */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-family: var(--serif-jp);
+  font-size: 13.5px;
+}
+table thead th {
+  background: var(--ivory);
+  color: var(--gold-deep);
+  padding: 12px 14px;
+  text-align: left;
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-weight: 400;
+  border-bottom: 1px solid var(--gold);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+table thead th .jp {
+  display: block;
+  font-family: var(--serif-jp);
+  font-style: normal;
+  color: var(--ink-soft);
+  font-size: 11px;
+  margin-top: 2px;
+}
+table tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+  vertical-align: top;
+}
+table tbody tr:hover { background: var(--ivory); }
+
+/* 画面リファレンス */
+.screen-ref {
+  display: inline-block;
+  padding: 1px 8px;
+  background: var(--ivory-deep);
+  color: var(--gold-deep);
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--gold);
+}
+
+/* FAQ */
+.faq-item {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 20px 0;
+}
+.faq-item:last-child { border-bottom: none; }
+.faq-q {
+  font-family: var(--serif-jp);
+  font-size: 15px;
+  color: var(--ink);
+  font-weight: 500;
+  margin-bottom: 10px;
+  display: flex;
+  gap: 12px;
+}
+.faq-q-mark {
+  font-family: var(--serif-en);
+  font-style: italic;
+  color: var(--gold-deep);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.faq-a {
+  font-family: var(--serif-jp);
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  line-height: 1.85;
+  margin-left: 28px;
+}
+
+/* チェックリスト */
+.checklist {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+}
+.checklist li {
+  position: relative;
+  padding: 8px 0 8px 32px;
+  font-family: var(--serif-jp);
+  font-size: 14px;
+  color: var(--ink);
+  line-height: 1.7;
+}
+.checklist li::before {
+  content: '□';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  color: var(--gold);
+  font-size: 20px;
+  font-weight: 300;
+}
+
+/* 印刷 */
+@page {
+  size: A4 portrait;
+  margin: 20mm;
+}
+@media print {
+  body { background: white; }
+  .manual-container {
+    padding: 0;
+    background: white;
+    max-width: none;
+  }
+  .section, .subsection { page-break-inside: avoid; }
+  .cover { page-break-after: always; }
+  .toc { page-break-after: always; }
+  .no-print { display: none !important; }
+}
+
+/* 印刷ボタン */
+.print-bar {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  gap: 12px;
+  z-index: 100;
+}
+.print-btn {
+  background: var(--ink);
+  color: var(--white);
+  border: none;
+  padding: 14px 24px;
+  border-radius: 2px;
+  font-family: var(--serif-jp);
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(26,31,38,0.2);
+  transition: all var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.print-btn:hover {
+  background: var(--tiffany-deep);
+  transform: translateY(-1px);
+}
+
+/* 終了ページ */
+.closing {
+  text-align: center;
+  padding: 80px 0 40px;
+  border-top: 1px solid var(--gold);
+  margin-top: 80px;
+}
+.closing-thank {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 24px;
+  color: var(--gold-deep);
+  margin-bottom: 12px;
+  letter-spacing: 0.05em;
+}
+.closing-jp {
+  font-family: var(--serif-jp);
+  font-size: 14px;
+  color: var(--ink-soft);
+  letter-spacing: 0.15em;
+}
+
+/* セクションエイリブロウ・タグ */
+.role-tag {
+  display: inline-block;
+  padding: 3px 10px;
+  font-family: var(--serif-jp);
+  font-size: 11px;
+  border-radius: 2px;
+  margin-right: 4px;
+}
+.role-staff {
+  background: var(--tiffany-soft);
+  color: var(--tiffany-deep);
+  border: 1px solid var(--tiffany);
+}
+.role-admin {
+  background: var(--ivory);
+  color: var(--gold-deep);
+  border: 1px solid var(--gold);
+}
+.role-customer {
+  background: rgba(178, 62, 76, 0.08);
+  color: var(--error);
+  border: 1px solid rgba(178, 62, 76, 0.4);
+}
+</style>
+</head>
+<body>
+
+<!-- 印刷ボタン -->
+<div class="print-bar no-print">
+  <button class="print-btn" onclick="window.print()">
+    📄 印刷 / PDF保存
+  </button>
+</div>
+
+<div class="manual-container">
+
+<!-- ========== 表紙 ========== -->
+<div class="cover">
+  <div class="cover-eyebrow">◆ STAFF MANUAL ◆</div>
+  <div class="cover-title-en">Timely<span class="school">School</span></div>
+  <div class="cover-title-jp">受付アプリ 取扱説明書</div>
+  
+  <div class="cover-ornament">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <div class="cover-subtitle">For Staff Use</div>
+  <div class="cover-brand">STRAWBERRY FIELD Children's Garden</div>
+  <div class="cover-version">VERSION 36 ・ 2026</div>
+</div>
+
+<!-- ========== 目次 ========== -->
+<div class="toc">
+  <div class="toc-title">TABLE OF CONTENTS</div>
+  <div class="toc-title-jp">目次</div>
+  <ul class="toc-list">
+    <li><span class="toc-num">01</span><a href="#sec1">アプリの概要 ・ 起動方法</a></li>
+    <li><span class="toc-num">02</span><a href="#sec2">ホーム画面の見方</a></li>
+    <li><span class="toc-num">03</span><a href="#sec3">お客様の受付フロー</a></li>
+    <li><span class="toc-num">04</span><a href="#sec4">新規のお客様 ・ 初めてのご利用</a></li>
+    <li><span class="toc-num">05</span><a href="#sec5">2回目以降のお客様 ・ 本人確認</a></li>
+    <li><span class="toc-num">06</span><a href="#sec6">来園登録 ・ 当日入力</a></li>
+    <li><span class="toc-num">07</span><a href="#sec7">お会計 ・ 領収書発行</a></li>
+    <li><span class="toc-num">08</span><a href="#sec8">自園生徒の利用記録</a></li>
+    <li><span class="toc-num">09</span><a href="#sec9">予約リストの活用</a></li>
+    <li><span class="toc-num">10</span><a href="#sec10">管理メニュー(顧客 ・ 名簿 ・ 日報月報)</a></li>
+    <li><span class="toc-num">11</span><a href="#sec11">毎日の終業作業 ・ データバックアップ</a></li>
+    <li><span class="toc-num">12</span><a href="#sec12">よくあるご質問 ・ トラブル対応</a></li>
+    <li><span class="toc-num">13</span><a href="#sec13">フィードバックの送り方</a></li>
+  </ul>
+</div>
+
+<!-- ========== セクション1 ========== -->
+<div class="section" id="sec1">
+  <div class="section-num">SECTION 01</div>
+  <div class="section-title">アプリの概要 ・ 起動方法</div>
+  <div class="section-title-en">Overview &amp; Getting Started</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>TimelySchool 受付アプリは、STRAWBERRY FIELD Children's Garden の一時預かり・自園生徒の早朝延長サービスにおける、<strong>受付からお会計、領収書発行まで</strong>を一括で行うアプリです。</p>
+  
+  <div class="subsection">
+    <div class="subsection-title">対応デバイス</div>
+    <table>
+      <thead>
+        <tr><th>Device<span class="jp">デバイス</span></th><th>Use<span class="jp">主な用途</span></th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>iPad</strong></td><td>お客様への入力依頼、スタッフの受付業務、お会計</td></tr>
+        <tr><td><strong>デスクトップPC</strong></td><td>顧客管理、日報・月報の確認、データ管理</td></tr>
+        <tr><td>iPhone / Android</td><td>緊急時の参照用</td></tr>
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="subsection">
+    <div class="subsection-title">アプリの起動</div>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">ファイルをダブルクリック</div>
+        <div class="step-desc">配布された <strong>TimelySchool受付_v36.html</strong> ファイルをダブルクリックで開きます。Chrome または Safari が起動します。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">ブックマークまたはホーム画面に追加</div>
+        <div class="step-desc">毎回開きやすいように、ブラウザのブックマーク (PC) またはホーム画面 (iPad: Safariの共有 → 「ホーム画面に追加」) に登録しておきましょう。</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="note">
+    <div class="note-label">◆ NOTE</div>
+    <div class="note-text">現在 (v36) のアプリは、<strong>そのブラウザだけにデータを保存</strong>します。同じiPadで使い続ければデータは残りますが、別の端末からは見えません。クラウド化 (Firebase化) は次のフェーズで実装予定です。</div>
+  </div>
+</div>
+
+<!-- ========== セクション2 ========== -->
+<div class="section" id="sec2">
+  <div class="section-num">SECTION 02</div>
+  <div class="section-title">ホーム画面の見方</div>
+  <div class="section-title-en">Home Screen</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>アプリを開くと、まずホーム画面が表示されます。中央に <span class="btn-ref gold">初めてのご利用</span> の大きなボタン、下に小さく「Staff Only」のメニューバーがあります。</p>
+  
+  <div class="subsection">
+    <div class="subsection-title">画面の構成</div>
+    <table>
+      <thead>
+        <tr><th>Element<span class="jp">要素</span></th><th>Role<span class="jp">役割</span></th><th>Who<span class="jp">対象</span></th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="btn-ref gold">初めてのご利用</span></td>
+          <td>新規のお客様 / 本人確認</td>
+          <td><span class="role-tag role-customer">お客様</span></td>
+        </tr>
+        <tr>
+          <td><span class="btn-ref outline">予約リスト</span></td>
+          <td>事前予約の登録・確認</td>
+          <td><span class="role-tag role-staff">スタッフ</span></td>
+        </tr>
+        <tr>
+          <td><span class="btn-ref outline">お会計待ち</span></td>
+          <td>お会計待ちのお客様一覧</td>
+          <td><span class="role-tag role-staff">スタッフ</span></td>
+        </tr>
+        <tr>
+          <td><span class="btn-ref outline">自園生徒</span></td>
+          <td>早朝・延長の自園生徒利用記録</td>
+          <td><span class="role-tag role-staff">スタッフ</span></td>
+        </tr>
+        <tr>
+          <td><span class="btn-ref outline">管理メニュー</span></td>
+          <td>顧客管理・名簿・日報月報・データ</td>
+          <td><span class="role-tag role-admin">事務</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="tip">
+    <div class="tip-label">◆ TIP</div>
+    <div class="tip-text">「初めてのご利用」ボタンは大きく、Staff Onlyのバーは小さくデザインされています。これは、<strong>iPadをお客様に渡した時、迷わないように</strong>するためです。</div>
+  </div>
+</div>
+
+<!-- ========== セクション3 ========== -->
+<div class="section" id="sec3">
+  <div class="section-num">SECTION 03</div>
+  <div class="section-title">お客様の受付フロー</div>
+  <div class="section-title-en">Customer Reception Flow</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>お客様がご来園された際の標準フローは以下の通りです。</p>
+  
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-content">
+      <div class="step-title">iPadをお客様にお渡しする</div>
+      <div class="step-desc">「ホーム画面」の状態で iPad をお客様にお渡しします。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-content">
+      <div class="step-title">お客様が「初めてのご利用」をタップ</div>
+      <div class="step-desc">初回 → 新規登録画面 / 2回目以降 → 本人確認画面 にお客様自身で進んでいただきます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-content">
+      <div class="step-title">お客様が必要事項を入力</div>
+      <div class="step-desc">お子様情報、保護者情報、当日のお預け情報を入力していただきます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-content">
+      <div class="step-title">同意 → スタッフ確認画面</div>
+      <div class="step-desc">お客様が同意ボタンを押すと「お礼画面」になります。iPadをスタッフが受け取り、内容を確認します。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-content">
+      <div class="step-title">お預かり開始</div>
+      <div class="step-desc">スタッフが「保存」ボタンを押し、お預かり開始です。データは「お会計待ち」リストに入ります。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-num">6</div>
+    <div class="step-content">
+      <div class="step-title">お迎え時 ・ お会計</div>
+      <div class="step-desc">お迎え時に「お会計待ちリスト」から該当のお客様を選び、お会計 → 領収書発行。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== セクション4 ========== -->
+<div class="section" id="sec4">
+  <div class="section-num">SECTION 04</div>
+  <div class="section-title">新規のお客様 ・ 初めてのご利用</div>
+  <div class="section-title-en">New Guest Registration</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>初めてご利用のお客様は、<strong>お子様の基本情報 + 保護者情報 + 同意・署名</strong>を登録していただきます。</p>
+  
+  <div class="subsection">
+    <div class="subsection-title">入力項目</div>
+    <table>
+      <thead>
+        <tr><th>Section<span class="jp">区分</span></th><th>Items<span class="jp">項目</span></th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>お子様情報</strong></td>
+          <td>氏名 / フリガナ / 性別 / 生年月日 / 血液型 / 平熱 / かかりつけ医</td>
+        </tr>
+        <tr>
+          <td><strong>アレルギー</strong></td>
+          <td>14項目から選択 (卵・乳・小麦・大豆 など) + その他フリーテキスト</td>
+        </tr>
+        <tr>
+          <td><strong>保護者情報</strong></td>
+          <td>氏名 / フリガナ / 電話番号 / ご住所</td>
+        </tr>
+        <tr>
+          <td><strong>緊急連絡先</strong></td>
+          <td>緊急時連絡先のお名前 / 電話番号</td>
+        </tr>
+        <tr>
+          <td><strong>同意 ・ 署名</strong></td>
+          <td>ご利用条件の同意チェック + 署名</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="warning">
+    <div class="warning-label">⚠ IMPORTANT</div>
+    <div class="warning-text">姓と名の間は<strong>必ずスペース</strong>を入れてください (例: 高嶋 仁)。スペースがないと領収書の宛名が正しく出ません。</div>
+  </div>
+  
+  <div class="tip">
+    <div class="tip-label">◆ TIP</div>
+    <div class="tip-text">登録後、自動的に「来園登録」画面に遷移します。同じ流れで当日のお預け情報を入力していただきます。</div>
+  </div>
+</div>
+
+<!-- ========== セクション5 ========== -->
+<div class="section" id="sec5">
+  <div class="section-num">SECTION 05</div>
+  <div class="section-title">2回目以降のお客様 ・ 本人確認</div>
+  <div class="section-title-en">Verify Identity</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>2回目以降のお客様は、本人確認を行い、登録済みの情報をすぐに呼び出します。</p>
+  
+  <div class="subsection">
+    <div class="subsection-title">本人確認の手順</div>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">お子様の生年月日を入力</div>
+        <div class="step-desc">年 / 月 / 日 の3つを選択します。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">保護者の電話番号下4桁を入力</div>
+        <div class="step-desc">登録時の電話番号の最後の4桁を入力します。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">一致すれば来園登録画面へ</div>
+        <div class="step-desc">該当するお子様の情報が表示され、当日のお預け情報入力に進めます。</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="note">
+    <div class="note-label">◆ NOTE</div>
+    <div class="note-text">生年月日と電話下4桁が一致しない場合は、<strong>同じ電話番号で複数のお子様が登録</strong>されている可能性があります。スタッフがホーム画面 → 管理メニュー → 顧客一覧で確認してください。</div>
+  </div>
+</div>
+
+<!-- ========== セクション6 ========== -->
+<div class="section" id="sec6">
+  <div class="section-num">SECTION 06</div>
+  <div class="section-title">来園登録 ・ 当日入力</div>
+  <div class="section-title-en">Visit Registration</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>当日のお預け情報を入力する画面です。4つのセクションに分かれています。</p>
+  
+  <div class="subsection">
+    <div class="subsection-title">A・ご利用日 ・ 時刻</div>
+    <p>大きなカードでご利用日を表示。来園時刻 + お迎え予定時刻を時刻ピッカーで選択します。</p>
+  </div>
+  
+  <div class="subsection">
+    <div class="subsection-title">B・本日の体調 ・ ミルク (乳児向け)</div>
+    <p>体温、ミルク利用の有無、最後にミルクを飲んだ時刻・次回予定時刻などを入力します。ミルクを飲まないお子様は「飲んでいない」を選択してください。</p>
+  </div>
+  
+  <div class="subsection">
+    <div class="subsection-title">C・持ち物</div>
+    <p>当日お持ちいただいた持ち物 (オムツ、着替え、スタイ等) にチェック。<strong>お会計時に「返却済」を確認するため必須</strong>です。</p>
+  </div>
+  
+  <div class="subsection">
+    <div class="subsection-title">D・特記事項 ・ 同意</div>
+    <p>特記事項のフリーテキスト + 利用条件の同意チェック。</p>
+  </div>
+  
+  <div class="step">
+    <div class="step-num">→</div>
+    <div class="step-content">
+      <div class="step-title">同意 → Thank You 画面 → スタッフ確認画面 → 保存</div>
+      <div class="step-desc">お客様が同意 → 「ご入力ありがとうございました」のお礼画面。iPad をスタッフが受け取り、内容のサマリーを確認。問題なければ「保存」をタップ。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== セクション7 ========== -->
+<div class="section" id="sec7">
+  <div class="section-num">SECTION 07</div>
+  <div class="section-title">お会計 ・ 領収書発行</div>
+  <div class="section-title-en">Checkout &amp; Receipt</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>お迎え時にお会計を行います。<strong>ホーム → お会計待ち</strong> から該当のお客様を選択します。</p>
+  
+  <div class="subsection">
+    <div class="subsection-title">お会計画面の流れ</div>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">実際のお迎え時刻を入力</div>
+        <div class="step-desc">画面中央の「Actual Pickup ・ 実お迎え」を時刻ピッカーで設定します。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">料金が自動計算される</div>
+        <div class="step-desc">基本料金 + 延長料金が自動表示されます。お客様にも見せて確認します。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">お伝え事項を入力</div>
+        <div class="step-desc">ミルク (時刻・量)、便 (時刻・状態)、午睡 (時刻)、持ち物返却。「なかった」場合もチェック必須。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <div class="step-title">受領者を選択</div>
+        <div class="step-desc">プルダウンからお会計を受け取ったスタッフを選択。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <div class="step-title">「お会計を承認 → 領収書発行」をタップ</div>
+        <div class="step-desc">領収書画面が表示されます。<span class="btn-ref">印刷 / PDF保存</span> でA4印刷またはPDF保存。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <div class="step-title">「会計完了 → ホームへ戻る」</div>
+        <div class="step-desc">会計完了です。お疲れさまでした。</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="warning">
+    <div class="warning-label">⚠ IMPORTANT</div>
+    <div class="warning-text">領収書印刷時は、Chrome の印刷ダイアログで <strong>「背景のグラフィック」を ON</strong> にしてください。OFFのままだとゴールドの罫線などが印刷されません。</div>
+  </div>
+  
+  <div class="note">
+    <div class="note-label">◆ NOTE</div>
+    <div class="note-text">「持ち物返却」は領収書に必ず表示されます。「返却済」「未返却 (赤色で警告)」「持ち込みなし」のいずれかが領収書に印字されます。</div>
+  </div>
+</div>
+
+<!-- ========== セクション8 ========== -->
+<div class="section" id="sec8">
+  <div class="section-num">SECTION 08</div>
+  <div class="section-title">自園生徒の利用記録</div>
+  <div class="section-title-en">Internal Students</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>自園生徒の<strong>早朝(¥700/日) ・ 延長(¥700/日)</strong>利用を記録する画面です。<span class="role-tag role-staff">スタッフ専用</span></p>
+  
+  <div class="subsection">
+    <div class="subsection-title">2つの入力方式 (ハイブリッド型)</div>
+    <p><strong>① 自園生徒名簿から選択</strong>: 事前に登録した生徒からタップで選択。クラス (Leaf / Blossom / Harvest) や五十音で絞り込み可能。</p>
+    <p><strong>② 手入力</strong>: 名簿にない子は「↓ 名簿にない子を手入力する」リンクで手入力できます。「この子を自園生徒名簿に登録する」チェックを入れると同時に名簿登録されます。</p>
+  </div>
+  
+  <div class="subsection">
+    <div class="subsection-title">入力手順</div>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">利用区分を選択</div>
+        <div class="step-desc">「自園生徒・早朝」または「自園生徒・延長」を選択。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">生徒を選ぶ (名簿 or 手入力)</div>
+        <div class="step-desc">クラスタブ・五十音タブで絞り込み → カードをタップ。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">ご利用日 ・ 時刻を入力</div>
+        <div class="step-desc">日付 / 開始時刻 / 終了予定時刻。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <div class="step-title">「記録を保存 (会計待ちへ)」をタップ</div>
+        <div class="step-desc">お会計待ちリストに入ります。お迎え時にお会計してください。</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="tip">
+    <div class="tip-label">◆ TIP</div>
+    <div class="tip-text">自園生徒のお会計画面では「お伝え事項」は表示されません (日々の連絡は別途行っているため)。実お迎え時刻と受領者だけで完了します。</div>
+  </div>
+</div>
+
+<!-- ========== セクション9 ========== -->
+<div class="section" id="sec9">
+  <div class="section-num">SECTION 09</div>
+  <div class="section-title">予約リストの活用</div>
+  <div class="section-title-en">Reservations</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>事前にご予約のあるお客様を予約リストに追加しておくと、当日の受付がスムーズになります。</p>
+  
+  <div class="subsection">
+    <div class="subsection-title">予約追加の流れ</div>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">ホーム → 予約リスト</div>
+        <div class="step-desc">「予約リスト」をタップして画面を開く。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">お客様を検索</div>
+        <div class="step-desc">名前または五十音 (カタカナ) で検索。例: 「タカハシ」「サ行」</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">「予約に追加」 → 日付 ・ 時刻を入力</div>
+        <div class="step-desc">予約日とご来園予定時刻を選択。</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="subsection">
+    <div class="subsection-title">当日の運用</div>
+    <p>ご来園時、予約リストから該当のお客様の「当日入力を開始」をタップ → iPadをお客様にお渡し。すでに顧客情報は紐づいているので、当日入力だけを行えばOKです。</p>
+  </div>
+</div>
+
+<!-- ========== セクション10 ========== -->
+<div class="section" id="sec10">
+  <div class="section-num">SECTION 10</div>
+  <div class="section-title">管理メニュー</div>
+  <div class="section-title-en">Administration</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>顧客情報、自園生徒名簿、日報・月報、データ管理など。<span class="role-tag role-admin">事務担当・園長</span></p>
+  
+  <div class="subsection">
+    <div class="subsection-title">3つのタブ</div>
+    <table>
+      <thead>
+        <tr><th>Tab<span class="jp">タブ</span></th><th>Content<span class="jp">内容</span></th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>顧客一覧</strong></td>
+          <td>登録されたお客様の一覧。<strong>カードをクリックで編集可能</strong>。名前検索 + 五十音索引で絞り込み。</td>
+        </tr>
+        <tr>
+          <td><strong>来園記録一覧</strong></td>
+          <td>過去の来園記録の一覧。月別・未会計優先などで並び替え可能。</td>
+        </tr>
+        <tr>
+          <td><strong>自園生徒名簿</strong></td>
+          <td>自園生徒のマスター名簿。「自園生徒を追加」ボタンで登録。クラス・五十音で絞り込み。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="subsection">
+    <div class="subsection-title">日報 ・ 月報</div>
+    <p>「日報・売上管理」ボタンから。前日/翌日のナビゲーション、日別・月別の売上集計、CSV出力に対応。</p>
+  </div>
+  
+  <div class="subsection">
+    <div class="subsection-title">データ管理</div>
+    <p>顧客リストをコピー (Google Sheets貼り付け用) / JSON出力 / JSON読込 / 全データ削除 が可能です。</p>
+  </div>
+  
+  <div class="warning">
+    <div class="warning-label">⚠ DANGER</div>
+    <div class="warning-text"><strong>「全データ削除」</strong>は元に戻せません。誤って押さないよう注意してください。テスト期間中はこの操作はしないでください。</div>
+  </div>
+</div>
+
+<!-- ========== セクション11 ========== -->
+<div class="section" id="sec11">
+  <div class="section-num">SECTION 11</div>
+  <div class="section-title">毎日の終業作業 ・ データバックアップ</div>
+  <div class="section-title-en">Daily Backup</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p><strong>必ず毎日終業時に</strong>データバックアップを取ってください。現在のアプリはブラウザ内にデータを保存しているため、誤ってキャッシュクリアすると全データが消失します。</p>
+  
+  <div class="subsection">
+    <div class="subsection-title">バックアップ手順</div>
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <div class="step-title">管理メニューを開く</div>
+        <div class="step-desc">ホーム → Staff Only バーの「管理メニュー」をタップ。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <div class="step-title">データ管理 → 「データをJSON出力」</div>
+        <div class="step-desc">画面下部の「データ管理」セクションで実行。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">ファイルを保存 (日付を含める)</div>
+        <div class="step-desc">例: <strong>timelyschool_backup_2026-05-22.json</strong> など。</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <div class="step-title">Google ドライブ等にアップロード</div>
+        <div class="step-desc">事務PCのGoogleドライブの専用フォルダに保管。最低7日分は残してください。</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="warning">
+    <div class="warning-label">⚠ CRITICAL</div>
+    <div class="warning-text">このバックアップを怠ると、<strong>iPad/PCのブラウザの不具合やキャッシュクリアで全顧客データが消失</strong>します。必ず毎日実施してください。クラウド化 (Firebase化) 完了後はこの作業は不要になります。</div>
+  </div>
+</div>
+
+<!-- ========== セクション12 ========== -->
+<div class="section" id="sec12">
+  <div class="section-num">SECTION 12</div>
+  <div class="section-title">よくあるご質問 ・ トラブル対応</div>
+  <div class="section-title-en">FAQ &amp; Troubleshooting</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <div class="faq-item">
+    <div class="faq-q"><span class="faq-q-mark">Q.</span>お客様が本人確認画面で「該当するお客様が見つかりません」と出る</div>
+    <div class="faq-a">①生年月日・電話番号下4桁が間違っていないか確認。 ②管理メニュー → 顧客一覧でお客様を検索 → 登録があるか確認。 ③別の電話番号で登録されている可能性があります。スタッフが直接来園登録画面に飛ばすことも可能。</div>
+  </div>
+  
+  <div class="faq-item">
+    <div class="faq-q"><span class="faq-q-mark">Q.</span>領収書がA4に収まらない / レイアウトが崩れる</div>
+    <div class="faq-a">印刷時に Chrome の印刷ダイアログで「背景のグラフィック」を ON にしてください。デフォルトでは65%スケールで印刷されるよう設定されています。</div>
+  </div>
+  
+  <div class="faq-item">
+    <div class="faq-q"><span class="faq-q-mark">Q.</span>誤ってお会計を完了してしまった (修正したい)</div>
+    <div class="faq-a">管理メニュー → 来園記録一覧から該当の記録を探し、「修正」ボタンから再度お会計画面に入れます。実お迎え時刻・受領者なども修正可能。</div>
+  </div>
+  
+  <div class="faq-item">
+    <div class="faq-q"><span class="faq-q-mark">Q.</span>iPadとPCでデータが違って見える</div>
+    <div class="faq-a">現在 (v36) は端末ごとにデータが独立しています。データを共有するには JSON 出力・読込で手動同期するか、クラウド化 (Firebase) を待つ必要があります。</div>
+  </div>
+  
+  <div class="faq-item">
+    <div class="faq-q"><span class="faq-q-mark">Q.</span>自園生徒の名前が五十音検索に出てこない</div>
+    <div class="faq-a">登録時にフリガナを入力していない可能性があります。管理メニュー → 自園生徒名簿で該当生徒を編集し、フリガナを追加してください。</div>
+  </div>
+  
+  <div class="faq-item">
+    <div class="faq-q"><span class="faq-q-mark">Q.</span>同意画面でお客様が誤って「キャンセル」した</div>
+    <div class="faq-a">入力情報はクリアされません。「初めてのご利用」または「予約リスト」から再開できます。</div>
+  </div>
+  
+  <div class="faq-item">
+    <div class="faq-q"><span class="faq-q-mark">Q.</span>ブラウザが固まった / 動かない</div>
+    <div class="faq-a">ブラウザのタブを一度閉じて、再度開いてください。データは保存されているので、入力途中のものでなければ問題ありません。</div>
+  </div>
+</div>
+
+<!-- ========== セクション13 ========== -->
+<div class="section" id="sec13">
+  <div class="section-num">SECTION 13</div>
+  <div class="section-title">フィードバックの送り方</div>
+  <div class="section-title-en">Feedback</div>
+  <div class="section-divider">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  
+  <p>v36 はテスト運用版です。<strong>使いにくさ・不具合・要望</strong>は、すべて記録して開発担当者に共有してください。良くなるかどうかは、皆さまのフィードバックにかかっています。</p>
+  
+  <div class="subsection">
+    <div class="subsection-title">記録すべきこと</div>
+    <ul class="checklist">
+      <li>発生日時 (例: 2026/5/22 14:30)</li>
+      <li>操作者 (お客様 / スタッフ名)</li>
+      <li>どの画面で起きたか (例: 来園登録画面の持ち物セクション)</li>
+      <li>何をしたら何が起きたか (例: 「保存」ボタンを押したら画面が真っ白になった)</li>
+      <li>期待していた動作</li>
+      <li>(可能なら) スクリーンショット</li>
+    </ul>
+  </div>
+  
+  <div class="subsection">
+    <div class="subsection-title">緊急度の目安</div>
+    <table>
+      <thead>
+        <tr><th>Level<span class="jp">緊急度</span></th><th>Example<span class="jp">例</span></th><th>Reporting<span class="jp">報告タイミング</span></th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong style="color: var(--error);">🔴 緊急</strong></td>
+          <td>データが消えた / 業務が止まる / お客様が困った</td>
+          <td>即時連絡</td>
+        </tr>
+        <tr>
+          <td><strong style="color: var(--gold-deep);">🟡 重要</strong></td>
+          <td>計算が違う / 表示がおかしい / 操作が不便</td>
+          <td>その日のうちに</td>
+        </tr>
+        <tr>
+          <td><strong style="color: var(--success);">🟢 改善希望</strong></td>
+          <td>こうだったら便利 / もっとデザインを良く</td>
+          <td>週次まとめ</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  
+  <div class="note">
+    <div class="note-label">◆ NOTE</div>
+    <div class="note-text">フィードバックは <strong>「TimelySchool フィードバック日記」</strong> シート (別途配布予定) または開発担当者へ直接ご連絡ください。</div>
+  </div>
+</div>
+
+<!-- ========== 終了ページ ========== -->
+<div class="closing">
+  <div class="closing-thank">Thank you for using TimelySchool.</div>
+  <div class="closing-jp">アプリのご利用、ありがとうございます。</div>
+  <div class="cover-ornament" style="margin-top: 32px;">
+    <span class="line"></span>
+    <span class="diamond">◆</span>
+    <span class="line"></span>
+  </div>
+  <div class="cover-brand" style="margin-top: 24px;">STRAWBERRY FIELD Children's Garden</div>
+  <div class="cover-version">2026 ・ VERSION 36</div>
+</div>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,2024 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>お迎え・遅延 通知連携 ・ Strawberry Field</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500&family=Noto+Serif+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ivory: #F8F4ED; --ivory-deep: #EFE8DA;
+  --tiffany: #0ABAB5; --tiffany-deep: #089A95; --tiffany-soft: #E8F4F3;
+  --gold: #C9A961; --gold-deep: #A88A4A;
+  --ink: #1A1F26; --ink-soft: #4A5158;
+  --line: #DDD4C2; --line-soft: #EAE4D4;
+  --error: #B23E4C; --success: #5A8A6A; --warning: #D89A3E; --white: #FFFFFF;
+  --woodstock: #C9A961; --woodstock-deep: #A88A4A;
+  --janis: #5B8DB8; --janis-deep: #3F6E94;
+  --soon: #5A8A6A; --soon-bg: #E6F0E9;
+  --coming: #0ABAB5; --coming-bg: #E8F4F3;
+  --late: #D89A3E; --late-bg: #FAF0D8;
+  --late-soft: #C77B5A; --late-soft-bg: #F7E9E2; --late-soft-deep: #A65D3D;
+  --serif-en: 'Cormorant Garamond', serif; --serif-jp: 'Noto Serif JP', serif;
+  --transition: 0.15s ease;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { font-family: var(--serif-jp); color: var(--ink); background: var(--ivory-deep); -webkit-font-smoothing: antialiased; }
+
+.app-header { background: var(--ink); padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
+.header-brand { display: flex; align-items: baseline; gap: 12px; }
+.header-brand .en { font-family: var(--serif-en); font-style: italic; font-size: 20px; color: var(--white); }
+.header-brand .en .accent { color: var(--tiffany); }
+.header-brand .jp { font-family: var(--serif-jp); font-size: 11px; color: var(--line); letter-spacing: 0.15em; }
+.sound-toggle { display: flex; align-items: center; gap: 8px; font-family: var(--serif-jp); font-size: 12px; color: var(--ivory); cursor: pointer; }
+.sound-toggle .sw { width: 38px; height: 22px; border-radius: 12px; background: var(--tiffany-deep); position: relative; transition: all var(--transition); }
+.sound-toggle .sw::after { content: ''; position: absolute; top: 2px; left: 18px; width: 18px; height: 18px; border-radius: 50%; background: var(--white); transition: all var(--transition); }
+.sound-toggle.off .sw { background: var(--ink-soft); }
+.sound-toggle.off .sw::after { left: 2px; }
+
+.intro-bar { background: var(--tiffany-soft); padding: 10px 28px; font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); text-align: center; }
+.intro-bar strong { color: var(--tiffany-deep); }
+
+/* 2画面レイアウト */
+.split { display: flex; gap: 0; min-height: calc(100vh - 96px); }
+.pane { flex: 1; padding: 28px; }
+.pane-salon { background: var(--ivory); border-right: 2px dashed var(--line); }
+.pane-nursery { background: #2A2F36; }
+
+.pane-label { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+.pane-label .dot { width: 9px; height: 9px; border-radius: 50%; }
+.pane-label .t-en { font-family: var(--serif-en); font-style: italic; font-size: 13px; letter-spacing: 0.1em; }
+.pane-label .t-jp { font-family: var(--serif-jp); font-size: 16px; font-weight: 500; }
+.pane-salon .pane-label .dot { background: var(--gold); }
+.pane-salon .pane-label .t-en { color: var(--gold-deep); }
+.pane-nursery .pane-label .dot { background: var(--tiffany); box-shadow: 0 0 8px var(--tiffany); }
+.pane-nursery .pane-label .t-en { color: var(--tiffany); }
+.pane-nursery .pane-label .t-jp { color: var(--white); }
+
+/* サロン: 店舗切替 */
+.salon-switch { display: flex; gap: 6px; margin-bottom: 18px; }
+.salon-switch button { flex: 1; border: 1px solid var(--line); background: var(--white); padding: 10px; border-radius: 4px; font-family: var(--serif-jp); font-size: 13px; cursor: pointer; transition: all var(--transition); }
+.salon-switch button.active.wood { background: var(--woodstock); color: var(--white); border-color: var(--woodstock); }
+.salon-switch button.active.jan { background: var(--janis); color: var(--white); border-color: var(--janis); }
+
+/* 預かり中の子カード */
+.child-card { background: var(--white); border: 1px solid var(--line-soft); border-radius: 6px; padding: 18px 20px; margin-bottom: 16px; }
+.child-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.child-avatar { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--gold); display: flex; align-items: center; justify-content: center; font-family: var(--serif-jp); font-size: 16px; color: var(--gold-deep); }
+.child-info { flex: 1; }
+.child-name { font-family: var(--serif-jp); font-size: 16px; font-weight: 600; }
+.child-meta { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); }
+.child-age-mini { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); background: var(--ivory); padding: 1px 8px; border-radius: 10px; margin-left: 4px; font-weight: normal; }
+.child-next-resv { font-family: var(--serif-jp); font-size: 11px; color: var(--woodstock-deep); margin-top: 6px; font-weight: 600; background: rgba(201,169,97,0.14); display: inline-block; padding: 3px 10px; border-radius: 10px; }
+.child-next-resv.tappable { cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+.child-next-resv.tappable:hover { background: rgba(201,169,97,0.26); border-color: var(--woodstock); }
+.nr-edit-hint { font-size: 9px; opacity: 0.75; margin-left: 6px; font-weight: normal; }
+.child-meta .meta-orig { text-decoration: line-through; color: var(--ink-soft); }
+.child-meta .meta-new { font-weight: 600; color: var(--late-soft-deep); }
+.child-meta .meta-new.meta-early { color: var(--janis-deep); }
+.child-age { font-family: var(--serif-jp); font-size: 11px; padding: 3px 10px; border-radius: 10px; background: var(--ivory-deep); color: var(--ink-soft); }
+
+.notify-label { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin: 4px 0 8px; }
+.notify-btns { display: flex; flex-direction: column; gap: 8px; }
+.nbtn { border: none; border-radius: 5px; padding: 13px 16px; font-family: var(--serif-jp); font-size: 14px; cursor: pointer; transition: all var(--transition); display: flex; align-items: center; gap: 10px; text-align: left; }
+.nbtn:active { transform: scale(0.98); }
+.nbtn .ico { font-size: 22px; flex-shrink: 0; }
+.nbtn-txt { display: flex; flex-direction: column; gap: 1px; }
+.nbtn-main { font-size: 15px; font-weight: 600; }
+.nbtn-sub { font-size: 11px; opacity: 0.85; }
+.nbtn-soon { background: var(--soon-bg); color: var(--soon); border: 1px solid var(--soon); }
+.nbtn-soon-early { background: #EAF1F7; color: var(--janis-deep); border: 1px solid var(--janis); }
+.nbtn-coming { background: var(--coming-bg); color: var(--tiffany-deep); border: 1px solid var(--tiffany); }
+.nbtn-late-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nbtn-late-block { border: 1px solid var(--late); border-radius: 6px; padding: 12px 14px; background: rgba(216,154,62,0.06); }
+.nbtn-late-label { font-family: var(--serif-jp); font-size: 13px; color: var(--late); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.late-chips { display: flex; gap: 7px; flex-wrap: wrap; }
+.late-chip { border: 1px solid var(--late); background: var(--late-bg); color: var(--late); border-radius: 16px; padding: 7px 14px; font-family: var(--serif-en); font-style: italic; font-size: 14px; cursor: pointer; transition: all var(--transition); }
+.late-chip.late-more { background: var(--white); border-style: dashed; font-family: var(--serif-jp); font-style: normal; font-size: 12px; }
+.late-chip.call-late-more { background: var(--white); border-style: dashed; font-family: var(--serif-jp); font-style: normal; font-size: 12px; }
+.long-late { margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(216,154,62,0.4); }
+.long-late-note { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); margin-bottom: 7px; }
+/* 早上がり（時間変更）ブロック：寒色（青）で遅延と区別 */
+.nbtn-early-block { border: 1px solid var(--janis); border-radius: 6px; padding: 12px 14px; background: rgba(91,141,184,0.06); margin-top: 10px; }
+.nbtn-early-label { font-family: var(--serif-jp); font-size: 13px; color: var(--janis-deep); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.late-chip.early-chip { border-color: var(--janis); background: #EAF1F7; color: var(--janis-deep); }
+.late-chip.early-chip:active { background: var(--janis); color: var(--white); }
+.late-chip.early-chip.early-more { background: var(--white); border-style: dashed; font-family: var(--serif-jp); font-style: normal; font-size: 12px; }
+.late-chip.early-chip.long { background: var(--janis); color: var(--white); font-family: var(--serif-jp); font-style: normal; font-size: 13px; }
+.long-late.long-early { border-top-color: rgba(91,141,184,0.4); }
+.late-chip.long { background: var(--late); color: var(--white); font-family: var(--serif-jp); font-style: normal; font-size: 13px; }
+.late-chip:active { background: var(--late); color: var(--white); }
+
+/* 保育園: 通知ボード */
+.board-clock { text-align: center; margin-bottom: 20px; }
+.board-clock .time { font-family: var(--serif-en); font-style: italic; font-size: 30px; color: var(--white); }
+.board-clock .date { font-family: var(--serif-jp); font-size: 12px; color: rgba(255,255,255,0.5); }
+
+.notify-feed { display: flex; flex-direction: column; gap: 12px; }
+.feed-empty { text-align: center; padding: 50px 20px; font-family: var(--serif-jp); font-size: 14px; color: rgba(255,255,255,0.4); }
+.feed-empty .en { font-family: var(--serif-en); font-style: italic; font-size: 13px; display: block; margin-top: 6px; }
+.feed-item { background: var(--white); border-radius: 6px; padding: 16px 20px 16px 22px; border-left: 6px solid var(--line); animation: slideIn 0.4s cubic-bezier(0.16,1,0.3,1); position: relative; }
+.feed-salon-tag { display: inline-block; font-family: var(--serif-en); font-style: italic; font-weight: 600; font-size: 14px; letter-spacing: 0.06em; padding: 3px 14px; border-radius: 4px; margin-bottom: 10px; color: var(--white); }
+.feed-salon-tag.salon-woodstock { background: var(--woodstock); }
+.feed-salon-tag.salon-janis { background: var(--janis); }
+@keyframes slideIn { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }
+.feed-item.flash { animation: slideIn 0.4s, flashBg 1.2s ease 2; }
+@keyframes flashBg { 0%,100% { background: var(--white); } 50% { background: var(--tiffany-soft); } }
+.feed-item.salon-woodstock { border-left-color: var(--woodstock); }
+.feed-item.salon-janis { border-left-color: var(--janis); }
+/* 遅延カードはサロン色より優先して、やわらかい暖色トーンで気づきやすく（強すぎない） */
+.feed-item.late { border-left-color: var(--late-soft) !important; background: var(--late-soft-bg); box-shadow: 0 0 0 1px rgba(199,123,90,0.3), 0 3px 12px rgba(199,123,90,0.15); }
+/* 遅延が届いた瞬間だけ、やわらかく2回光って気づかせる（その後は静かに） */
+.feed-item.late.flash { animation: slideIn 0.4s, lateGlow 1.0s ease 2; }
+@keyframes lateGlow { 0%,100% { box-shadow: 0 0 0 1px rgba(199,123,90,0.3), 0 3px 12px rgba(199,123,90,0.15); } 50% { box-shadow: 0 0 0 2px var(--late-soft), 0 4px 18px rgba(199,123,90,0.4); } }
+.feed-top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.feed-badge { font-family: var(--serif-jp); font-size: 12px; padding: 4px 14px; border-radius: 12px; font-weight: 600; }
+.feed-badge.soon { background: var(--soon-bg); color: var(--soon); border: 1px solid var(--soon); }
+.feed-badge.coming { background: var(--tiffany); color: var(--white); font-size: 14px; padding: 5px 16px; box-shadow: 0 2px 8px rgba(10,186,181,0.35); }
+.feed-badge.late { background: var(--late-soft); color: var(--white); }
+.feed-badge.cancel { background: #6B7280; color: var(--white); }
+.feed-badge.call { background: var(--tiffany); color: var(--white); }
+/* 電話確認カード：落ち着いたTiffany系（来園予定の安心感） */
+.feed-item.call { border-left-color: var(--tiffany) !important; background: var(--coming-bg); box-shadow: 0 0 0 1px rgba(10,186,181,0.2), 0 3px 12px rgba(10,186,181,0.12); }
+.feed-call-actions { position: absolute; top: 12px; right: 16px; display: flex; gap: 8px; }
+.feed-call-actions .feed-done, .feed-call-actions .feed-ack { position: static; }
+/* キャンセルカード：彩度を落としたグレー（脈動なし・落ち着いた見た目） */
+.feed-item.cancel { border-left-color: #9AA0A6 !important; background: #F3F4F6; box-shadow: 0 0 0 1px rgba(107,114,128,0.2), 0 3px 12px rgba(107,114,128,0.12); }
+.feed-item.cancel .feed-headline .child { color: #4B5563; }
+/* 「まもなく到着」のカードは脈動して目立たせる */
+.feed-item.coming { box-shadow: 0 0 0 2px var(--tiffany), 0 4px 16px rgba(10,186,181,0.25); animation: slideIn 0.4s, comingPulse 1.8s ease-in-out infinite; }
+@keyframes comingPulse { 0%,100% { box-shadow: 0 0 0 2px var(--tiffany), 0 4px 16px rgba(10,186,181,0.2); } 50% { box-shadow: 0 0 0 3px var(--tiffany), 0 6px 22px rgba(10,186,181,0.45); } }
+.feed-salon { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); margin-left: auto; }
+.feed-headline { font-family: var(--serif-jp); font-size: 17px; font-weight: 600; }
+.feed-headline .child { color: var(--tiffany-deep); }
+.feed-detail { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); margin-top: 3px; }
+.feed-time { font-family: var(--serif-en); font-style: italic; font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+/* お預かり時間・受信時刻・経過時間 */
+.feed-times { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); display: flex; gap: 28px; flex-wrap: wrap; }
+.ft-block { display: flex; flex-direction: column; gap: 2px; }
+.ft-label { font-family: var(--serif-en); font-style: italic; font-size: 10px; color: var(--gold-deep); letter-spacing: 0.08em; }
+.ft-value { font-family: var(--serif-jp); font-size: 14px; color: var(--ink); }
+.ft-value .ret-new { font-weight: 600; color: var(--tiffany-deep); }
+.ft-value .ret-new.ret-early { color: var(--janis-deep); }
+.ft-value .ret-orig { text-decoration: line-through; color: var(--ink-soft); font-size: 12px; }
+.ft-elapsed { font-family: var(--serif-jp); font-size: 12px; color: var(--white); background: var(--ink-soft); padding: 1px 9px; border-radius: 10px; }
+.feed-done { position: absolute; top: 12px; right: 16px; background: var(--soon-bg); border: 1px solid var(--soon); border-radius: 14px; padding: 5px 14px; font-family: var(--serif-jp); font-size: 11px; color: var(--soon); cursor: pointer; transition: all var(--transition); }
+.feed-done:active { background: var(--success); color: var(--white); transform: scale(0.95); }
+.feed-ack { position: absolute; top: 12px; right: 16px; background: var(--white); border: 1px solid #9AA0A6; border-radius: 14px; padding: 5px 14px; font-family: var(--serif-jp); font-size: 11px; color: #4B5563; cursor: pointer; transition: all var(--transition); }
+.feed-ack:active { background: #6B7280; color: var(--white); transform: scale(0.95); }
+
+/* 全画面フラッシュ通知 */
+.alert-overlay { position: fixed; inset: 0; background: rgba(10,186,181,0); pointer-events: none; z-index: 100; transition: background 0.3s; }
+.alert-overlay.show { background: rgba(10,186,181,0.15); animation: alertPulse 0.6s ease 3; }
+@keyframes alertPulse { 0%,100% { background: rgba(10,186,181,0.05); } 50% { background: rgba(10,186,181,0.25); } }
+
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: var(--white); padding: 13px 26px; border-radius: 30px; font-family: var(--serif-jp); font-size: 14px; opacity: 0; transition: all 0.3s; z-index: 300; pointer-events: none; }
+
+/* 子カードのステータスバッジ */
+.child-status { font-family: var(--serif-jp); font-size: 11px; padding: 4px 12px; border-radius: 12px; font-weight: 600; white-space: nowrap; }
+/* 事前遅延連絡ボタン */
+.nbtn-prelate { background: #F7E9E2; color: #A65D3D; border: 1px dashed #C77B5A; }
+/* 来園前の電話・キャンセルボタン */
+.pre-arrival-note { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); background: var(--ivory); border-radius: 4px; padding: 10px 14px; margin-bottom: 4px; line-height: 1.6; }
+.nbtn-call { background: var(--tiffany-soft); color: var(--tiffany-deep); border: 1px solid var(--tiffany); }
+.nbtn-cancel { background: var(--white); color: var(--ink-soft); border: 1px solid var(--line); }
+/* 完了・キャンセルの最終表記（ボタンなし） */
+.final-note { font-family: var(--serif-jp); font-size: 13px; padding: 14px 16px; border-radius: 6px; text-align: center; line-height: 1.6; }
+.final-note.done { background: var(--soon-bg); color: var(--soon); border: 1px solid var(--success); }
+.final-note.cancelled { background: #E5E7EB; color: #4B5563; border: 1px solid #9CA3AF; }
+.final-note.coming-done { background: var(--coming-bg); color: var(--tiffany-deep); border: 1px solid var(--tiffany); }
+
+/* 保育園：登園ステータス管理 */
+.status-mgr { margin-top: 26px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.15); }
+.status-mgr-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-family: var(--serif-jp); font-size: 15px; font-weight: 600; color: var(--white); flex-wrap: wrap; }
+.demo-time-btn { background: rgba(255,255,255,0.1); color: var(--tiffany); border: 1px solid var(--tiffany); border-radius: 16px; padding: 6px 14px; font-family: var(--serif-jp); font-size: 11px; cursor: pointer; transition: all var(--transition); }
+.demo-time-btn:active { background: var(--tiffany); color: var(--white); }
+.status-mgr-sub { font-family: var(--serif-en); font-style: italic; font-size: 12px; color: var(--tiffany); margin: 4px 0 14px; min-height: 14px; }
+.arr-card { display: flex; flex-direction: column; gap: 12px; background: rgba(255,255,255,0.06); border-radius: 6px; padding: 14px 16px; margin-bottom: 8px; border-left: 4px solid transparent; }
+.arr-card.status-no-show { border-left-color: var(--error); background: rgba(178,62,76,0.12); }
+.arr-card.status-waiting { border-left-color: var(--tiffany); }
+.arr-card.status-late-hold { border-left-color: var(--tiffany); }
+.arr-call-info { font-family: var(--serif-jp); font-size: 11px; color: var(--tiffany-deep); margin-top: 5px; font-weight: 500; }
+.arr-next-resv { font-family: var(--serif-jp); font-size: 11px; color: var(--woodstock-deep); margin-top: 5px; font-weight: 600; background: rgba(201,169,97,0.14); display: inline-block; padding: 3px 10px; border-radius: 10px; }
+.arr-time .meta-orig { text-decoration: line-through; color: rgba(255,255,255,0.4); }
+.arr-time .meta-new { font-weight: 600; color: #E8B04B; }
+.arr-time .meta-new.meta-early { color: #7FB0D4; }
+/* 上段：情報（左）＋ステータス（右上） */
+.arr-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.arr-info { flex: 1; min-width: 0; }
+.arr-name-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.arr-name { font-family: var(--serif-jp); font-size: 15px; font-weight: 600; color: var(--white); }
+.arr-salon { display: inline-block; width: 108px; text-align: center; box-sizing: border-box; font-family: var(--serif-en); font-style: italic; font-size: 10px; font-weight: 600; padding: 2px 9px; border-radius: 3px; color: var(--white); margin-bottom: 5px; letter-spacing: 0.04em; }
+.arr-salon.salon-woodstock { background: var(--woodstock); }
+.arr-salon.salon-janis { background: var(--janis); }
+.arr-time { font-family: var(--serif-jp); font-size: 15px; font-weight: 500; color: rgba(255,255,255,0.85); }
+.arr-status { font-family: var(--serif-jp); font-size: 11px; padding: 3px 10px; border-radius: 10px; font-weight: 600; white-space: nowrap; flex-shrink: 0; }
+/* 下段：操作ボタン。預かり完了（主役・残り幅いっぱい）＋ ○○に確認（控えめ・固定幅で全カード境目を統一） */
+.arr-actions { display: flex; gap: 8px; align-items: stretch; }
+.arr-btn { border: none; border-radius: 5px; padding: 11px 12px; font-family: var(--serif-jp); font-size: 13px; cursor: pointer; transition: all var(--transition); white-space: nowrap; text-align: center; }
+.arr-btn:active { transform: scale(0.97); }
+/* メイン操作：預かり完了（残り幅すべて＝主役・押しやすい） */
+.arr-done { flex: 1; background: var(--tiffany); color: var(--white); font-size: 14px; font-weight: 600; box-shadow: 0 2px 8px rgba(10,186,181,0.25); }
+.arr-done:active { background: var(--tiffany-deep); }
+/* サブ操作：○○ に確認（固定幅160px・全カードで境目が揃う） */
+.arr-ask { flex: 0 0 160px; background: var(--white); font-size: 12px; }
+.arr-ask.ask-woodstock { color: var(--woodstock-deep); border: 1px solid var(--woodstock); }
+.arr-ask.ask-woodstock:active { background: var(--woodstock); color: var(--white); }
+.arr-ask.ask-janis { color: var(--janis-deep); border: 1px solid var(--janis); }
+.arr-ask.ask-janis:active { background: var(--janis); color: var(--white); }
+/* お預かり中：ボタンなし・状態テキストのみ */
+.arr-waiting-note { flex: 1; font-family: var(--serif-jp); font-size: 12px; color: rgba(255,255,255,0.5); font-style: italic; text-align: center; padding: 8px 0; }
+.arr-pickup { background: var(--success); color: var(--white); }
+.arr-empty { font-family: var(--serif-jp); font-size: 13px; color: rgba(255,255,255,0.4); text-align: center; padding: 20px 0; }
+/* キャンセルのアラートカード */
+.arr-card.status-cancelled { border-left-color: #9CA3AF; background: rgba(156,163,175,0.14); }
+.arr-ack { flex: 1; background: #6B7280; color: var(--white); }
+.arr-cancel-time { font-family: var(--serif-jp); font-size: 12px; color: #C5CAD3; margin-top: 5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.arr-cancel-time .ft-elapsed { font-family: var(--serif-jp); font-size: 11px; color: var(--white); background: rgba(107,114,128,0.7); padding: 1px 9px; border-radius: 10px; }
+.arr-waiting-note { font-family: var(--serif-jp); font-size: 11px; color: rgba(255,255,255,0.5); font-style: italic; }
+
+/* デザイン確認ポップアップ（中央表示・押しやすい） */
+.confirm-overlay { position: fixed; inset: 0; background: rgba(26,31,38,0.55); display: none; align-items: center; justify-content: center; z-index: 400; padding: 24px; }
+.confirm-overlay.show { display: flex; animation: fadeIn 0.2s ease; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.confirm-box { background: var(--white); border-radius: 10px; max-width: max-content; width: auto; min-width: 320px; padding: 30px 32px; text-align: center; box-shadow: 0 12px 40px rgba(26,31,38,0.3); animation: popUp 0.25s cubic-bezier(0.16,1,0.3,1); }
+.edit-resv-box { text-align: left; min-width: 380px; }
+.er-field { margin-bottom: 14px; }
+.er-field label { display: block; font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+.er-field select { width: 100%; box-sizing: border-box; font-family: var(--serif-jp); font-size: 15px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); color: var(--ink); }
+.er-row { display: flex; gap: 12px; }
+.er-row .er-field { flex: 1; }
+.er-date-btn { width: 100%; text-align: left; font-family: var(--serif-jp); font-size: 15px; padding: 10px 14px; border: 1px solid var(--tiffany); border-radius: 6px; background: var(--tiffany-soft); color: var(--tiffany-deep); cursor: pointer; font-weight: 600; }
+.cal-overlay { position: fixed; inset: 0; background: rgba(26,31,38,0.5); display: none; align-items: center; justify-content: center; z-index: 400; }
+.cal-overlay.show { display: flex; }
+.cal-box { background: var(--white); border-radius: 12px; padding: 22px 24px 18px; width: 340px; box-shadow: 0 16px 50px rgba(0,0,0,0.32); }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.cal-title { font-family: var(--serif-jp); font-size: 17px; font-weight: 600; color: var(--ink); }
+.cal-mnav { background: var(--ivory); border: 1px solid var(--line); border-radius: 50%; width: 34px; height: 34px; font-size: 16px; color: var(--tiffany-deep); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.cal-mnav:active { background: var(--tiffany); color: var(--white); }
+.cal-weekdays { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; margin-bottom: 6px; }
+.cal-weekdays span { text-align: center; font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); padding: 4px 0; }
+.cal-weekdays span:first-child { color: #C26A6A; }
+.cal-weekdays span:last-child { color: var(--woodstock-deep); }
+.cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
+.cal-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-family: var(--serif-jp); font-size: 14px; color: var(--ink); border-radius: 8px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+.cal-day:hover { background: var(--tiffany-soft); }
+.cal-day.empty { cursor: default; }
+.cal-day.today { border-color: var(--tiffany); color: var(--tiffany-deep); font-weight: 600; }
+.cal-day.selected { background: var(--tiffany); color: var(--white); font-weight: 600; }
+.cal-day.sun { color: #C26A6A; }
+.cal-day.sat { color: var(--woodstock-deep); }
+.nbtn-edit { border-color: var(--tiffany) !important; }
+.nbtn-edit .ico { color: var(--tiffany-deep); }
+@keyframes popUp { from { opacity: 0; transform: scale(0.9) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+.confirm-icon { font-size: 38px; margin-bottom: 12px; }
+.confirm-title { font-family: var(--serif-jp); font-size: 17px; font-weight: 600; margin-bottom: 14px; white-space: nowrap; }
+.confirm-name { font-family: var(--serif-jp); font-size: 18px; font-weight: 600; color: var(--tiffany-deep); }
+.confirm-time { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); margin-top: 2px; }
+.confirm-desc { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); line-height: 1.7; margin: 14px auto 22px; max-width: 380px; }
+.confirm-actions { display: flex; gap: 10px; }
+.confirm-btn { flex: 1; border: none; border-radius: 6px; padding: 14px; font-family: var(--serif-jp); font-size: 15px; cursor: pointer; transition: all var(--transition); }
+.confirm-btn:active { transform: scale(0.97); }
+.confirm-btn.cancel { background: var(--ivory-deep); color: var(--ink-soft); }
+.confirm-btn.ok { background: var(--error); color: var(--white); }
+
+/* 電話確認ポップアップ */
+.confirm-box.call-box { max-width: 400px; border-top: 3px solid var(--tiffany); text-align: left; }
+.confirm-box.call-box .confirm-icon,
+.confirm-box.call-box .confirm-title,
+.confirm-box.call-box .confirm-name,
+.confirm-box.call-box .confirm-time { text-align: center; }
+.call-choices { margin: 18px 0 4px; }
+.call-choice { width: 100%; display: flex; align-items: center; gap: 12px; background: var(--soon-bg); border: 1px solid var(--success); border-radius: 8px; padding: 13px 16px; cursor: pointer; transition: all var(--transition); margin-bottom: 16px; text-align: left; }
+.call-choice:active { transform: scale(0.98); }
+.call-choice .cc-ico { font-size: 22px; flex-shrink: 0; }
+.call-choice .cc-txt { display: flex; flex-direction: column; gap: 2px; }
+.call-choice .cc-main { font-family: var(--serif-jp); font-size: 14px; font-weight: 600; color: var(--success); }
+.call-choice .cc-sub { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); }
+.call-late-label { display: flex; align-items: center; gap: 6px; font-family: var(--serif-jp); font-size: 13px; font-weight: 600; color: var(--late-soft-deep); margin-bottom: 10px; }
+
+/* お預かり中カードの「現在の見込み・連絡状況」バー */
+.delay-status { border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; background: var(--ivory-deep); border: 1px solid var(--line-soft); }
+.delay-status.has-late { background: var(--late-soft-bg); border-color: #E8C9B8; }
+.delay-status.has-early { background: #EAF1F7; border-color: #C5D8E8; }
+.delay-status .ds-line { font-family: var(--serif-jp); font-size: 13px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.delay-status .ds-ico { font-size: 14px; }
+.delay-status .ds-orig { text-decoration: line-through; color: var(--ink-soft); font-weight: 400; }
+.delay-status .ds-new { color: var(--late-soft-deep); font-family: var(--serif-en); font-style: italic; font-size: 17px; }
+.delay-status .ds-new.ds-early { color: var(--janis-deep); }
+.delay-status .ds-sub { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); margin-top: 5px; }
+.delay-status .ds-sub.ds-sent { color: var(--success); font-weight: 600; }
+
+/* 遅延の二段階確認ポップアップ */
+.confirm-box.late-box { max-width: 380px; border-top: 3px solid var(--late-soft); }
+.late-change { background: var(--ivory-deep); border-radius: 8px; padding: 16px 20px; margin: 18px 0 6px; }
+.late-change .lc-row { display: flex; align-items: center; justify-content: space-between; }
+.late-change .lc-label { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); }
+.late-change .lc-from { font-family: var(--serif-en); font-style: italic; font-size: 22px; color: var(--ink-soft); text-decoration: line-through; }
+.late-change .lc-to { font-family: var(--serif-en); font-style: italic; font-size: 26px; font-weight: 600; color: var(--late-soft-deep); }
+.late-change .lc-arrow { text-align: center; font-family: var(--serif-jp); font-size: 12px; color: var(--late-soft-deep); font-weight: 600; margin: 6px 0; }
+.confirm-btn.late-ok { background: var(--late-soft); color: var(--white); flex: 1.6; }
+
+/* 早上がりの二段階確認ポップアップ（寒色） */
+.confirm-box.early-box { max-width: 380px; border-top: 3px solid var(--janis); }
+.late-change .lc-to.lc-to-early { color: var(--janis-deep); }
+.late-change .lc-arrow.lc-arrow-early { color: var(--janis-deep); }
+.confirm-btn.early-ok { background: var(--janis); color: var(--white); flex: 1.6; }
+
+/* 受信ボード：次回予約欄（もう向かっていますカード内） */
+.feed-next-resv { background: var(--coming-bg); border: 1px dashed var(--tiffany); border-radius: 6px; padding: 10px 14px; margin: 10px 0 4px; display: flex; flex-direction: column; gap: 3px; }
+.feed-next-resv .fnr-label { font-family: var(--serif-jp); font-size: 11px; font-weight: 600; color: var(--tiffany-deep); }
+.feed-next-resv .fnr-value { font-family: var(--serif-jp); font-size: 16px; font-weight: 600; color: var(--ink); }
+.feed-next-resv .fnr-note { font-family: var(--serif-jp); font-size: 10px; color: var(--ink-soft); }
+
+/* もう向かっています入力ポップアップ */
+.confirm-box.coming-box { max-width: 420px; border-top: 3px solid var(--tiffany); }
+.coming-next { background: var(--ivory-deep); border-radius: 8px; padding: 14px 16px; margin: 16px 0 4px; text-align: left; }
+.coming-next .cn-title { font-family: var(--serif-jp); font-size: 13px; font-weight: 600; color: var(--tiffany-deep); margin-bottom: 10px; }
+.coming-next .cn-fields { display: flex; gap: 10px; margin-bottom: 10px; }
+.coming-next .cn-field { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.coming-next .cn-field.cn-menu { flex: none; }
+.coming-next .cn-lbl { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); }
+.coming-next .cn-input { font-family: var(--serif-jp); font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--white); color: var(--ink); width: 100%; box-sizing: border-box; }
+.coming-actions { flex-wrap: wrap; }
+.confirm-btn.coming-skip { background: var(--ivory-deep); color: var(--ink-soft); font-size: 13px; }
+.confirm-btn.coming-ok { background: var(--tiffany); color: var(--white); flex: 1.4; }
+
+/* 美容室への予約表ポップアップ */
+.salon-popup-overlay { position: fixed; inset: 0; background: rgba(26,31,38,0.5); display: none; align-items: center; justify-content: center; z-index: 250; padding: 24px; }
+.salon-popup-overlay.show { display: flex; }
+.salon-popup { background: var(--white); border-radius: 8px; max-width: 380px; width: 100%; padding: 26px; border-top: 3px solid var(--tiffany); }
+.pop-head { font-family: var(--serif-jp); font-size: 17px; font-weight: 600; margin-bottom: 16px; }
+.pop-body { display: flex; flex-direction: column; gap: 8px; margin-bottom: 18px; }
+.pop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: var(--ivory); border-radius: 4px; font-family: var(--serif-jp); font-size: 13px; }
+.pop-time { font-family: var(--serif-en); font-style: italic; color: var(--ink-soft); }
+.pop-st { font-size: 11px; font-weight: 600; }
+.pop-close { width: 100%; background: var(--ink); color: var(--white); border: none; border-radius: 4px; padding: 12px; font-family: var(--serif-jp); font-size: 14px; cursor: pointer; }
+
+/* お知らせのalert種別（未到着・確認） */
+.status-item.alert { border-left: 4px solid var(--error); background: #FBF0F1; }
+
+/* 保育園側：様子を送るセクション */
+.report-section { margin-top: 26px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.15); }
+.report-head { font-family: var(--serif-jp); font-size: 15px; font-weight: 600; color: var(--white); margin-bottom: 4px; }
+.report-sub { font-family: var(--serif-jp); font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 14px; }
+.report-card { background: rgba(255,255,255,0.06); border-radius: 6px; padding: 14px 16px; margin-bottom: 10px; }
+.report-empty { font-family: var(--serif-jp); font-size: 13px; color: rgba(248,244,237,0.55); line-height: 1.9; text-align: center; padding: 22px 16px; background: rgba(255,255,255,0.04); border-radius: 6px; }
+.report-child { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.report-name { font-family: var(--serif-jp); font-size: 14px; font-weight: 600; color: var(--white); }
+.report-salon { font-family: var(--serif-en); font-style: italic; font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 4px; color: var(--white); }
+.report-salon.salon-woodstock { background: var(--woodstock); }
+.report-salon.salon-janis { background: var(--janis); }
+.report-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.report-btn { border: none; border-radius: 5px; padding: 10px 8px; font-family: var(--serif-jp); font-size: 12px; cursor: pointer; transition: all var(--transition); text-align: left; }
+.report-btn:active { transform: scale(0.97); }
+.report-btn.status { background: var(--coming-bg); color: var(--tiffany-deep); }
+.report-btn.care { background: var(--soon-bg); color: var(--soon); }
+
+/* サロン側：保育園からのお知らせ受信 */
+.status-section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+.status-head { font-family: var(--serif-jp); font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+/* 2レーン（お預かりの連絡 ／ お子様の様子） */
+.lane-block { margin-bottom: 18px; }
+.lane-block:last-child { margin-bottom: 0; }
+.lane-head { font-family: var(--serif-jp); font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
+.lane-head .lane-ico { font-size: 15px; }
+.lane-sub { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); margin-bottom: 10px; }
+.lane-care { background: var(--tiffany-soft); border: 1px solid #CDE7E5; border-radius: 8px; padding: 14px 16px; }
+.lane-care .lane-head { color: var(--tiffany-deep); }
+.lane-report .lane-head { color: var(--gold-deep); }
+.status-sub { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); margin-bottom: 14px; }
+.status-empty { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); padding: 14px 0; text-align: center; }
+.status-item { display: flex; align-items: center; gap: 14px; background: var(--white); border: 1px solid var(--line-soft); border-radius: 6px; padding: 14px 18px; margin-bottom: 8px; animation: slideIn 0.4s cubic-bezier(0.16,1,0.3,1); }
+.status-item.flash { animation: slideIn 0.4s, flashBg 1.2s ease 2; }
+.status-item.status { border-left: 4px solid var(--tiffany); }
+.status-item.care { border-left: 4px solid var(--soon); }
+.status-icon { font-size: 28px; flex-shrink: 0; }
+.status-body { flex: 1; }
+.status-text { font-family: var(--serif-jp); font-size: 14px; }
+.status-child { font-weight: 600; color: var(--tiffany-deep); }
+.status-time { font-family: var(--serif-jp); font-size: 15px; color: var(--ink); margin-top: 7px; display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.status-time .clock-time { font-family: var(--serif-en); font-style: italic; font-size: 19px; color: var(--tiffany-deep); }
+.status-time .ft-elapsed { font-family: var(--serif-jp); font-size: 13px; color: var(--white); background: var(--ink-soft); padding: 2px 12px; border-radius: 12px; font-weight: 500; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (max-width: 800px) {
+  .split { flex-direction: column; }
+  .pane-salon { border-right: none; border-bottom: 2px dashed var(--line); }
+}
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div class="header-brand">
+    <span class="en">Strawberry <span class="accent">Field</span></span>
+    <span class="jp"><span id="gardenLabel">月寒園</span> ・ お迎え・遅延 通知連携</span>
+  </div>
+  <div class="sound-toggle" id="soundToggle" onclick="toggleSound()">
+    <span id="soundLabel">通知音 オン</span>
+    <span class="sw"></span>
+  </div>
+</div>
+<div class="intro-bar">
+  ◆ <strong>連携デモ</strong>：左の<strong>サロン側</strong>でボタンを押すと、右の<strong>保育園側</strong>に通知が届いて<strong>音が鳴ります</strong>。実際は別々のiPadで動きます（Firebase連携後）。
+</div>
+
+<div class="split">
+
+  <!-- ===== サロン側 ===== -->
+  <div class="pane pane-salon">
+    <div class="pane-label"><span class="dot"></span><div><span class="t-en">Salon Side</span> <span class="t-jp">サロン側（送信）</span></div></div>
+
+    <div class="salon-switch">
+      <button id="swWood" class="active wood" onclick="switchSalon('woodstock')">WOODSTOCK</button>
+      <button id="swJan" class="jan" onclick="switchSalon('janis')">JANIS</button>
+    </div>
+
+    <div class="notify-label">お預かり中のお子様（このサロン経由）。施術状況に合わせてボタンを押してください。</div>
+    <div id="childList"></div>
+
+    <!-- 保育園からの連絡（2レーン：お子様の様子 ＝ 上／お預かりの連絡 ＝ 下） -->
+    <div class="status-section">
+      <div class="status-head">📣 保育園からのお知らせ</div>
+
+      <!-- 上：お子様の様子（遊ぶ・眠る・ミルク・ごはん。嬉しい便り） -->
+      <div class="lane-block lane-report">
+        <div class="lane-head"><span class="lane-ico">🌸</span>お子様の様子</div>
+        <div class="lane-sub">お預かり中のお子様のごきげんな様子です</div>
+        <div id="reportFeed">
+          <div class="status-empty">様子のお便りはまだありません</div>
+        </div>
+      </div>
+
+      <!-- 下：お預かりの連絡（来園・未到着・電話確認・お迎え完了など、必ず把握する連絡） -->
+      <div class="lane-block lane-care">
+        <div class="lane-head"><span class="lane-ico">📋</span>お預かりの連絡</div>
+        <div class="lane-sub">来園・お迎え・確認など、対応が必要な連絡です</div>
+        <div id="careFeed">
+          <div class="status-empty">連絡はまだありません</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 保育園側 ===== -->
+  <div class="pane pane-nursery">
+    <div class="pane-label"><span class="dot"></span><div><span class="t-en">Nursery Board</span> <span class="t-jp">保育園側（受信ボード）</span></div></div>
+    <div class="board-clock">
+      <div class="time" id="clock">--:--</div>
+      <div class="date">受付に常時表示しておく通知ボード</div>
+    </div>
+    <div class="notify-feed" id="feed">
+      <div class="feed-empty">通知はまだありません<span class="en">Waiting for notifications...</span></div>
+    </div>
+
+    <!-- お子様の登園ステータス管理 -->
+    <div class="status-mgr">
+      <div class="status-mgr-head">
+        <span>本日のお預かり予定</span>
+        <button class="demo-time-btn" onclick="advanceDemoTime()">⏩ デモ：時間を10分進める</button>
+      </div>
+      <div class="status-mgr-sub" id="demoClock"></div>
+      <div id="arrivalList"></div>
+    </div>
+
+    <!-- 保育園 → サロンへ「様子・お世話」を送る -->
+    <div class="report-section">
+      <div class="report-head">お子様の様子をサロンに伝える</div>
+      <div class="report-sub">施術中のお客様に、お子様のごきげんな様子やお世話の記録を届けます</div>
+      <div id="reportList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="alert-overlay" id="alertOverlay"></div>
+<div class="toast" id="toast"></div>
+
+<!-- 予約の修正モーダル（日にち・開始・長さ） -->
+<div class="confirm-overlay" id="editResvModal" onclick="closeEditResv()">
+  <div class="confirm-box edit-resv-box" onclick="event.stopPropagation()">
+    <div class="confirm-title">予約の修正</div>
+    <div class="confirm-desc" id="erName"></div>
+    <div class="er-field">
+      <label>日にち</label>
+      <button class="er-date-btn" id="erDateBtn" onclick="openErCalendar()">日付を選ぶ ▾</button>
+    </div>
+    <div class="er-row">
+      <div class="er-field">
+        <label>開始時刻</label>
+        <select id="erStart"></select>
+      </div>
+      <div class="er-field">
+        <label>お預かりの長さ</label>
+        <select id="erDur"></select>
+      </div>
+    </div>
+    <div class="confirm-actions">
+      <button class="confirm-btn cancel-skip" onclick="closeEditResv()">キャンセル</button>
+      <button class="confirm-btn coming-ok" onclick="saveEditResv()">この内容に変更</button>
+    </div>
+  </div>
+</div>
+
+<!-- 修正用カレンダー -->
+<div class="cal-overlay" id="erCalOverlay" onclick="closeErCalendar()">
+  <div class="cal-box" onclick="event.stopPropagation()">
+    <div class="cal-head">
+      <button class="cal-mnav" onclick="erCalShiftMonth(-1)">‹</button>
+      <span class="cal-title" id="erCalTitle"></span>
+      <button class="cal-mnav" onclick="erCalShiftMonth(1)">›</button>
+    </div>
+    <div class="cal-weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+    <div class="cal-grid" id="erCalGrid"></div>
+  </div>
+</div>
+
+<!-- 次回予約の修正モーダル（日にち・時刻・メニュー） -->
+<div class="confirm-overlay" id="editNextResvModal" onclick="closeEditNextResv()">
+  <div class="confirm-box edit-resv-box" onclick="event.stopPropagation()">
+    <div class="confirm-title">次回予約の変更</div>
+    <div class="confirm-desc" id="nrName"></div>
+    <div class="er-field">
+      <label>次回予約の日にち</label>
+      <button class="er-date-btn" id="nrDateBtn" onclick="openNrCalendar()">日付を選ぶ ▾</button>
+    </div>
+    <div class="er-field">
+      <label>時刻</label>
+      <select id="nrStart"></select>
+    </div>
+    <div class="er-field">
+      <label>メニュー（任意）</label>
+      <input type="text" id="nrMenu" placeholder="例：カット&カラー" style="width:100%;box-sizing:border-box;font-family:var(--serif-jp);font-size:15px;padding:10px 12px;border:1px solid var(--line);border-radius:6px;">
+    </div>
+    <div class="confirm-actions">
+      <button class="confirm-btn cancel-skip" onclick="closeEditNextResv()">キャンセル</button>
+      <button class="confirm-btn coming-ok" onclick="saveEditNextResv()">この内容に変更</button>
+    </div>
+  </div>
+</div>
+
+<!-- 次回予約用カレンダー -->
+<div class="cal-overlay" id="nrCalOverlay" onclick="closeNrCalendar()">
+  <div class="cal-box" onclick="event.stopPropagation()">
+    <div class="cal-head">
+      <button class="cal-mnav" onclick="nrCalShiftMonth(-1)">‹</button>
+      <span class="cal-title" id="nrCalTitle"></span>
+      <button class="cal-mnav" onclick="nrCalShiftMonth(1)">›</button>
+    </div>
+    <div class="cal-weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+    <div class="cal-grid" id="nrCalGrid"></div>
+  </div>
+</div>
+
+<!-- 美容室への予約表ポップアップ -->
+<div class="salon-popup-overlay" id="salonPopup" onclick="closeSalonPopup()">
+  <div class="salon-popup" onclick="event.stopPropagation()">
+    <div class="pop-head" id="popTitle">本日のお預かり</div>
+    <div class="pop-body" id="popBody"></div>
+    <button class="pop-close" onclick="closeSalonPopup()">閉じる</button>
+  </div>
+</div>
+
+<!-- キャンセル確認ポップアップ -->
+<div class="confirm-overlay" id="cancelPopup" onclick="closeCancelPopup()">
+  <div class="confirm-box" onclick="event.stopPropagation()">
+    <div class="confirm-icon">🚫</div>
+    <div class="confirm-title">本日のお預かりをキャンセルしますか？</div>
+    <div class="confirm-name" id="cancelPopName">お子様</div>
+    <div class="confirm-time" id="cancelPopTime"></div>
+    <div class="confirm-desc">お子様を連れてこない場合にキャンセルします。保育園側にキャンセルとして共有され、確認されるまで表示が残ります。</div>
+    <div class="confirm-actions">
+      <button class="confirm-btn cancel" onclick="closeCancelPopup()">やめる</button>
+      <button class="confirm-btn ok" onclick="confirmCancel()">キャンセルする</button>
+    </div>
+  </div>
+</div>
+
+<!-- 電話確認ポップアップ（来園は前提・遅れ時間を選んで保育園に共有） -->
+<div class="confirm-overlay" id="callPopup" onclick="closeCallPopup()">
+  <div class="confirm-box call-box" onclick="event.stopPropagation()">
+    <div class="confirm-icon">📞</div>
+    <div class="confirm-title">お客様に電話で確認しました</div>
+    <div class="confirm-name" id="callPopName">お子様</div>
+    <div class="confirm-time" id="callPopTime"></div>
+    <div class="confirm-desc">お客様は<strong>来園される予定</strong>です。どのくらい遅れて来られそうか選ぶと、保育園に「電話確認済み・来園予定」として共有されます。</div>
+    <div class="call-choices">
+      <button class="call-choice on-time" onclick="confirmCall('ontime')">
+        <span class="cc-ico">🕒</span>
+        <span class="cc-txt"><span class="cc-main">ほぼ予定通りに来られます</span><span class="cc-sub">大きな遅れはなし</span></span>
+      </button>
+      <div class="call-late-label"><span class="ico">🟠</span>遅れて来られます：</div>
+      <div class="late-chips">
+        <span class="late-chip" onclick="confirmCall('late',10)">+10分</span>
+        <span class="late-chip" onclick="confirmCall('late',15)">+15分</span>
+        <span class="late-chip" onclick="confirmCall('late',20)">+20分</span>
+        <span class="late-chip" onclick="confirmCall('late',30)">+30分</span>
+        <span class="late-chip" onclick="confirmCall('late',45)">+45分</span>
+        <span class="late-chip call-late-more" onclick="toggleCallLongLate()">1時間以上 ▾</span>
+      </div>
+      <div class="long-late" id="callLongLate" style="display:none;">
+        <div class="long-late-note">大きく遅れる場合：</div>
+        <div class="late-chips">
+          <span class="late-chip long" onclick="confirmCall('late',60)">+1時間</span>
+          <span class="late-chip long" onclick="confirmCall('late',90)">+1時間半</span>
+          <span class="late-chip long" onclick="confirmCall('late',120)">+2時間</span>
+          <span class="late-chip long" onclick="confirmCall('late',180)">+3時間</span>
+        </div>
+      </div>
+    </div>
+    <div class="confirm-actions">
+      <button class="confirm-btn cancel" onclick="closeCallPopup()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 遅延の二段階確認ポップアップ（○時○分 → ○時○分 の変更でよいか確認してから送信） -->
+<div class="confirm-overlay" id="latePopup" onclick="closeLatePopup()">
+  <div class="confirm-box late-box" onclick="event.stopPropagation()">
+    <div class="confirm-icon">🟠</div>
+    <div class="confirm-title">お迎え時間の変更を保育園に伝えます</div>
+    <div class="confirm-name" id="latePopName">お子様</div>
+    <div class="late-change">
+      <div class="lc-row">
+        <span class="lc-label">現在の見込み</span>
+        <span class="lc-from" id="latePopFrom">--:--</span>
+      </div>
+      <div class="lc-arrow">↓ さらに <span id="latePopAdd">+0分</span></div>
+      <div class="lc-row">
+        <span class="lc-label">変更後</span>
+        <span class="lc-to" id="latePopTo">--:--</span>
+      </div>
+    </div>
+    <div class="confirm-desc" id="latePopDesc">この時間の変更で間違いないですか？保育園に改めてお知らせします。</div>
+    <div class="confirm-actions">
+      <button class="confirm-btn cancel" onclick="closeLatePopup()">やめる</button>
+      <button class="confirm-btn late-ok" onclick="confirmLate()">この内容で保育園に伝える</button>
+    </div>
+  </div>
+</div>
+
+<!-- 早上がりの二段階確認ポップアップ -->
+<div class="confirm-overlay" id="earlyPopup" onclick="closeEarlyPopup()">
+  <div class="confirm-box early-box" onclick="event.stopPropagation()">
+    <div class="confirm-icon">⚡</div>
+    <div class="confirm-title">お迎え時間が早まることを保育園に伝えます</div>
+    <div class="confirm-name" id="earlyPopName">お子様</div>
+    <div class="late-change">
+      <div class="lc-row">
+        <span class="lc-label">現在の見込み</span>
+        <span class="lc-from" id="earlyPopFrom">--:--</span>
+      </div>
+      <div class="lc-arrow lc-arrow-early">↑ <span id="earlyPopSub">−0分</span> 早める</div>
+      <div class="lc-row">
+        <span class="lc-label">変更後</span>
+        <span class="lc-to lc-to-early" id="earlyPopTo">--:--</span>
+      </div>
+    </div>
+    <div class="confirm-desc" id="earlyPopDesc">この時間の変更で間違いないですか？保育園に改めてお知らせします。</div>
+    <div class="confirm-actions">
+      <button class="confirm-btn cancel" onclick="closeEarlyPopup()">やめる</button>
+      <button class="confirm-btn early-ok" onclick="confirmEarly()">この内容で保育園に伝える</button>
+    </div>
+  </div>
+</div>
+
+<!-- もう向かっています＋次回予約 入力ポップアップ -->
+<div class="confirm-overlay" id="comingPopup" onclick="closeComingPopup()">
+  <div class="confirm-box coming-box" onclick="event.stopPropagation()">
+    <div class="confirm-icon">🏃</div>
+    <div class="confirm-title">お迎えに向かうことを保育園に伝えます</div>
+    <div class="confirm-name" id="comingPopName">お子様</div>
+    <div class="confirm-desc">お客様が店を出たことを保育園に通知します。次回のご予約が決まっていれば入力すると、保育園がお客様へお声がけできます（任意）。</div>
+    <div class="coming-next">
+      <div class="cn-title">🗓 次回のご予約（任意）</div>
+      <div class="cn-fields">
+        <label class="cn-field"><span class="cn-lbl">日付</span><input type="date" id="comingDate" class="cn-input"></label>
+        <label class="cn-field"><span class="cn-lbl">時刻</span><input type="time" id="comingTime" class="cn-input"></label>
+      </div>
+      <label class="cn-field cn-menu"><span class="cn-lbl">メニュー</span><input type="text" id="comingMenu" class="cn-input" placeholder="例：カット&カラー"></label>
+    </div>
+    <div class="confirm-actions coming-actions">
+      <button class="confirm-btn cancel" onclick="closeComingPopup()">やめる</button>
+      <button class="confirm-btn coming-skip" onclick="confirmComing(false)">次回予約なしで送る</button>
+      <button class="confirm-btn coming-ok" onclick="confirmComing(true)">次回予約と一緒に送る</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 預かり中の子（サロン別） =====
+let children = { woodstock: [], janis: [] };
+// 通知モデル単体で開いたとき用：共有ストレージが空ならサンプルを種まき
+const NOTIFY_SEED = {
+  woodstock: [
+    { name:'渡辺 みなと', age:'0', start:'10:00', end:'11:30' },
+    { name:'岡田 あゆみ', age:'1', start:'13:00', end:'14:30' },
+  ],
+  janis: [
+    { name:'三浦 さくら', age:'2', start:'11:00', end:'13:00' },
+    { name:'森 はると', age:'1', start:'12:00', end:'13:30' },
+  ],
+};
+
+// ===== 共有ストレージ連携（サロン予約画面から入った予約を取り込む） =====
+// ※ Claudeプレビュー内ではlocalStorage不可。ダウンロードして同一ブラウザで開くと連携します。
+const SF_KEY = 'sf_bookings_v1';
+// ===== 園マスター（園軸） =====
+// 当面は月寒園のみ。将来サポラクリ園・白石園などを足すときはここに1件追加する。
+// 各園に連携サロン（zone）を紐づける。woodstock/janis は既存のサロン区分。
+const GARDENS = {
+  tsukisamu:  { name:'月寒園',       salons:['woodstock','janis'] },
+  // 将来の拡張例（今は無効）:
+  // saporakuri: { name:'サポラクリ園', salons:['woodstock','janis'] },
+  // shiraishi:  { name:'白石園',       salons:['buddybrown','janis_shiraishi'] },
+};
+// 現在運用中の園（固定表示）。将来はここを切り替え可能にする。
+const CURRENT_GARDEN = 'tsukisamu';
+// gardenId が無い既存レコードは月寒園として扱う（補完）
+function normGarden(g) {
+  // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
+  if (g == null || g === '') return CURRENT_GARDEN;
+  return g;
+}
+function gardenName(g) {
+  const id = normGarden(g);
+  return (GARDENS[id] || GARDENS[CURRENT_GARDEN] || {}).name || '月寒園';
+}
+
+function sfLoad() {
+  try { const raw = localStorage.getItem(SF_KEY); return raw ? JSON.parse(raw) : []; }
+  catch(e) { return []; }
+}
+function sfSave(arr) {
+  try { localStorage.setItem(SF_KEY, JSON.stringify(arr)); return true; } catch(e) { return false; }
+}
+// 共有ストレージが空なら、通知モデル単体デモ用にサンプルを種まき（5/23分）
+function seedIfEmpty() {
+  const arr = sfLoad();
+  const todayRecs = arr.filter(r => !r.date || r.date === '2026-05-23');
+  if (todayRecs.length > 0) return; // 既に当日の予約がある（サロン画面が種まき済み等）
+  let changed = false;
+  ['woodstock','janis'].forEach(sk => {
+    (NOTIFY_SEED[sk]||[]).forEach(b => {
+      arr.push({ id:'seed_'+sk+'_'+b.name.replace(/\s/g,''), gardenId:CURRENT_GARDEN, salon:sk, name:b.name, age:b.age, start:b.start, end:b.end, date:'2026-05-23', nextReservation:null });
+      changed = true;
+    });
+  });
+  if (changed) sfSave(arr);
+}
+// 共有ストレージの予約を children に取り込む（重複は sfId で防ぐ・本日分のみ）
+const TODAY_STR = '2026-05-23'; // 通知モデルの本日
+// 次回予約オブジェクトを表示用文字列に整形
+function fmtNextReservation(nr) {
+  if (!nr) return null;
+  const dp = nr.date ? fmtNextDate(nr.date) : '';
+  const tp = nr.time || '';
+  const mp = (nr.menu||'').trim();
+  const parts = [];
+  if (dp || tp) parts.push(`${dp}${dp&&tp?' ':''}${tp}`.trim());
+  if (mp) parts.push(mp);
+  return parts.join('・') || null;
+}
+function importSharedBookings() {
+  const recs = sfLoad();
+  let added = false, updated = false;
+  recs.forEach(r => {
+    if (!r || !r.salon || !children[r.salon]) return;
+    // 園で絞り込み（gardenId 無しは月寒園として扱う）。当面は月寒園のみ。
+    if (normGarden(r.gardenId) !== CURRENT_GARDEN) return;
+    // 本日の予約のみ取り込む（将来の次回予約レコードは対象外）
+    if (r.date && r.date !== TODAY_STR) return;
+    const nextStr = fmtNextReservation(r.nextReservation);
+    const dispName = (r.info && r.info.name) ? r.info.name : r.name;
+    // 既に取り込み済みの子？（sfId 優先。なければ同名・同開始）
+    const existing = children[r.salon].find(c => (c.sfId && c.sfId === r.id) || (!c.sfId && c.name === r.name && c.start === r.start));
+    if (existing) {
+      // 次回予約・正式氏名・月齢の更新を反映（インフォシート登録など）
+      if ((existing.nextReservation || null) !== (nextStr || null)) { existing.nextReservation = nextStr; existing.nextResvRaw = r.nextReservation || null; updated = true; }
+      if (existing.name !== dispName) { existing.name = dispName; updated = true; }
+      if (existing.months !== r.months) { existing.months = r.months; updated = true; }
+      if (existing.provisional !== r.provisional) { existing.provisional = r.provisional; updated = true; }
+      if (existing.age !== r.age) { existing.age = r.age; updated = true; }
+      // まだ来園前（予約済み）の場合のみ、サロンでの時間変更を反映
+      if (existing.status === 'reserved' && (existing.start !== r.start || existing.end !== r.end)) {
+        existing.start = r.start; existing.end = r.end; updated = true;
+      }
+      return;
+    }
+    children[r.salon].push({
+      name: dispName, age: r.age, months: r.months, start: r.start, end: r.end,
+      status: 'reserved', sfId: r.id, nextReservation: nextStr, nextResvRaw: r.nextReservation || null, provisional: r.provisional, date: r.date || TODAY_STR
+    });
+    added = true;
+  });
+  if (added || updated) { renderChildren(); renderArrivalList(); renderFeed(null); }
+  return added || updated;
+}
+// ステータス: reserved(予約済) / waiting(預かり中) / late-hold(電話確認済み・来園予定) / no-show(未到着アラート) / picking(お迎え中) / done(完了)
+const STATUS_INFO = {
+  reserved:   { jp:'予約済み',   color:'#9AA0A6', bg:'#EDEEF0' },
+  waiting:    { jp:'お預かり中', color:'#089A95', bg:'#E8F4F3' },
+  'late-hold':{ jp:'電話確認済み', color:'#089A95', bg:'#E8F4F3' },
+  'no-show':  { jp:'未到着',     color:'#B23E4C', bg:'#F5E3E5' },
+  cancelled:  { jp:'キャンセル', color:'#6B7280', bg:'#E5E7EB' },
+  done:       { jp:'お迎え完了', color:'#5A8A6A', bg:'#E6F0E9' },
+};
+const SALON_JP = { woodstock:'WOODSTOCK', janis:'JANIS' };
+const SALON_NAME_JP = { woodstock:'ウッドストック', janis:'ジャニス' };
+const SALON_NAME_EN = { woodstock:'WOODSTOCK', janis:'JANIS' };
+let salon = 'woodstock';
+let soundOn = true;
+// デモ用の現在時刻オフセット（分）。テストで時間を進める用
+let demoMinOffset = 0;
+function nowMin() {
+  const n = new Date();
+  return n.getHours()*60 + n.getMinutes() + demoMinOffset;
+}
+// 遅れ時間（分）を「○時間○分」表記に整形
+function fmtLate(min) {
+  if (min >= 60) {
+    const h = Math.floor(min/60), m = min%60;
+    return `${h}時間${m ? m+'分' : ''}`;
+  }
+  return `${min}分`;
+}
+// "HH:MM" に分を足して "HH:MM" を返す
+function addMinToTime(t, add) {
+  const [h, m] = t.split(':').map(Number);
+  const total = h*60 + m + add;
+  return `${String(Math.floor(total/60)%24).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+}
+// 現在の見込み終了時刻（ズレが反映されていればそれ、なければ元の終了）
+function currentEnd(c) {
+  return (c.expectedEnd && c.lateMin !== 0 && c.lateMin != null) ? c.expectedEnd : c.end;
+}
+// サロン側「現在の見込み」行を組み立て（来園がずれていれば来園も表示）
+function estimateLineHtml(c) {
+  const startChanged = c.expectedStart && c.expectedStart !== c.start;
+  if (c.lateMin > 0) {
+    const main = startChanged
+      ? `現在の見込み：<span class="ds-orig">${c.start} 〜 ${c.end}</span> → <span class="ds-new">${c.expectedStart} 来園 〜 ${c.expectedEnd} お戻り</span>（合計+${fmtLate(c.lateMin)}）`
+      : `現在の見込み：<span class="ds-orig">${c.end}</span> → <span class="ds-new">${c.expectedEnd}</span> 頃お戻り（合計+${fmtLate(c.lateMin)}）`;
+    return `<div class="ds-line"><span class="ds-ico">🕒</span>${main}</div>
+            <div class="ds-sub ds-sent">✓ ${c.lastLateTime || ''}に保育園へ連絡済み</div>`;
+  } else if (c.lateMin < 0) {
+    return `<div class="ds-line"><span class="ds-ico">⚡</span>現在の見込み：<span class="ds-orig">${c.end}</span> → <span class="ds-new ds-early">${c.expectedEnd}</span> 頃お戻り（${fmtLate(-c.lateMin)}早まり）</div>
+            <div class="ds-sub ds-sent">✓ ${c.lastLateTime || ''}に保育園へ連絡済み</div>`;
+  } else {
+    return `<div class="ds-line"><span class="ds-ico">🕒</span>お戻り予定：<span class="ds-new">${c.end}</span> 頃（予定通り）</div>
+            <div class="ds-sub">時間が変わる場合は下のボタンから連絡できます</div>`;
+  }
+}
+
+// ===== サロン: 子リスト描画 =====
+function renderChildren() {
+  const list = document.getElementById('childList');
+  const arr = children[salon];
+  list.innerHTML = arr.map((c, i) => {
+    const ageLabel = c.age==='3' ? '3歳〜' : (c.months != null ? `${c.age}歳${c.months}ヶ月` : `${c.age}歳`);
+    const st = STATUS_INFO[c.status] || STATUS_INFO.reserved;
+    // バッジ表記（完了系は分かりやすく）
+    let badgeText = st.jp;
+    if (c.status === 'done') badgeText = c.cancelled ? 'キャンセル完了' : 'お迎え完了';
+    else if (c.status === 'cancelled') badgeText = 'キャンセル完了';
+    // 次回予約があればサロン側カードにも表示（タップで日時変更）
+    const nextResvLine = (c.nextReservation && c.status !== 'cancelled')
+      ? `<div class="child-next-resv tappable" onclick="openEditNextResv('${salon}',${i})">🗓 次回予約もしています（${c.nextReservation}）<span class="nr-edit-hint">タップで変更</span></div>` : '';
+    return `<div class="child-card">
+      <div class="child-head">
+        <div class="child-avatar">${c.name.charAt(0)}</div>
+        <div class="child-info">
+          <div class="child-name">${c.name} <span class="child-age-mini">${ageLabel}</span></div>
+          <div class="child-meta">お預かり ${c.start} 〜 ${(c.lateMin && c.lateMin !== 0 && c.expectedEnd && c.expectedEnd !== c.end) ? `<span class="meta-orig">${c.end}</span> → <span class="meta-new ${c.lateMin < 0 ? 'meta-early' : ''}">${c.expectedEnd}</span>` : c.end}</div>
+          ${nextResvLine}
+        </div>
+        <span class="child-status" style="background:${st.bg}; color:${st.color};">${badgeText}</span>
+      </div>
+      <div class="notify-btns">
+        ${c.status === 'done' ? `
+        <!-- お迎え完了：操作ボタンなし、表記のみ -->
+        <div class="final-note ${c.cancelled ? 'cancelled' : 'done'}">${c.cancelled ? '🚫 キャンセル完了・本日のお預かりはありませんでした' : (c.lateMin && c.lateMin !== 0 && c.expectedEnd && c.expectedEnd !== c.end) ? `🎉 お迎え完了・${c.expectedEnd}頃お戻り（約${fmtLate(Math.abs(c.lateMin))}${c.lateMin < 0 ? '早まり' : '遅れ'}）で終了しました` : '🎉 お迎え完了・本日のお預かりは終了しました'}</div>
+        ` : c.status === 'cancelled' ? `
+        <!-- キャンセル完了：操作ボタンなし、表記のみ -->
+        <div class="final-note cancelled">🚫 キャンセル完了・保育園に共有済みです</div>
+        ` : c.status === 'late-hold' ? `
+        <!-- 電話確認済み（来園前・遅れて来園予定）：表記のみ -->
+        <div class="final-note coming-done">📞 電話確認済み・${c.callLateMin > 0 ? `約${fmtLate(c.callLateMin)}遅れて来園予定（保育園に共有）` : 'ほぼ予定通りに来園予定（保育園に共有）'}</div>
+        ` : (c.status === 'waiting' && c.sentComing) ? `
+        <!-- もう向かっています送信済み：サロン側の役目は完了 -->
+        <div class="final-note coming-done">🏃 お見送り完了・お客様はお迎えに向かいました</div>
+        ` : c.status === 'waiting' ? `
+        <!-- お預かり完了後：現在の見込み・連絡状況 -->
+        <div class="delay-status ${c.lateMin > 0 ? 'has-late' : (c.lateMin < 0 ? 'has-early' : '')}">
+          ${estimateLineHtml(c)}
+        </div>
+        <!-- お迎え系の連絡 -->
+        <button class="nbtn nbtn-soon" onclick="sendNotify('soon',${i})"><span class="ico">⏳</span><span class="nbtn-txt"><span class="nbtn-main">あと10〜15分で終わります</span><span class="nbtn-sub">施術の仕上げ中・準備を始めてください</span></span></button>
+        <button class="nbtn nbtn-soon-early" onclick="sendNotify('soon-early',${i})"><span class="ico">⚡</span><span class="nbtn-txt"><span class="nbtn-main">まもなく終わりそう（予定より早め）</span><span class="nbtn-sub">早く片付きそう・準備を少し早めてもらう</span></span></button>
+        <button class="nbtn nbtn-coming" onclick="sendNotify('coming',${i})"><span class="ico">🏃</span><span class="nbtn-txt"><span class="nbtn-main">もう向かっています</span><span class="nbtn-sub">店を出ました・すぐ到着します${c.nextReservation ? '（次回予約あり）' : ''}</span></span></button>
+        <div class="nbtn-late-block">
+          <div class="nbtn-late-label"><span class="ico">🟠</span>${c.lateMin > 0 ? '現在の見込みからさらに遅れます：' : '遅れます：'}</div>
+          <div class="late-chips">
+            <span class="late-chip" onclick="askLateConfirm(${i},10)">+10分</span>
+            <span class="late-chip" onclick="askLateConfirm(${i},15)">+15分</span>
+            <span class="late-chip" onclick="askLateConfirm(${i},20)">+20分</span>
+            <span class="late-chip" onclick="askLateConfirm(${i},25)">+25分</span>
+            <span class="late-chip" onclick="askLateConfirm(${i},30)">+30分</span>
+            <span class="late-chip" onclick="askLateConfirm(${i},35)">+35分</span>
+            <span class="late-chip late-more" onclick="toggleLongLate(${i})">1時間以上 ▾</span>
+          </div>
+          <div class="long-late" id="longLate-${i}" style="display:none;">
+            <div class="long-late-note">追加メニューなどで大きく遅れる場合：</div>
+            <div class="late-chips">
+              <span class="late-chip long" onclick="askLateConfirm(${i},60)">+1時間</span>
+              <span class="late-chip long" onclick="askLateConfirm(${i},90)">+1時間半</span>
+              <span class="late-chip long" onclick="askLateConfirm(${i},120)">+2時間</span>
+              <span class="late-chip long" onclick="askLateConfirm(${i},150)">+2時間半</span>
+              <span class="late-chip long" onclick="askLateConfirm(${i},180)">+3時間</span>
+            </div>
+          </div>
+        </div>
+        <div class="nbtn-early-block">
+          <div class="nbtn-early-label"><span class="ico">🔵</span>メニュー短縮などで早く終わります（時間変更）：</div>
+          <div class="late-chips">
+            <span class="late-chip early-chip" onclick="askEarlyConfirm(${i},10)">−10分</span>
+            <span class="late-chip early-chip" onclick="askEarlyConfirm(${i},15)">−15分</span>
+            <span class="late-chip early-chip" onclick="askEarlyConfirm(${i},20)">−20分</span>
+            <span class="late-chip early-chip" onclick="askEarlyConfirm(${i},30)">−30分</span>
+            <span class="late-chip early-chip" onclick="askEarlyConfirm(${i},45)">−45分</span>
+            <span class="late-chip early-chip early-more" onclick="toggleLongEarly(${i})">1時間以上 ▾</span>
+          </div>
+          <div class="long-late long-early" id="longEarly-${i}" style="display:none;">
+            <div class="long-late-note">メニュー大幅短縮などで大きく早まる場合：</div>
+            <div class="late-chips">
+              <span class="late-chip early-chip long" onclick="askEarlyConfirm(${i},60)">−1時間</span>
+              <span class="late-chip early-chip long" onclick="askEarlyConfirm(${i},90)">−1時間半</span>
+              <span class="late-chip early-chip long" onclick="askEarlyConfirm(${i},120)">−2時間</span>
+              <span class="late-chip early-chip long" onclick="askEarlyConfirm(${i},150)">−2時間半</span>
+              <span class="late-chip early-chip long" onclick="askEarlyConfirm(${i},180)">−3時間</span>
+            </div>
+          </div>
+        </div>
+        ` : `
+        <!-- お預かり完了前：来園確認・キャンセル・予約修正 -->
+        <div class="pre-arrival-note">お子様の来園前です。来園後にお迎えの連絡ボタンが表示されます。</div>
+        <button class="nbtn nbtn-edit" onclick="openEditResv(${i})"><span class="ico">🕐</span><span class="nbtn-txt"><span class="nbtn-main">予約の時間・日にちを変更</span><span class="nbtn-sub">まだお帰りでない予約の修正</span></span></button>
+        <button class="nbtn nbtn-call" onclick="callCustomer(${i})"><span class="ico">📞</span><span class="nbtn-txt"><span class="nbtn-main">お客様に電話する</span><span class="nbtn-sub">お迎えの遅れなどを確認</span></span></button>
+        <button class="nbtn nbtn-cancel" onclick="cancelToday(${i})"><span class="ico">🚫</span><span class="nbtn-txt"><span class="nbtn-main">本日はお預かりなし</span><span class="nbtn-sub">お子様を連れてこない場合・予約をキャンセル</span></span></button>
+        `}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function switchSalon(s) {
+  salon = s;
+  document.getElementById('swWood').classList.toggle('active', s==='woodstock');
+  document.getElementById('swJan').classList.toggle('active', s==='janis');
+  renderChildren();
+  renderStatusFeed(false);
+}
+
+// ===== 予約の修正（来園前の予約：日にち・開始・長さ） =====
+let editChildIdx = null;
+let erDate = null; // 'YYYY-MM-DD'
+const ER_BASE = new Date(2026, 4, 23); // 基準日（本日）
+const ACCEPT_EDIT = { '0':{open:'09:00',close:'15:00'}, '1':{open:'08:00',close:'18:00'}, '2':{open:'08:00',close:'18:00'}, '3':{open:'09:00',close:'18:00'} };
+const EDIT_SLOTS = (() => { const a=[]; for(let h=8;h<18;h++){a.push(`${String(h).padStart(2,'0')}:00`);a.push(`${String(h).padStart(2,'0')}:30`);} return a; })();
+function tMin(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
+function tAdd(t,add){ const x=tMin(t)+add; return `${String(Math.floor(x/60)).padStart(2,'0')}:${String(x%60).padStart(2,'0')}`; }
+function openEditResv(i) {
+  const c = children[salon][i];
+  if (!c) return;
+  editChildIdx = i;
+  erDate = c.date || TODAY_STR; // 子のレコード日付（なければ本日）
+  document.getElementById('erName').textContent = `${c.name} さん（現在 ${c.start}〜${c.end}）`;
+  updateErDateBtn();
+  // 開始時刻
+  const a = ACCEPT_EDIT[c.age] || ACCEPT_EDIT['1'];
+  document.getElementById('erStart').innerHTML = EDIT_SLOTS
+    .filter(t => t >= a.open && t < a.close)
+    .map(t => `<option value="${t}" ${t===c.start?'selected':''}>${t}</option>`).join('');
+  // 長さ
+  const curDur = tMin(c.end) - tMin(c.start);
+  const DURS = [[30,'30分'],[60,'1時間'],[90,'1時間半'],[120,'2時間'],[150,'2時間半'],[180,'3時間'],[240,'4時間']];
+  document.getElementById('erDur').innerHTML = DURS.map(([m,l]) => `<option value="${m}" ${m===curDur?'selected':''}>${l}</option>`).join('');
+  document.getElementById('editResvModal').classList.add('show');
+}
+function closeEditResv() { document.getElementById('editResvModal').classList.remove('show'); }
+function updateErDateBtn() {
+  const d = new Date(erDate + 'T00:00:00');
+  const WD = ['日','月','火','水','木','金','土'];
+  const isToday = erDate === TODAY_STR;
+  document.getElementById('erDateBtn').textContent = `${d.getMonth()+1}月${d.getDate()}日（${WD[d.getDay()]}）${isToday?' ・本日':''} ▾`;
+}
+// 修正用カレンダー
+let erCalY, erCalM;
+function openErCalendar() {
+  const d = new Date(erDate + 'T00:00:00');
+  erCalY = d.getFullYear(); erCalM = d.getMonth();
+  renderErCalendar();
+  document.getElementById('erCalOverlay').classList.add('show');
+}
+function closeErCalendar() { document.getElementById('erCalOverlay').classList.remove('show'); }
+function erCalShiftMonth(n) { const d=new Date(erCalY, erCalM+n, 1); erCalY=d.getFullYear(); erCalM=d.getMonth(); renderErCalendar(); }
+function renderErCalendar() {
+  document.getElementById('erCalTitle').textContent = `${erCalY}年 ${erCalM+1}月`;
+  const startDow = new Date(erCalY, erCalM, 1).getDay();
+  const days = new Date(erCalY, erCalM+1, 0).getDate();
+  const sel = new Date(erDate + 'T00:00:00');
+  const selKey = `${sel.getFullYear()}-${sel.getMonth()}-${sel.getDate()}`;
+  const today = new Date(ER_BASE);
+  const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+  let html = '';
+  for (let i=0;i<startDow;i++) html += '<div class="cal-day empty"></div>';
+  for (let d=1; d<=days; d++) {
+    const dow = new Date(erCalY, erCalM, d).getDay();
+    const key = `${erCalY}-${erCalM}-${d}`;
+    const cls = ['cal-day'];
+    if (dow===0) cls.push('sun'); if (dow===6) cls.push('sat');
+    if (key===todayKey) cls.push('today'); if (key===selKey) cls.push('selected');
+    html += `<div class="${cls.join(' ')}" onclick="erPickDay(${d})">${d}</div>`;
+  }
+  document.getElementById('erCalGrid').innerHTML = html;
+}
+function erPickDay(d) {
+  erDate = `${erCalY}-${String(erCalM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  updateErDateBtn();
+  closeErCalendar();
+}
+function saveEditResv() {
+  const c = children[salon][editChildIdx];
+  if (!c) { closeEditResv(); return; }
+  const newStart = document.getElementById('erStart').value;
+  const dur = parseInt(document.getElementById('erDur').value, 10);
+  const newEnd = tAdd(newStart, dur);
+  const a = ACCEPT_EDIT[c.age] || ACCEPT_EDIT['1'];
+  if (newEnd > a.close) { showToast(`受付時間（〜${a.close}）を超えています。長さを短くしてください`); return; }
+  const movedDay = (erDate !== (c.date || TODAY_STR));
+  // 子オブジェクトを更新
+  c.start = newStart; c.end = newEnd; c.date = erDate;
+  // 共有ストレージも更新（管理ボード・サロン予約一覧に反映）
+  if (c.sfId) {
+    const recs = sfLoad();
+    const rec = recs.find(r => r.id === c.sfId);
+    if (rec) { rec.start = newStart; rec.end = newEnd; rec.date = erDate; sfSave(recs); }
+  }
+  // 別の日に移した場合は本日のリストから外す
+  if (movedDay && erDate !== TODAY_STR) {
+    children[salon] = children[salon].filter((_, idx) => idx !== editChildIdx);
+  }
+  closeEditResv();
+  renderChildren();
+  renderArrivalList();
+  const wd = ['日','月','火','水','木','金','土'];
+  const dd = new Date(erDate+'T00:00:00');
+  showToast(movedDay
+    ? `✓ ${c.name}さんの予約を ${dd.getMonth()+1}/${dd.getDate()}（${wd[dd.getDay()]}）${newStart}〜${newEnd} に変更しました`
+    : `✓ ${c.name}さんの時間を ${newStart}〜${newEnd} に変更しました`);
+}
+
+// ===== 次回予約の修正（滞在中に次回予約の日時を変えたい場合） =====
+let nrChildSalon = null, nrChildIdx = null, nrDate = null;
+function openEditNextResv(salonKey, i) {
+  const c = children[salonKey][i];
+  if (!c || !c.nextResvRaw) { showToast('次回予約の情報が見つかりません'); return; }
+  nrChildSalon = salonKey; nrChildIdx = i;
+  const raw = c.nextResvRaw;
+  nrDate = raw.date || TODAY_STR;
+  document.getElementById('nrName').textContent = `${c.name} さんの次回予約`;
+  updateNrDateBtn();
+  // 時刻の選択肢（受付時間の広め＝8:00〜18:00、サロンは時間制約ゆるめ）
+  document.getElementById('nrStart').innerHTML = EDIT_SLOTS
+    .map(t => `<option value="${t}" ${t===raw.time?'selected':''}>${t}</option>`).join('');
+  document.getElementById('nrMenu').value = raw.menu || '';
+  document.getElementById('editNextResvModal').classList.add('show');
+}
+function closeEditNextResv() { document.getElementById('editNextResvModal').classList.remove('show'); }
+function updateNrDateBtn() {
+  const d = new Date(nrDate + 'T00:00:00');
+  const WD = ['日','月','火','水','木','金','土'];
+  document.getElementById('nrDateBtn').textContent = `${d.getMonth()+1}月${d.getDate()}日（${WD[d.getDay()]}） ▾`;
+}
+// 次回予約用カレンダー
+let nrCalY, nrCalM;
+function openNrCalendar() {
+  const d = new Date(nrDate + 'T00:00:00');
+  nrCalY = d.getFullYear(); nrCalM = d.getMonth();
+  renderNrCalendar();
+  document.getElementById('nrCalOverlay').classList.add('show');
+}
+function closeNrCalendar() { document.getElementById('nrCalOverlay').classList.remove('show'); }
+function nrCalShiftMonth(n) { const d=new Date(nrCalY, nrCalM+n, 1); nrCalY=d.getFullYear(); nrCalM=d.getMonth(); renderNrCalendar(); }
+function renderNrCalendar() {
+  document.getElementById('nrCalTitle').textContent = `${nrCalY}年 ${nrCalM+1}月`;
+  const startDow = new Date(nrCalY, nrCalM, 1).getDay();
+  const days = new Date(nrCalY, nrCalM+1, 0).getDate();
+  const sel = new Date(nrDate + 'T00:00:00');
+  const selKey = `${sel.getFullYear()}-${sel.getMonth()}-${sel.getDate()}`;
+  const today = new Date(ER_BASE);
+  const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+  let html = '';
+  for (let i=0;i<startDow;i++) html += '<div class="cal-day empty"></div>';
+  for (let d=1; d<=days; d++) {
+    const dow = new Date(nrCalY, nrCalM, d).getDay();
+    const key = `${nrCalY}-${nrCalM}-${d}`;
+    const cls = ['cal-day'];
+    if (dow===0) cls.push('sun'); if (dow===6) cls.push('sat');
+    if (key===todayKey) cls.push('today'); if (key===selKey) cls.push('selected');
+    html += `<div class="${cls.join(' ')}" onclick="nrPickDay(${d})">${d}</div>`;
+  }
+  document.getElementById('nrCalGrid').innerHTML = html;
+}
+function nrPickDay(d) {
+  nrDate = `${nrCalY}-${String(nrCalM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  updateNrDateBtn();
+  closeNrCalendar();
+}
+function saveEditNextResv() {
+  const c = children[nrChildSalon][nrChildIdx];
+  if (!c) { closeEditNextResv(); return; }
+  const newTime = document.getElementById('nrStart').value;
+  const newMenu = document.getElementById('nrMenu').value.trim();
+  const newRaw = { date: nrDate, time: newTime, menu: newMenu };
+  // 子オブジェクトを更新
+  c.nextResvRaw = newRaw;
+  c.nextReservation = fmtNextReservation(newRaw);
+  // 共有ストレージを更新：(1)本日レコードのnextReservation、(2)将来予約レコード(fromNextOf)
+  if (c.sfId) {
+    const recs = sfLoad();
+    const rec = recs.find(r => r.id === c.sfId);
+    if (rec) {
+      rec.nextReservation = newRaw;
+      // 既存の将来予約レコードを作り直し
+      let arr = recs.filter(r => !(r.fromNextOf === c.sfId));
+      const endTime = tAdd(newTime, 90); // 仮に90分
+      arr.push({
+        id: 'fut_' + c.sfId + '_' + Date.now(),
+        gardenId: normGarden(rec.gardenId), salon: nrChildSalon, name: c.name, age: c.age, months: c.months,
+        start: newTime, end: endTime, date: nrDate,
+        nextReservation: null, fromNextOf: c.sfId, memo: newMenu ? `次回予約（${newMenu}）` : '次回予約'
+      });
+      sfSave(arr);
+    }
+  }
+  closeEditNextResv();
+  renderChildren();
+  renderArrivalList();
+  renderFeed(null);
+  const wd = ['日','月','火','水','木','金','土'];
+  const dd = new Date(nrDate+'T00:00:00');
+  showToast(`✓ ${c.name}さんの次回予約を ${dd.getMonth()+1}/${dd.getDate()}（${wd[dd.getDay()]}）${newTime} に変更しました`);
+}
+
+// 「1時間以上」の追加メニューを開閉
+function toggleLongLate(i) {
+  const el = document.getElementById('longLate-'+i);
+  if (el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+}
+// 早上がりの「1時間以上」追加メニューを開閉
+function toggleLongEarly(i) {
+  const el = document.getElementById('longEarly-'+i);
+  if (el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+}
+
+// ===== 遅延の二段階確認 =====
+let pendingLate = null;
+// 遅延チップを押す → 確認ポップアップを開く（現在の見込み → 変更後を提示）
+function askLateConfirm(childIdx, addMin) {
+  const c = children[salon][childIdx];
+  const from = currentEnd(c);              // 現在の見込み（遅延済みならそれ、なければ元終了）
+  const to = addMinToTime(from, addMin);   // さらに addMin 後
+  pendingLate = { salonKey: salon, childIdx, addMin, from, to };
+  document.getElementById('latePopName').textContent = `${c.name} さん`;
+  document.getElementById('latePopFrom').textContent = `${from} 頃`;
+  document.getElementById('latePopAdd').textContent = `+${fmtLate(addMin)}`;
+  document.getElementById('latePopTo').textContent = `${to} 頃`;
+  document.getElementById('latePopDesc').textContent =
+    (c.lateMin > 0)
+      ? `現在お伝えしている ${from} から、さらに ${fmtLate(addMin)} 遅れて ${to} 頃のお戻りに変更します。この内容で間違いないですか？`
+      : `お戻り予定を ${to} 頃（${fmtLate(addMin)} 遅れ）に変更します。この内容で間違いないですか？`;
+  document.getElementById('latePopup').classList.add('show');
+}
+function closeLatePopup() {
+  document.getElementById('latePopup').classList.remove('show');
+  pendingLate = null;
+}
+// 確認OK → 実際に保育園へ送信
+function confirmLate() {
+  if (!pendingLate) return;
+  const { salonKey, childIdx, addMin } = pendingLate;
+  // 念のため送信時の選択中サロンを合わせる
+  const prevSalon = salon;
+  salon = salonKey;
+  sendNotify('late', childIdx, addMin);
+  salon = prevSalon;
+  closeLatePopup();
+  renderChildren();
+}
+
+// ===== 早上がりの二段階確認 =====
+let pendingEarly = null;
+// 早上がりチップを押す → 確認ポップアップ（現在の見込み → 早まり後を提示）
+function askEarlyConfirm(childIdx, subMin) {
+  const c = children[salon][childIdx];
+  const from = currentEnd(c);                       // 現在の見込み
+  // 開始時刻を下限にクランプして「早まり後」を算出
+  const [bh, bm] = from.split(':').map(Number);
+  const [sh, sm] = c.start.split(':').map(Number);
+  let cur = bh*60 + bm - subMin;
+  const startMin = sh*60 + sm;
+  const clamped = cur < startMin;
+  if (clamped) cur = startMin;
+  const to = `${String(Math.floor(cur/60)%24).padStart(2,'0')}:${String(cur%60).padStart(2,'0')}`;
+  pendingEarly = { salonKey: salon, childIdx, subMin, from, to };
+  document.getElementById('earlyPopName').textContent = `${c.name} さん`;
+  document.getElementById('earlyPopFrom').textContent = `${from} 頃`;
+  document.getElementById('earlyPopSub').textContent = `−${fmtLate(subMin)}`;
+  document.getElementById('earlyPopTo').textContent = `${to} 頃`;
+  document.getElementById('earlyPopDesc').textContent = clamped
+    ? `お戻り予定を ${to} 頃（お預かり開始時刻）に変更します。これ以上は早められません。この内容で間違いないですか？保育園に改めてお知らせします。`
+    : `お戻り予定を ${from} から ${to} 頃に早めます。この内容で間違いないですか？保育園に改めてお知らせします。`;
+  document.getElementById('earlyPopup').classList.add('show');
+}
+function closeEarlyPopup() {
+  document.getElementById('earlyPopup').classList.remove('show');
+  pendingEarly = null;
+}
+function confirmEarly() {
+  if (!pendingEarly) return;
+  const { salonKey, childIdx, subMin } = pendingEarly;
+  const prevSalon = salon;
+  salon = salonKey;
+  sendNotify('early', childIdx, subMin);
+  salon = prevSalon;
+  closeEarlyPopup();
+  renderChildren();
+}
+
+// ===== もう向かっています＋次回予約 =====
+let pendingComing = null;
+// 「もう向かっています」を押す → 次回予約入力ポップアップを開く
+function askComing(childIdx) {
+  const c = children[salon][childIdx];
+  pendingComing = { salonKey: salon, childIdx };
+  document.getElementById('comingPopName').textContent = `${c.name} さん`;
+  document.getElementById('comingDate').value = '';
+  document.getElementById('comingTime').value = '';
+  document.getElementById('comingMenu').value = '';
+  document.getElementById('comingPopup').classList.add('show');
+}
+function closeComingPopup() {
+  document.getElementById('comingPopup').classList.remove('show');
+  pendingComing = null;
+}
+// 入力された日付を「6/14（土）」形式に整形（未入力なら空）
+function fmtNextDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  if (isNaN(d)) return '';
+  const wd = ['日','月','火','水','木','金','土'][d.getDay()];
+  return `${d.getMonth()+1}/${d.getDate()}（${wd}）`;
+}
+// 送信。withNext=true なら入力された次回予約を載せる
+function confirmComing(withNext) {
+  if (!pendingComing) return;
+  const { salonKey, childIdx } = pendingComing;
+  const c = children[salonKey][childIdx];
+  let nextResv = null;
+  if (withNext) {
+    const datePart = fmtNextDate(document.getElementById('comingDate').value);
+    const timePart = document.getElementById('comingTime').value || '';
+    const menuPart = (document.getElementById('comingMenu').value || '').trim();
+    const parts = [];
+    if (datePart || timePart) parts.push(`${datePart}${datePart && timePart ? ' ' : ''}${timePart}`.trim());
+    if (menuPart) parts.push(menuPart);
+    nextResv = parts.join('・') || null;
+  }
+  c.nextReservation = nextResv; // 子に保存（entryに載る）
+  const prevSalon = salon;
+  salon = salonKey;
+  sendNotify('coming', childIdx);
+  salon = prevSalon;
+  closeComingPopup();
+  renderChildren();
+}
+
+// ===== 通知送信 → 保育園ボードに反映 =====
+let notifications = []; // 子ごとに1件（キー: salon|name）
+function sendNotify(type, childIdx, lateMin) {
+  const c = children[salon][childIdx];
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mm = String(now.getMinutes()).padStart(2,'0');
+  let headline, detail, badge;
+  // late/early のとき：現在の見込みに対して時刻をずらし、累計のズレ（正=遅れ/負=早まり）を算出
+  let newExpectedEnd, totalDiff;
+  if (type === 'late' || type === 'early') {
+    const baseEnd = currentEnd(c);                   // 現在の見込み（なければ元終了）
+    const shift = (type === 'late') ? lateMin : -lateMin; // early は前倒し（lateMin は調整量の絶対値）
+    newExpectedEnd = addMinToTime(baseEnd, shift);
+    // 早まりは元の開始時刻より前にはしない（下限ガード）
+    if (type === 'early') {
+      const [sh, sm] = c.start.split(':').map(Number);
+      const [bh, bm] = baseEnd.split(':').map(Number);
+      let [nh2, nm2] = newExpectedEnd.split(':').map(Number);
+      let cur = bh*60 + bm + shift; // 実際の合計分（負方向）
+      const startMin = sh*60 + sm;
+      if (cur < startMin) cur = startMin;            // 開始時刻でクランプ
+      newExpectedEnd = `${String(Math.floor(cur/60)%24).padStart(2,'0')}:${String(cur%60).padStart(2,'0')}`;
+    }
+    const [oh, om] = c.end.split(':').map(Number);
+    const [nh, nm] = newExpectedEnd.split(':').map(Number);
+    totalDiff = (nh*60 + nm) - (oh*60 + om);         // 正=遅れ / 負=早まり
+  }
+  if (type === 'soon') {
+    badge = '⏳ あと10〜15分';
+    headline = `<span class="child">${c.name}</span> さん あと10〜15分で終わります`;
+    detail = '施術の仕上げに入りました。お迎えの準備を始めてください。';
+  } else if (type === 'soon-early') {
+    badge = '⚡ まもなく終わりそう（早め）';
+    headline = `<span class="child">${c.name}</span> さん まもなく終わりそうです`;
+    detail = '施術が予定より早く進んでいます。10〜15分ほどでお迎えに伺える見込みです。お迎えの準備を少し早めにお願いします。';
+  } else if (type === 'coming') {
+    badge = '🏃 もう向かっています';
+    headline = `<span class="child">${c.name}</span> さん お客様がもう向かっています`;
+    detail = 'お客様が店を出ました。すぐ到着します。最終の準備をお願いします。'
+      + (c.nextReservation ? `次回予約も承っています（${c.nextReservation}）。お見送り時に「次回もお待ちしております」とお声がけください。` : '');
+  } else if (type === 'late') {
+    badge = `🟠 遅れます（合計+${fmtLate(totalDiff)}）`;
+    headline = `<span class="child">${c.name}</span> さん お迎えが遅れます`;
+    detail = `施術が長引いており、お迎えは${newExpectedEnd}頃の見込みです（合計で約${fmtLate(totalDiff)}遅れ）。`;
+  } else { // early
+    const earlyAmt = -totalDiff; // 早まり分（正の値）
+    badge = (earlyAmt > 0) ? `🔵 早く終わります（${fmtLate(earlyAmt)}早まり）` : `🔵 お戻り時刻の変更`;
+    headline = `<span class="child">${c.name}</span> さん お迎えが早まります`;
+    detail = `施術が予定より早く終わる見込みです。お迎えは${newExpectedEnd}頃になりそうです（約${fmtLate(earlyAmt)}早まり）。お迎えの準備を早めにお願いします。`;
+  }
+  const key = `${salon}|${c.name}`;
+  // 直前にこの子の通知（ズレ情報）があれば引き継ぐ
+  const prev = notifications.find(n => n.key === key);
+  // late/early は算出後の値で更新。soon/soon-early/coming は過去のズレ情報を保持する。
+  let effLateMin, expectedEnd;
+  if (type === 'late' || type === 'early') {
+    effLateMin = totalDiff;
+    expectedEnd = newExpectedEnd;
+  } else {
+    // soon / soon-early / coming：以前にズレを伝えていれば、その戻り予定を引き継ぐ
+    effLateMin = (prev && prev.lateMin != null) ? prev.lateMin : 0;
+    expectedEnd = (prev && prev.expectedEnd) ? prev.expectedEnd : c.end;
+  }
+  const entry = { key, type, badge, headline, detail, salon: SALON_JP[salon], salonKey: salon, childIdx,
+    childName: c.name, time: `${hh}:${mm}`, ts: now.getTime(),
+    start: c.start, end: c.end, expectedStart: (c.expectedStart || c.start), expectedEnd, lateMin: effLateMin,
+    nextReservation: (type === 'coming' ? c.nextReservation : null) };
+  // 子オブジェクトにも最終的な遅れ情報を保存（お迎え完了カードなどで表示するため。通知削除後も残る）
+  c.lateMin = effLateMin;
+  c.expectedEnd = expectedEnd;
+  // 時刻変更（遅れ/早まり）を伝えたときは「連絡済み時刻」を記録（サロン側の連絡済み表示用）
+  if (type === 'late' || type === 'early') c.lastLateTime = `${hh}:${mm}`;
+  // 同じ子の通知がすでにあれば更新（最新状態に）、なければ先頭に追加
+  const existing = notifications.findIndex(n => n.key === key);
+  if (existing >= 0) {
+    notifications.splice(existing, 1); // いったん外して
+  }
+  notifications.unshift(entry); // 先頭（最新）に
+  // 「もう向かっています」を送ったら、サロン側の役目は完了（ボタンを消す）
+  if (type === 'coming') {
+    c.sentComing = true;
+    renderChildren();
+  }
+  renderFeed(key);
+  playSound(type);
+  flashAlert();
+  showToast(`✓ 保育園に通知しました（${badge}）`);
+}
+
+// ===== 保育園: 経過時間の文言 =====
+function elapsedText(ts) {
+  const min = Math.floor((Date.now() - ts) / 60000);
+  if (min <= 0) return 'たった今';
+  if (min < 60) return `${min}分前`;
+  const h = Math.floor(min/60), m = min%60;
+  return m ? `${h}時間${m}分前` : `${h}時間前`;
+}
+
+// ===== 保育園: フィード描画（子ごとに1カード） =====
+function renderFeed(flashKey) {
+  const feed = document.getElementById('feed');
+  if (notifications.length === 0) {
+    feed.innerHTML = '<div class="feed-empty">対応が必要なお子様はいません<span class="en">All clear — no pending pick-ups</span></div>';
+    return;
+  }
+  feed.innerHTML = notifications.map((n) => {
+    // 電話確認済み（来園予定）：来園したら預かり完了、内容確認だけなら確認しました
+    if (n.type === 'call') {
+      return `
+    <div class="feed-item call salon-${n.salonKey} ${flashKey===n.key?'flash':''}">
+      <div class="feed-call-actions">
+        <button class="feed-done" onclick="markArrived('${n.salonKey}',${n.childIdx})">✓ 預かり完了</button>
+        <button class="feed-ack" onclick="ackCall('${n.salonKey}',${n.childIdx})">確認しました</button>
+      </div>
+      <div class="feed-salon-tag salon-${n.salonKey}">${n.salon}</div>
+      <div class="feed-top">
+        <span class="feed-badge call">${n.badge}</span>
+      </div>
+      <div class="feed-headline">${n.headline}</div>
+      <div class="feed-detail">${n.detail}</div>
+      <div class="feed-times">
+        <div class="ft-block">
+          <span class="ft-label">お預かり</span>
+          <span class="ft-value">${(n.lateMin > 0 && n.expectedStart) ? ('<span class="ret-orig">' + n.start + ' 〜 ' + n.end + '</span> → <span class="ret-new">' + n.expectedStart + ' 来園 〜 ' + n.expectedEnd + ' お戻り</span>') : (n.start + ' 〜 ' + n.end)}</span>
+        </div>
+        <div class="ft-block">
+          <span class="ft-label">受信</span>
+          <span class="ft-value">${n.time}　<span class="ft-elapsed" data-ts="${n.ts}">${elapsedText(n.ts)}</span></span>
+        </div>
+      </div>
+    </div>`;
+    }
+    // キャンセル通知：専用カード（確認しましたで消える＝記録へ）
+    if (n.type === 'cancel') {
+      return `
+    <div class="feed-item cancel salon-${n.salonKey} ${flashKey===n.key?'flash':''}">
+      <button class="feed-ack" onclick="ackCancel('${n.salonKey}',${n.childIdx})">確認しました</button>
+      <div class="feed-salon-tag salon-${n.salonKey}">${n.salon}</div>
+      <div class="feed-top">
+        <span class="feed-badge cancel">${n.badge}</span>
+      </div>
+      <div class="feed-headline">${n.headline}</div>
+      <div class="feed-detail">${n.detail}</div>
+      <div class="feed-times">
+        <div class="ft-block">
+          <span class="ft-label">予約</span>
+          <span class="ft-value">${n.start} 〜 ${n.end}</span>
+        </div>
+        <div class="ft-block">
+          <span class="ft-label">受信</span>
+          <span class="ft-value">${n.time}　<span class="ft-elapsed" data-ts="${n.ts}">${elapsedText(n.ts)}</span></span>
+        </div>
+      </div>
+    </div>`;
+    }
+    // 来園・お戻りの見込み（電話確認で来園がずれた場合は来園も変更後で表示）
+    const startChanged = n.expectedStart && n.expectedStart !== n.start;
+    const endChanged = n.lateMin && n.lateMin !== 0 && n.expectedEnd !== n.end;
+    let timeDisplay;
+    if (startChanged) {
+      // 来園・お戻りの両方を変更後で（元の予約を取り消し線）
+      const earlyCls = n.lateMin < 0 ? 'ret-early' : '';
+      timeDisplay = '<span class="ret-orig">' + n.start + ' 〜 ' + n.end + '</span> → <span class="ret-new ' + earlyCls + '">' + n.expectedStart + ' 来園 〜 ' + n.expectedEnd + ' お戻り</span>';
+    } else if (endChanged) {
+      const earlyCls = n.lateMin < 0 ? 'ret-early' : '';
+      timeDisplay = n.start + ' 〜 <span class="ret-orig">' + n.end + '</span> → <span class="ret-new ' + earlyCls + '">' + n.expectedEnd + ' 頃お戻り</span>';
+    } else {
+      timeDisplay = n.start + ' 〜 <span class="ret-new">' + n.end + ' 頃お戻り</span>';
+    }
+    return `
+    <div class="feed-item ${n.type} salon-${n.salonKey} ${flashKey===n.key?'flash':''}">
+      <button class="feed-done" onclick="markPickedUp('${n.salonKey}',${n.childIdx})">お迎え完了 ✓</button>
+      <div class="feed-salon-tag salon-${n.salonKey}">${n.salon}</div>
+      <div class="feed-top">
+        <span class="feed-badge ${n.type}">${n.badge}</span>
+      </div>
+      <div class="feed-headline">${n.headline}</div>
+      <div class="feed-detail">${n.detail}</div>
+      ${n.nextReservation ? `<div class="feed-next-resv">
+        <span class="fnr-label">🗓 次回のご予約</span>
+        <span class="fnr-value">${n.nextReservation}</span>
+        <span class="fnr-note">お迎え時に「お待ちしております」とお声がけを</span>
+      </div>` : ''}
+      <div class="feed-times">
+        <div class="ft-block">
+          <span class="ft-label">お預かり</span>
+          <span class="ft-value">${timeDisplay}</span>
+        </div>
+        <div class="ft-block">
+          <span class="ft-label">受信</span>
+          <span class="ft-value">${n.time}　<span class="ft-elapsed" data-ts="${n.ts}">${elapsedText(n.ts)}</span></span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+// 経過時間だけを定期更新（カード全体を作り直さず軽量に）
+function refreshElapsed() {
+  document.querySelectorAll('.ft-elapsed').forEach(el => {
+    const ts = parseInt(el.dataset.ts);
+    el.textContent = elapsedText(ts);
+  });
+}
+
+// ===== 通知音（Web Audio APIで生成。音源ファイル不要） =====
+let audioCtx = null;
+function playSound(type) {
+  if (!soundOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    // 種類で音色を変える
+    const seq = type === 'late' ? [660, 550] : [880, 1175]; // 遅延は下降、その他は上昇
+    seq.forEach((freq, idx) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t0 = audioCtx.currentTime + idx * 0.18;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(t0); osc.stop(t0 + 0.4);
+    });
+  } catch(e) { /* 音が出せない環境は無視 */ }
+}
+
+function flashAlert() {
+  const ov = document.getElementById('alertOverlay');
+  ov.classList.add('show');
+  setTimeout(()=>ov.classList.remove('show'), 1800);
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  document.getElementById('soundToggle').classList.toggle('off', !soundOn);
+  document.getElementById('soundLabel').textContent = soundOn ? '通知音 オン' : '通知音 オフ';
+  if (soundOn) { playSound('soon'); } // オンにしたら確認音
+}
+
+function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+
+// 時計
+function tick() {
+  const now = new Date();
+  document.getElementById('clock').textContent = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  refreshElapsed();
+}
+setInterval(tick, 1000); tick();
+
+// ===== 保育園 → サロン：お子様の様子・お世話 =====
+// 様子の種類定義
+const REPORT_TYPES = [
+  { key:'play',  icon:'😊', label:'ごきげんに遊んでいます', kind:'status' },
+  { key:'sleep', icon:'😴', label:'すやすや眠っています', kind:'status' },
+  { key:'milk',  icon:'🍼', label:'ミルクを飲みました', kind:'care' },
+  { key:'meal',  icon:'🍙', label:'ごはんを食べました', kind:'care' },
+];
+// サロン別の受信した様子ログ
+let statusLogs = { woodstock: [], janis: [] };
+
+// 保育園側：お預かり中（来園してお預かり確定）の子だけ、様子送信ボタンを描画
+function renderReportList() {
+  const all = [];
+  ['woodstock','janis'].forEach(sk => {
+    children[sk].forEach((c, idx) => {
+      // 来園してお預かりが確定した子（waiting）のみ。予約済み・電話確認済み・未到着・完了は出さない
+      if (c.status === 'waiting') all.push({ ...c, salonKey: sk, idx });
+    });
+  });
+  const el = document.getElementById('reportList');
+  if (all.length === 0) {
+    el.innerHTML = '<div class="report-empty">現在お預かり中のお子様はいません。<br>保育園で「預かり完了」を押すと、そのお子様の様子を伝えられます。</div>';
+    return;
+  }
+  el.innerHTML = all.map(c => {
+    const ageLabel = c.age==='3'?'3歳〜':c.age+'歳';
+    const salonTag = c.salonKey==='woodstock' ? 'WOODSTOCK' : 'JANIS';
+    return `<div class="report-card">
+      <div class="report-child">
+        <span class="report-name">${c.name}</span>
+        <span class="report-salon salon-${c.salonKey}">${salonTag}</span>
+      </div>
+      <div class="report-btns">
+        ${REPORT_TYPES.map(r => `<button class="report-btn ${r.kind}" onclick="sendStatus('${c.salonKey}',${c.idx},'${r.key}')">${r.icon} ${r.label}</button>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// 保育園 → サロンへ様子を送信
+function sendStatus(salonKey, childIdx, reportKey) {
+  const c = children[salonKey][childIdx];
+  const r = REPORT_TYPES.find(x => x.key === reportKey);
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mm = String(now.getMinutes()).padStart(2,'0');
+  statusLogs[salonKey].unshift({
+    childName: c.name, icon: r.icon, label: r.label, kind: r.kind, lane: 'report', time: `${hh}:${mm}`, ts: now.getTime()
+  });
+  renderStatusFeed(true);
+  playSound('soon');
+  showToast(`✓ ${SALON_JP[salonKey]}に伝えました（${c.name}さん）`);
+}
+
+// サロン側：受信した連絡・様子を2レーンに分けて表示（今選択中のサロンのぶん）
+function renderStatusFeed(flash) {
+  const logs = statusLogs[salon] || [];
+  // 直前に追加された最新ログの ts（flash対象の特定に使う）
+  const newestTs = logs.length ? logs[0].ts : null;
+
+  // レーンごとに描画
+  const renderLane = (laneKey, emptyMsg) => {
+    const items = logs.filter(l => (l.lane || 'report') === laneKey);
+    if (items.length === 0) return `<div class="status-empty">${emptyMsg}</div>`;
+    return items.map(l => `
+      <div class="status-item ${l.kind} ${flash && l.ts === newestTs ? 'flash' : ''}">
+        <span class="status-icon">${l.icon}</span>
+        <div class="status-body">
+          <div class="status-text"><span class="status-child">${l.childName}</span> さん ${l.label}</div>
+          <div class="status-time"><span class="clock-time">${l.time}</span> 受信　<span class="ft-elapsed" data-ts="${l.ts}">${elapsedText(l.ts)}</span></div>
+        </div>
+      </div>
+    `).join('');
+  };
+
+  document.getElementById('careFeed').innerHTML = renderLane('care', '連絡はまだありません');
+  document.getElementById('reportFeed').innerHTML = renderLane('report', '様子のお便りはまだありません');
+}
+
+// ===== 登園ステータス管理（保育園側） =====
+function timeStrToMin(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
+
+// 全子をフラットに
+function allChildren() {
+  const out = [];
+  ['woodstock','janis'].forEach(sk => children[sk].forEach((c,idx)=>out.push({c, salonKey:sk, idx})));
+  return out;
+}
+
+// 未到着の自動判定（予約開始+5分を過ぎてreservedのままなら no-show）
+function checkArrivals() {
+  let changed = false;
+  allChildren().forEach(({c, salonKey}) => {
+    if (c.status === 'reserved' && nowMin() >= timeStrToMin(c.start) + 5) {
+      c.status = 'no-show';
+      changed = true;
+      // 保育園→美容室へ自動アラート
+      pushAutoAlert(c, salonKey);
+    }
+  });
+  if (changed) { renderChildren(); }
+  renderArrivalList();
+}
+
+// 未到着アラートをサロン側statusLogsに流す
+function pushAutoAlert(c, salonKey) {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0'), mm = String(now.getMinutes()).padStart(2,'0');
+  statusLogs[salonKey].unshift({
+    childName: c.name, icon:'⏰', label:'まだ来園されていません（予約時刻を過ぎています）', kind:'alert', lane:'care',
+    time:`${hh}:${mm}`, ts: now.getTime()
+  });
+  if (salon === salonKey) renderStatusFeed(true);
+  playSound('late');
+  showToast(`⏰ ${SALON_JP[salonKey]}へ未到着アラートを送りました`);
+}
+
+// 保育園側：本日のお預かり予定リスト
+function renderArrivalList() {
+  const el = document.getElementById('arrivalList');
+  // 受信ボード（お迎え通知）に出ている子のキー一覧
+  const inFeed = new Set(notifications.map(n => n.key));
+  // done（お迎え完了）は除外。キャンセルは保育園が確認するまで残す。
+  // お迎え通知が来て受信ボードに出ている子も、ここでは重複表示しない（受信ボードに一本化）
+  const all = allChildren().filter(x => {
+    if (x.c.status === 'done') return false;
+    const key = `${x.salonKey}|${x.c.name}`;
+    if (inFeed.has(key)) return false; // 受信ボードに集約
+    return true;
+  });
+  // 開始時刻順
+  all.sort((a,b) => a.c.start.localeCompare(b.c.start));
+  if (all.length === 0) {
+    el.innerHTML = '<div class="arr-empty">本日のお預かりはすべて完了しました</div>';
+    return;
+  }
+  el.innerHTML = all.map(({c, salonKey, idx}) => {
+    const st = STATUS_INFO[c.status] || STATUS_INFO.reserved;
+    const salonTag = salonKey==='woodstock' ? 'WOODSTOCK' : 'JANIS';
+    // アクションボタン（下段に横並び・幅を分け合う）
+    let btns = '';
+    if (c.status === 'cancelled') {
+      btns = `<button class="arr-btn arr-ack" onclick="ackCancel('${salonKey}',${idx})">確認しました</button>`;
+    } else if (c.status === 'reserved' || c.status === 'no-show' || c.status === 'late-hold') {
+      // メイン：預かり完了（広め）／サブ：○○に確認（控えめ・ブランドカラー）
+      btns = `<button class="arr-btn arr-done" onclick="markArrived('${salonKey}',${idx})">✓ 預かり完了</button>`
+           + `<button class="arr-btn arr-ask ask-${salonKey}" onclick="askSalon('${salonKey}',${idx})">${SALON_NAME_EN[salonKey]} に確認</button>`;
+    } else if (c.status === 'waiting') {
+      btns = `<span class="arr-waiting-note">お迎え通知をお待ちください</span>`;
+    }
+    // キャンセルの場合は受信時刻＋経過時間を表示
+    const cancelInfo = (c.status === 'cancelled' && c.cancelTs)
+      ? `<div class="arr-cancel-time">🚫 ${c.cancelTime} キャンセル受信　<span class="ft-elapsed" data-ts="${c.cancelTs}">${elapsedText(c.cancelTs)}</span></div>`
+      : '';
+    // 電話確認済み（来園予定）の場合は遅れの見込みを表示
+    let callInfo = '';
+    if (c.status === 'late-hold' && c.callConfirmed) {
+      if (c.callLateMin > 0) {
+        const [sh, sm] = c.start.split(':').map(Number);
+        const total = sh*60 + sm + c.callLateMin;
+        const eta = `${String(Math.floor(total/60)%24).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+        callInfo = `<div class="arr-call-info">📞 電話確認済み・約${fmtLate(c.callLateMin)}遅れて来園予定（${eta}頃来園／お戻り ${c.expectedEnd} 頃）</div>`;
+      } else {
+        callInfo = `<div class="arr-call-info">📞 電話確認済み・ほぼ予定通りに来園予定</div>`;
+      }
+    }
+    // 次回予約があれば表示（お迎え時に「次回予約もしています」と声かけできる）
+    const nextResvInfo = c.nextReservation
+      ? `<div class="arr-next-resv">🗓 次回予約もしています（${c.nextReservation}）</div>` : '';
+    return `<div class="arr-card status-${c.status}">
+      <div class="arr-head">
+        <div class="arr-info">
+          <span class="arr-salon salon-${salonKey}">${salonTag}</span>
+          <div class="arr-name-row">
+            <span class="arr-name">${c.name}</span>
+            <span class="arr-time">予約 ${c.start} 〜 ${(c.lateMin && c.lateMin !== 0 && c.expectedEnd && c.expectedEnd !== c.end) ? ('<span class="meta-orig">' + c.end + '</span> → <span class="meta-new ' + (c.lateMin < 0 ? 'meta-early' : '') + '">' + c.expectedEnd + ' 頃</span>') : c.end}</span>
+          </div>
+          ${callInfo}
+          ${cancelInfo}
+          ${nextResvInfo}
+        </div>
+        <span class="arr-status" style="background:${st.bg}; color:${st.color};">${st.jp}</span>
+      </div>
+      <div class="arr-actions">${btns}</div>
+    </div>`;
+  }).join('');
+}
+
+// 保育園がキャンセルを確認 → 受信ボードから消える（記録として done で残る）
+function ackCancel(salonKey, idx) {
+  const c = children[salonKey][idx];
+  c.status = 'done';
+  // 受信ボードのキャンセル通知を消す
+  const key = `${salonKey}|${c.name}`;
+  notifications = notifications.filter(x => x.key !== key);
+  renderFeed(null);
+  renderArrivalList();
+  renderChildren();
+  showToast(`${c.name}さんのキャンセルを確認しました`);
+}
+
+// 保育園が電話確認の内容を確認 → 受信ボードから下げる（来園待ちは継続・予約リストに残る）
+function ackCall(salonKey, idx) {
+  const c = children[salonKey][idx];
+  // ステータスは late-hold（来園予定）のまま。受信ボードの通知だけ消す。
+  const key = `${salonKey}|${c.name}`;
+  notifications = notifications.filter(x => !(x.key === key && x.type === 'call'));
+  renderFeed(null);
+  renderArrivalList();
+  renderChildren();
+  showToast(`${c.name}さんの来園予定を確認しました（来園をお待ちください）`);
+}
+
+// 預かり完了 → waitingに。美容室へ「お預かりしました」通知＋予約表ポップアップ
+function markArrived(salonKey, idx) {
+  const c = children[salonKey][idx];
+  c.status = 'waiting';
+  // 電話確認・キャンセルの受信ボード通知が残っていれば消す（来園してお預かり確定したため）
+  const key = `${salonKey}|${c.name}`;
+  notifications = notifications.filter(x => !(x.key === key && (x.type === 'call' || x.type === 'cancel')));
+  renderFeed(null);
+  renderArrivalList();
+  renderChildren();
+  renderReportList(); // お預かり確定 → 様子を伝えるボタンを表示
+  // 美容室へ通知
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0'), mm = String(now.getMinutes()).padStart(2,'0');
+  statusLogs[salonKey].unshift({
+    childName: c.name, icon:'✅', label:'お預かりしました。', kind:'care', lane:'care',
+    time:`${hh}:${mm}`, ts: now.getTime()
+  });
+  if (salon === salonKey) renderStatusFeed(true);
+  showSalonPopup(salonKey);
+  showToast(`✓ ${c.name}さん お預かり完了（${SALON_JP[salonKey]}へ通知）`);
+}
+
+// お迎え完了 → done。受信ボードの通知も消して一連の流れを締める
+function markPickedUp(salonKey, idx) {
+  const c = children[salonKey][idx];
+  c.status = 'done';
+  // 受信ボード（お迎え通知）からこの子のカードを消す
+  const key = `${salonKey}|${c.name}`;
+  notifications = notifications.filter(x => x.key !== key);
+  renderFeed(null);
+  renderArrivalList();
+  renderChildren();
+  renderReportList(); // お迎え完了 → 様子を伝えるボタンを下げる
+  // 美容室側にも「保育園でのお預かりも完了」を共有して一連の流れを締める
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0'), mm = String(now.getMinutes()).padStart(2,'0');
+  statusLogs[salonKey].unshift({
+    childName: c.name, icon:'🎉', label:'保育園でのお預かりも無事に完了しました。本日もありがとうございました。', kind:'care', lane:'care',
+    time:`${hh}:${mm}`, ts: now.getTime()
+  });
+  if (salon === salonKey) renderStatusFeed(true);
+  showToast(`🎉 ${c.name}さん 保育園でのお預かりも完了しました`);
+}
+
+// サロンに確認（未到着時）
+function askSalon(salonKey, idx) {
+  const c = children[salonKey][idx];
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0'), mm = String(now.getMinutes()).padStart(2,'0');
+  statusLogs[salonKey].unshift({
+    childName: c.name, icon:'❓', label:'お子様がまだ来園されていません。ご予定はいかがでしょうか？', kind:'alert', lane:'care',
+    time:`${hh}:${mm}`, ts: now.getTime()
+  });
+  if (salon === salonKey) renderStatusFeed(true);
+  playSound('soon');
+  showToast(`${SALON_JP[salonKey]}へ確認を送りました`);
+}
+
+// サロン側：お客様に電話する（お迎えの遅れ確認）→ 電話確認ポップアップを開く
+let pendingCall = null;
+function callCustomer(i) {
+  const c = children[salon][i];
+  pendingCall = { salonKey: salon, idx: i };
+  document.getElementById('callPopName').textContent = `${c.name} さん`;
+  document.getElementById('callPopTime').textContent = `お預かり ${c.start} 〜 ${c.end}`;
+  // 「1時間以上」メニューは毎回閉じた状態で開く
+  const ll = document.getElementById('callLongLate');
+  if (ll) ll.style.display = 'none';
+  document.getElementById('callPopup').classList.add('show');
+}
+function closeCallPopup() {
+  document.getElementById('callPopup').classList.remove('show');
+  pendingCall = null;
+}
+// 電話確認ポップアップ内の「1時間以上」開閉
+function toggleCallLongLate() {
+  const el = document.getElementById('callLongLate');
+  if (el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+}
+// 電話確認の結果を確定 → 来園前提・遅れ時間を保育園に共有（アラートも止まる）
+function confirmCall(kind, lateMin) {
+  if (!pendingCall) return;
+  const { salonKey, idx } = pendingCall;
+  const c = children[salonKey][idx];
+  const late = (kind === 'late') ? lateMin : 0;
+  c.status = 'late-hold';      // 来園予定（電話確認済み）。未到着アラートを止める
+  c.callConfirmed = true;
+  c.callLateMin = late;
+  // 来園が遅れる場合は、来園時刻とお戻り時刻（お預かり終了）の両方を後ろにずらす
+  if (late > 0) {
+    c.lateMin = late;
+    c.expectedStart = addMinToTime(c.start, late);
+    c.expectedEnd = addMinToTime(c.end, late);
+  } else {
+    c.lateMin = 0;
+    c.expectedStart = c.start;
+    c.expectedEnd = c.end;
+  }
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mm = String(now.getMinutes()).padStart(2,'0');
+  // 保育園のお知らせフィードに「電話確認済み・来園予定」を流す（キャンセルとは別物）
+  let label;
+  if (late > 0) {
+    const [sh, sm] = c.start.split(':').map(Number);
+    const total = sh*60 + sm + late;
+    const eta = `${String(Math.floor(total/60)%24).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+    label = `電話で確認しました。来園されます（約${fmtLate(late)}遅れ・${eta}頃の見込み／お戻り ${c.expectedEnd} 頃）`;
+  } else {
+    label = `電話で確認しました。ほぼ予定通りに来園されます`;
+  }
+  statusLogs[salonKey].unshift({
+    childName: c.name, icon:'📞', label, kind:'status', lane:'care',
+    time:`${hh}:${mm}`, ts: now.getTime()
+  });
+  if (salon === salonKey) renderStatusFeed(true);
+  // 保育園側の受信ボードにも「電話確認済み・来園予定」を通知（確認しましたで消える）
+  const key = `${salonKey}|${c.name}`;
+  notifications = notifications.filter(x => x.key !== key);
+  let etaText;
+  if (late > 0) {
+    const [sh, sm] = c.start.split(':').map(Number);
+    const total = sh*60 + sm + late;
+    const eta = `${String(Math.floor(total/60)%24).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+    etaText = `約${fmtLate(late)}遅れ・${eta}頃の来園見込み。お戻りは ${c.expectedEnd} 頃`;
+  } else {
+    etaText = 'ほぼ予定通りに来園見込み';
+  }
+  notifications.unshift({
+    key, type: 'call', salon: SALON_JP[salonKey], salonKey, childIdx: idx,
+    childName: c.name, time: `${hh}:${mm}`, ts: now.getTime(),
+    start: c.start, end: c.end,
+    expectedStart: (late > 0 ? addMinToTime(c.start, late) : c.start),
+    expectedEnd: c.expectedEnd, lateMin: late,
+    badge: '📞 電話確認済み・来園予定',
+    headline: `<span class="child">${c.name}</span> さん 電話で確認・来園されます`,
+    detail: `サロンがお客様に電話で確認しました。${etaText}です。来園されたら「預かり完了」、内容を確認したら「確認しました」を押してください。`,
+  });
+  closeCallPopup();
+  renderFeed(key);
+  playSound('soon');
+  flashAlert();
+  renderChildren();
+  renderArrivalList();
+  showToast(late > 0
+    ? `📞 ${c.name}さん 来園予定（約${fmtLate(late)}遅れ・お戻り${c.expectedEnd}頃）を保育園に共有しました`
+    : `📞 ${c.name}さん 来園予定を保育園に共有しました`);
+}
+
+// サロン側：本日はお預かりなし（キャンセル）→ 確認ポップアップを開く
+let pendingCancel = null;
+function cancelToday(i) {
+  const c = children[salon][i];
+  pendingCancel = { salonKey: salon, idx: i };
+  document.getElementById('cancelPopName').textContent = `${c.name} さん`;
+  document.getElementById('cancelPopTime').textContent = `お預かり ${c.start} 〜 ${c.end}`;
+  document.getElementById('cancelPopup').classList.add('show');
+}
+function closeCancelPopup() {
+  document.getElementById('cancelPopup').classList.remove('show');
+  pendingCancel = null;
+}
+function confirmCancel() {
+  if (!pendingCancel) return;
+  const c = children[pendingCancel.salonKey][pendingCancel.idx];
+  const salonKey = pendingCancel.salonKey;
+  c.status = 'cancelled'; // 保育園が確認するまで「キャンセル」で残る
+  c.cancelled = true; // キャンセル経由であることを記録
+  const now = new Date();
+  c.cancelTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  c.cancelTs = now.getTime();
+  // 受信ボードにキャンセル通知を積む（お迎え通知と同じ扱い・確認で消える）
+  const key = `${salonKey}|${c.name}`;
+  // 既存のお迎え系通知があれば差し替える
+  notifications = notifications.filter(x => x.key !== key);
+  notifications.unshift({
+    key, type: 'cancel', salon: SALON_JP[salonKey], salonKey, childIdx: pendingCancel.idx,
+    childName: c.name, time: c.cancelTime, ts: c.cancelTs,
+    start: c.start, end: c.end, expectedEnd: c.end, lateMin: 0,
+    badge: '🚫 本日キャンセル',
+    headline: `<span class="child">${c.name}</span> さん 本日のお預かりがキャンセルになりました`,
+    detail: 'サロンより、本日はお子様を連れてこない（お預かりなし）とのご連絡です。確認したら「確認しました」を押してください。',
+  });
+  document.getElementById('cancelPopup').classList.remove('show');
+  pendingCancel = null;
+  renderFeed(key);
+  playSound('late');
+  flashAlert();
+  renderChildren();
+  renderArrivalList();
+  showToast(`🚫 ${c.name}さん 本日のお預かりをキャンセルしました（保育園に共有）`);
+}
+
+// 美容室への予約表ポップアップ
+function showSalonPopup(salonKey) {
+  const list = children[salonKey].filter(c => c.status !== 'done');
+  const rows = list.map(c => {
+    const st = STATUS_INFO[c.status] || STATUS_INFO.reserved;
+    return `<div class="pop-row"><span>${c.name}</span><span class="pop-time">${c.start}〜${c.end}</span><span class="pop-st" style="color:${st.color}">${st.jp}</span></div>`;
+  }).join('');
+  const pop = document.getElementById('salonPopup');
+  document.getElementById('popTitle').textContent = `${SALON_JP[salonKey]} ・ 本日のお預かり`;
+  document.getElementById('popBody').innerHTML = rows || '<div style="color:var(--ink-soft);">お預かりはありません</div>';
+  pop.classList.add('show');
+}
+function closeSalonPopup() { document.getElementById('salonPopup').classList.remove('show'); }
+
+// デモ用：時間を10分進める
+function advanceDemoTime() {
+  demoMinOffset += 10;
+  updateDemoClock();
+  checkArrivals();
+  showToast(`⏩ デモ時刻を10分進めました`);
+}
+function updateDemoClock() {
+  const m = nowMin();
+  const hh = String(Math.floor(m/60)%24).padStart(2,'0'), mm = String(m%60).padStart(2,'0');
+  const el = document.getElementById('demoClock');
+  if (el) el.textContent = demoMinOffset>0 ? `デモ上の現在時刻：${hh}:${mm}（+${demoMinOffset}分）` : '';
+}
+
+// 初期化
+const _gl = document.getElementById('gardenLabel'); if (_gl) _gl.textContent = gardenName(CURRENT_GARDEN);
+renderChildren();
+renderFeed(null);
+renderReportList();
+renderStatusFeed(false);
+renderArrivalList();
+updateDemoClock();
+// 定期的に未到着チェック
+setInterval(checkArrivals, 30000);
+
+// ===== 共有ストレージ連携：起動時に取り込み＋他タブの変更を監視 =====
+seedIfEmpty();
+importSharedBookings();
+// 別タブ（サロン予約画面）で予約が入ったら自動反映
+window.addEventListener('storage', (e) => {
+  if (e.key === SF_KEY) {
+    if (importSharedBookings()) {
+      playSound('soon');
+      showToast('🆕 サロンから新しい予約が入りました');
+    }
+  }
+});
+// 同一タブ内のフォールバック（storageイベントが飛ばない環境向けに定期チェック）
+setInterval(importSharedBookings, 4000);
+</script>
+</body>
+</html>

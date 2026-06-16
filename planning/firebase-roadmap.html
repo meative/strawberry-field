@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Firebase化 ロードマップ ・ Strawberry Field</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500&family=Noto+Serif+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ivory: #F8F4ED; --ivory-deep: #EFE8DA;
+  --tiffany: #0ABAB5; --tiffany-deep: #089A95; --tiffany-soft: #E8F4F3;
+  --gold: #C9A961; --gold-deep: #A88A4A;
+  --ink: #1A1F26; --ink-soft: #4A5158;
+  --line: #DDD4C2; --line-soft: #EAE4D4;
+  --error: #B23E4C; --success: #5A8A6A; --warning: #D89A3E; --white: #FFFFFF;
+  --serif-en: 'Cormorant Garamond', serif; --serif-jp: 'Noto Serif JP', serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--serif-jp); color: var(--ink); background: var(--ivory-deep); line-height: 1.9; -webkit-font-smoothing: antialiased; }
+.page { max-width: 880px; margin: 0 auto; background: var(--ivory); padding: 56px 64px; }
+
+/* 表紙 */
+.cover { text-align: center; padding: 40px 0 50px; border-bottom: 2px solid var(--gold); margin-bottom: 44px; }
+.cover .brand { font-family: var(--serif-en); font-style: italic; font-size: 24px; color: var(--tiffany-deep); letter-spacing: 0.04em; margin-bottom: 22px; }
+.cover .brand .gold { color: var(--gold-deep); }
+.cover .eyebrow { font-family: var(--serif-en); font-style: italic; font-size: 13px; color: var(--gold-deep); letter-spacing: 0.3em; margin-bottom: 12px; }
+.cover h1 { font-family: var(--serif-jp); font-size: 30px; font-weight: 600; letter-spacing: 0.04em; margin-bottom: 8px; }
+.cover .sub-en { font-family: var(--serif-en); font-style: italic; font-size: 17px; color: var(--ink-soft); }
+.cover .ornament { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 24px; }
+.cover .ornament .line { width: 56px; height: 1px; background: var(--gold); }
+.cover .ornament .diamond { color: var(--gold); font-size: 9px; }
+.cover .date { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-top: 20px; letter-spacing: 0.1em; }
+
+/* 見出し */
+h2 { font-family: var(--serif-jp); font-size: 22px; font-weight: 600; margin: 44px 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; }
+h2 .num { font-family: var(--serif-en); font-style: italic; font-size: 20px; color: var(--gold-deep); }
+h2 .en { font-family: var(--serif-en); font-style: italic; font-size: 13px; color: var(--ink-soft); font-weight: 400; margin-left: auto; }
+h3 { font-family: var(--serif-jp); font-size: 16px; font-weight: 600; margin: 26px 0 10px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+h3::before { content: '◆'; color: var(--gold); font-size: 10px; }
+p { font-family: var(--serif-jp); font-size: 14px; margin-bottom: 14px; }
+strong { color: var(--tiffany-deep); font-weight: 600; }
+
+/* リード文 */
+.lead { background: var(--white); border-left: 3px solid var(--gold); padding: 18px 24px; border-radius: 0 4px 4px 0; margin-bottom: 8px; font-size: 14px; }
+
+/* カード */
+.box { background: var(--white); border: 1px solid var(--line-soft); border-radius: 5px; padding: 22px 26px; margin: 16px 0; }
+.box.tiffany { border-left: 3px solid var(--tiffany); }
+.box.gold { border-left: 3px solid var(--gold); }
+.box.warn { border-left: 3px solid var(--warning); background: #FCF7EC; }
+.box-title { font-family: var(--serif-jp); font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+
+/* 図（フロー） */
+.diagram { background: var(--white); border: 1px solid var(--line-soft); border-radius: 5px; padding: 24px; margin: 18px 0; text-align: center; }
+.diagram .hub { display: inline-block; background: var(--ink); color: var(--white); border-radius: 6px; padding: 14px 28px; margin: 8px; font-family: var(--serif-jp); font-size: 14px; }
+.diagram .hub .en { display: block; font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--tiffany); }
+.diagram .arrows { font-size: 20px; color: var(--gold); margin: 6px 0; }
+.diagram .nodes { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.diagram .node { background: var(--tiffany-soft); border: 1px solid var(--tiffany); border-radius: 5px; padding: 10px 16px; font-family: var(--serif-jp); font-size: 12px; color: var(--tiffany-deep); }
+
+/* リスト */
+ul.clean { list-style: none; margin: 10px 0; }
+ul.clean li { font-family: var(--serif-jp); font-size: 14px; padding: 5px 0 5px 24px; position: relative; }
+ul.clean li::before { content: '—'; position: absolute; left: 0; color: var(--gold-deep); }
+
+/* テーブル */
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+th { background: var(--ink); color: var(--white); font-family: var(--serif-jp); font-weight: 500; padding: 10px 12px; text-align: left; font-size: 12px; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--line-soft); font-family: var(--serif-jp); vertical-align: top; }
+tr:nth-child(even) td { background: var(--white); }
+.price { font-family: var(--serif-en); font-style: italic; color: var(--tiffany-deep); font-weight: 500; }
+
+/* ステップ */
+.step { display: flex; gap: 16px; margin: 14px 0; align-items: flex-start; }
+.step-badge { flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%; background: var(--gold); color: var(--white); display: flex; align-items: center; justify-content: center; font-family: var(--serif-en); font-style: italic; font-size: 17px; }
+.step-body { flex: 1; }
+.step-body .t { font-family: var(--serif-jp); font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+.step-body .d { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); }
+.step-body .tag { display: inline-block; font-family: var(--serif-en); font-style: italic; font-size: 11px; background: var(--tiffany-soft); color: var(--tiffany-deep); padding: 2px 10px; border-radius: 10px; margin-top: 4px; }
+
+/* 印刷 */
+.print-btn { position: fixed; bottom: 24px; right: 24px; background: var(--ink); color: var(--white); border: none; padding: 14px 24px; border-radius: 30px; font-family: var(--serif-jp); font-size: 14px; cursor: pointer; box-shadow: 0 4px 16px rgba(26,31,38,0.2); z-index: 50; }
+.footer { text-align: center; margin-top: 50px; padding-top: 24px; border-top: 1px solid var(--line); font-family: var(--serif-en); font-style: italic; font-size: 12px; color: var(--ink-soft); }
+
+@media print {
+  body { background: white; }
+  .page { max-width: 100%; padding: 20px; }
+  .print-btn { display: none; }
+  h2 { page-break-after: avoid; }
+  .box, .diagram, .step { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- 表紙 -->
+  <div class="cover">
+    <div class="brand">Strawberry <span class="gold">Field</span></div>
+    <div class="eyebrow">◆ DEVELOPMENT ROADMAP ◆</div>
+    <h1>予約管理システム クラウド化計画</h1>
+    <div class="sub-en">Firebase Integration Roadmap</div>
+    <div class="ornament"><span class="line"></span><span class="diamond">◆</span><span class="line"></span></div>
+    <div class="date">2026年5月 ・ STRAWBERRY FIELD Children's Garden</div>
+  </div>
+
+  <!-- はじめに -->
+  <div class="lead">
+    この資料は、これまで作成した4つの画面（受付アプリ・予約ボード・サロン画面・受け入れ条件設定）を、<strong>1つの共有データでつなぎ、拠点をまたいでリアルタイムに連動させる</strong>ための計画をまとめたものです。「予約が入ると、全画面で自動的に空き枠が減る」を本当に実現するための土台づくりです。
+  </div>
+
+  <!-- 1. なぜ必要か -->
+  <h2><span class="num">01</span>なぜクラウド化が必要か<span class="en">The Problem</span></h2>
+  <p>現在、4つの画面はそれぞれ別のファイルとして動いており、お互いのデータを知りません。そのため、サロンで予約を入れても保育園側の数字は変わらず、連動は「見た目」だけの状態です。</p>
+
+  <div class="diagram">
+    <div style="font-family:var(--serif-jp); font-size:13px; color:var(--ink-soft); margin-bottom:14px;">＜現状＞ 各画面がバラバラのデータを持っている</div>
+    <div class="nodes">
+      <div class="node">受付アプリ</div>
+      <div class="node">予約ボード</div>
+      <div class="node">サロン画面</div>
+      <div class="node">条件設定</div>
+    </div>
+    <div style="font-family:var(--serif-jp); font-size:12px; color:var(--error); margin-top:14px;">↑ それぞれが自分のデータしか見ない → 連動しない</div>
+  </div>
+
+  <p>これを解決するのが、<strong>Firebase（ファイアベース）</strong>というGoogleが提供するクラウドのデータベースです。全画面が「同じ1つのデータ」を見るようにすれば、どこで予約が入っても全員に即座に反映されます。</p>
+
+  <div class="diagram">
+    <div style="font-family:var(--serif-jp); font-size:13px; color:var(--ink-soft); margin-bottom:10px;">＜クラウド化後＞ 1つの共有データを全員が見る</div>
+    <div class="hub">Firebase<span class="en">共有データベース（クラウド）</span></div>
+    <div class="arrows">↑↓　↑↓　↑↓　↑↓</div>
+    <div class="nodes">
+      <div class="node">受付アプリ</div>
+      <div class="node">予約ボード</div>
+      <div class="node">サロン画面</div>
+      <div class="node">条件設定</div>
+    </div>
+    <div style="font-family:var(--serif-jp); font-size:12px; color:var(--tiffany-deep); margin-top:14px;">↑ どこで予約が入っても、全員の画面が即座に更新される</div>
+  </div>
+
+  <!-- 2. Firebaseとは -->
+  <h2><span class="num">02</span>Firebaseとは<span class="en">What is Firebase</span></h2>
+  <p>Firebaseは、Googleが運営するアプリ開発用のクラウドサービスです。今回の用途で使う主な機能は次の3つです。</p>
+
+  <div class="box tiffany">
+    <div class="box-title">① Firestore（データベース）</div>
+    <p style="margin-bottom:0;">予約・顧客・空き枠などのデータを保管する場所。データが変わると、つながっている全端末に<strong>自動で即座に伝わる</strong>のが最大の特長です。これが「リアルタイム同期」の正体です。</p>
+  </div>
+  <div class="box tiffany">
+    <div class="box-title">② Authentication（ログイン管理）</div>
+    <p style="margin-bottom:0;">「この端末は月寒園のスタッフ」「これはウッドストックのiPad」といった権限管理。誰がどのデータを見られるかを制御し、個人情報を守ります。</p>
+  </div>
+  <div class="box tiffany">
+    <div class="box-title">③ Hosting（アプリの配置）</div>
+    <p style="margin-bottom:0;">アプリをインターネット上に置き、各拠点のiPadからURLでアクセスできるようにします。ファイルを配り直す手間がなくなり、更新も一箇所で済みます。</p>
+  </div>
+
+  <div class="box gold">
+    <div class="box-title">なぜFirebaseを選ぶのか</div>
+    <ul class="clean" style="margin-bottom:0;">
+      <li>初心者でも扱いやすく、日本語の情報も豊富</li>
+      <li>無料枠が大きく、数園規模ならほぼ無料〜月数千円で運用できる</li>
+      <li>リアルタイム同期が標準機能（自前で作ると非常に大変な部分）</li>
+      <li>Googleのインフラなので信頼性・安全性が高い</li>
+    </ul>
+  </div>
+
+  <!-- 3. データ設計 -->
+  <h2><span class="num">03</span>共有するデータの設計<span class="en">Data Model</span></h2>
+  <p>クラウドに置く主なデータは、大きく次の4種類です。これらを全画面が共有します。</p>
+
+  <table>
+    <tr><th style="width:130px;">データの種類</th><th>内容</th><th style="width:160px;">使う画面</th></tr>
+    <tr><td><strong>予約</strong><br>reservations</td><td>誰が・いつ・どの区分で予約したか。経由元（直接／ウッドストック／ジャニス／延長）も記録</td><td>全画面</td></tr>
+    <tr><td><strong>顧客</strong><br>customers</td><td>お子様の氏名・フリガナ・年齢・保護者情報。予約と受付で共通利用</td><td>受付・予約・サロン</td></tr>
+    <tr><td><strong>受け入れ条件</strong><br>settings</td><td>園ごとの定員・型（余裕活用型/一般型）・配置基準・受付時間帯</td><td>条件設定・サロン</td></tr>
+    <tr><td><strong>在園・利用状況</strong><br>occupancy</td><td>その時間に何人いるか。予約が入るたびに更新され、空き枠計算の元になる</td><td>全画面</td></tr>
+  </table>
+
+  <p>この設計のポイントは、予約データに<strong>「経由元」</strong>を持たせることです。これにより「サロン経由の無料予約」と「直接の有料一時預かり」を区別でき、料金計算や集計を正しく分けられます。</p>
+
+  <!-- 4. 進め方ステップ -->
+  <h2><span class="num">04</span>クラウド化の進め方<span class="en">Implementation Steps</span></h2>
+  <p>一気に全部つなぐのではなく、小さく始めて確実に進めます。各ステップで動作確認しながら、リスクを抑えて進めるのが安全です。</p>
+
+  <div class="step">
+    <div class="step-badge">1</div>
+    <div class="step-body">
+      <div class="t">Firebaseプロジェクトの準備</div>
+      <div class="d">Googleアカウントで無料のFirebaseプロジェクトを作成し、データベース（Firestore）を用意します。費用はかかりません。</div>
+      <span class="tag">準備期間: 1日</span>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-badge">2</div>
+    <div class="step-body">
+      <div class="t">予約ボードをクラウド接続（最初の1画面）</div>
+      <div class="d">まず保育園側の予約ボード1つだけをFirebaseにつなぎます。1台で予約を入れ、別のブラウザでリアルタイムに反映されるかを確認。ここで「同期の感覚」を体感します。</div>
+      <span class="tag">最初の山場</span>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-badge">3</div>
+    <div class="step-body">
+      <div class="t">サロン画面を接続（拠点間連動）</div>
+      <div class="d">ウッドストック・ジャニスのサロン画面をつなぎます。サロンで予約 → 保育園ボードに即反映 → 通知が出る、という核心の流れが動き出します。</div>
+      <span class="tag">Phase D の本丸</span>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-badge">4</div>
+    <div class="step-body">
+      <div class="t">受け入れ条件設定を接続</div>
+      <div class="d">園が条件（定員・配置基準・締切）を変更すると、サロン側の空き枠表示に即反映されるようにします。</div>
+      <span class="tag">Phase D 完成</span>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-badge">5</div>
+    <div class="step-body">
+      <div class="t">受付アプリ（v36）と顧客名簿を統合</div>
+      <div class="d">予約した方が当日来園 → 予約から顧客情報を呼び出し → 受付完了、という流れをつなぎます。顧客名簿も共通化され、予約と受付が一本の線になります。</div>
+      <span class="tag">Phase B・E</span>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-badge">6</div>
+    <div class="step-body">
+      <div class="t">複数園への展開・本番運用</div>
+      <div class="d">4園それぞれの設定を整え、各拠点のiPadに配置。運用しながら改善を重ねます。</div>
+      <span class="tag">本番化</span>
+    </div>
+  </div>
+
+  <!-- 5. 費用 -->
+  <h2><span class="num">05</span>費用の目安<span class="en">Cost Estimate</span></h2>
+
+  <h3>毎月のクラウド費用（インフラ実費）</h3>
+  <p>Firebaseは無料枠が大きいため、数園・利用者数百人規模なら、当面はほぼ無料で運用できます。</p>
+  <table>
+    <tr><th>規模</th><th>月額の目安</th><th>備考</th></tr>
+    <tr><td>1〜2園・テスト運用</td><td class="price">¥0 〜 数百円</td><td>無料枠の範囲内に収まることが多い</td></tr>
+    <tr><td>2〜3園・本格運用</td><td class="price">¥0 〜 5,000円</td><td>利用が増えても数千円台</td></tr>
+    <tr><td>4園・フル稼働</td><td class="price">数千円 〜 1万円台</td><td>規模に応じて段階的に増加</td></tr>
+  </table>
+
+  <h3>開発の進め方と費用</h3>
+  <div class="box">
+    <p style="margin-bottom:10px;">クラウド化の実装には、大きく2つの進め方があります。</p>
+    <ul class="clean" style="margin-bottom:0;">
+      <li><strong>このままClaudeと一緒に進める</strong> — 外注費はかからず、クラウドの実費のみ。段階的に一緒に実装していく方法です。すでに画面とロジックが完成しているため、現実的な選択肢です。</li>
+      <li><strong>エンジニアに外注する</strong> — このプロトタイプ一式を「設計図」として渡せるため、ゼロから依頼するより大幅に安く・早くなります。相場は実装内容により幅がありますが、設計が済んでいる分が大きく効きます。</li>
+    </ul>
+  </div>
+
+  <!-- 6. 注意点 -->
+  <h2><span class="num">06</span>進める前に決めておくこと<span class="en">Before We Start</span></h2>
+
+  <div class="box warn">
+    <div class="box-title">① 個人情報の取り扱い</div>
+    <p style="margin-bottom:0;">お子様や保護者の情報をクラウドに保管するため、適切な権限管理（誰がどのデータを見られるか）と、プライバシーへの配慮が必要です。Firebaseの権限機能でしっかり守れますが、運用ルールも合わせて決めておきます。</p>
+  </div>
+  <div class="box warn">
+    <div class="box-title">② 各拠点のネット環境</div>
+    <p style="margin-bottom:0;">保育園・ウッドストック・ジャニスの各拠点に、安定したインターネット接続（Wi-Fi等）が必要です。クラウドにアクセスするための前提条件になります。</p>
+  </div>
+  <div class="box warn">
+    <div class="box-title">③ 運用ルールの確定</div>
+    <p style="margin-bottom:0;">「余裕活用型の枠を年齢別にどう配分するか」「予約の変更・キャンセルの扱い」など、システムに落とし込む前に運用ルールを固めておくと、開発がスムーズです。</p>
+  </div>
+
+  <!-- 7. 推奨ステップ -->
+  <h2><span class="num">07</span>おすすめの次の一歩<span class="en">Recommended Next Step</span></h2>
+  <div class="box gold">
+    <p>現在、受付アプリ（v36）のスタッフテストが進行中です。まずはこのテストのフィードバックを集めつつ、並行して以下を進めるのがおすすめです。</p>
+    <ul class="clean" style="margin-bottom:0;">
+      <li><strong>関係者への共有</strong> — 園長・美容室・ジャニスのスタッフに4画面を見てもらい、運用イメージのすり合わせと要望収集</li>
+      <li><strong>運用ルールの確定</strong> — 上記「進める前に決めておくこと」を関係者と話し合って固める</li>
+      <li><strong>Firebaseプロジェクトの準備</strong> — 無料で始められるので、まずステップ1だけ着手してみる</li>
+    </ul>
+  </div>
+  <p>これらが整えば、いつでもクラウド化の実装（ステップ2以降）に進めます。準備ができたタイミングで、一緒に進めていきましょう。</p>
+
+  <div class="footer">Strawberry Field Children's Garden ・ Firebase Integration Roadmap ・ 2026.05</div>
+</div>
+
+<button class="print-btn" onclick="window.print()">📄 印刷 / PDF保存</button>
+</body>
+</html>

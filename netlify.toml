@@ -1,0 +1,17 @@
+# STRAWBERRY FIELD - Netlify configuration
+
+[build]
+  # ビルドステップなし。リポジトリのファイルをそのまま公開
+  publish = "."
+
+# キャッシュ抑制（更新が即反映されるように）
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# 静的アセットは長期キャッシュOK
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

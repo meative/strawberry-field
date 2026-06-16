@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>STRAWBERRY FIELD ・ 予約管理ボード</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500&family=Noto+Serif+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ivory: #F8F4ED;
+  --ivory-deep: #EFE8DA;
+  --tiffany: #0ABAB5;
+  --tiffany-deep: #089A95;
+  --tiffany-soft: #E8F4F3;
+  --gold: #C9A961;
+  --gold-deep: #A88A4A;
+  --ink: #1A1F26;
+  --ink-soft: #4A5158;
+  --line: #DDD4C2;
+  --line-soft: #EAE4D4;
+  --error: #B23E4C;
+  --success: #5A8A6A;
+  --warning: #D89A3E;
+  --white: #FFFFFF;
+  /* 区分カラー */
+  --temp: #0ABAB5;        /* 通常一時預かり = Tiffany */
+  --temp-bg: #E8F4F3;
+  --woodstock: #C9A961;   /* ウッドストック = 黄(ゴールド系・写真踏襲) */
+  --woodstock-bg: #FAF3DE;
+  --janis: #5B8DB8;       /* ジャニス = 青(写真踏襲) */
+  --janis-bg: #E4EEF5;
+  --ext: #9B7BA8;         /* 延長保育 = 紫 */
+  --ext-bg: #F0EAF3;
+  --serif-en: 'Cormorant Garamond', serif;
+  --serif-jp: 'Noto Serif JP', serif;
+  --sans: 'Inter', sans-serif;
+  --transition: 0.15s ease;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--serif-jp);
+  color: var(--ink);
+  background: var(--ivory);
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== ヘッダー ===== */
+.app-header {
+  background: var(--ink);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.header-brand { display: flex; align-items: baseline; gap: 10px; }
+.header-brand .en {
+  font-family: var(--serif-en); font-style: italic; font-size: 18px;
+  color: var(--white); letter-spacing: 0.02em;
+}
+.header-brand .en .accent { color: var(--tiffany); }
+.header-brand .jp { font-family: var(--serif-jp); font-size: 11px; color: var(--line); letter-spacing: 0.12em; }
+.header-right { display: flex; align-items: center; gap: 16px; }
+.live-badge {
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--serif-jp); font-size: 11px; color: var(--ivory); letter-spacing: 0.08em;
+}
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--tiffany);
+  box-shadow: 0 0 8px var(--tiffany); animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+/* ===== 日付バー ===== */
+.date-bar {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 10px; background: var(--white); border-bottom: 1px solid var(--line-soft);
+  flex-shrink: 0;
+}
+.date-bar button {
+  background: var(--white); border: 1px solid var(--line); border-radius: 2px;
+  padding: 7px 16px; font-family: var(--serif-jp); font-size: 12px; color: var(--ink);
+  cursor: pointer; transition: all var(--transition);
+}
+.date-bar button:active { background: var(--tiffany-soft); border-color: var(--tiffany); }
+.date-bar .cur {
+  font-family: var(--serif-jp); font-size: 17px; min-width: 240px; text-align: center; letter-spacing: 0.04em;
+}
+.cur-btn { background: var(--white) !important; border: 1px solid var(--line) !important; border-radius: 8px !important; cursor: pointer; padding: 8px 18px !important; }
+.cur-btn:hover { border-color: var(--tiffany) !important; }
+.date-bar .cur .cal-caret { font-size: 11px; color: var(--tiffany-deep); margin-left: 6px; }
+.date-bar .cur .wd { font-family: var(--serif-en); font-style: italic; color: var(--gold-deep); margin-left: 6px; font-size: 15px; }
+.date-bar .today-pill {
+  font-family: var(--serif-en); font-style: italic; font-size: 10px;
+  background: var(--tiffany-soft); color: var(--tiffany-deep);
+  padding: 2px 8px; border-radius: 10px; margin-left: 8px;
+}
+/* 自作カレンダー */
+.cal-overlay { position: fixed; inset: 0; background: rgba(26,31,38,0.5); display: none; align-items: center; justify-content: center; z-index: 300; }
+.cal-overlay.show { display: flex; }
+.cal-box { background: var(--white); border-radius: 12px; padding: 22px 24px 18px; width: 340px; box-shadow: 0 16px 50px rgba(0,0,0,0.32); animation: calPop 0.2s cubic-bezier(0.16,1,0.3,1); }
+@keyframes calPop { from { opacity: 0; transform: scale(0.95) translateY(8px); } to { opacity: 1; transform: none; } }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.cal-title { font-family: var(--serif-jp); font-size: 17px; font-weight: 600; color: var(--ink); }
+.cal-mnav { background: var(--ivory); border: 1px solid var(--line); border-radius: 50%; width: 34px; height: 34px; font-size: 16px; color: var(--tiffany-deep); cursor: pointer; transition: all var(--transition); display: flex; align-items: center; justify-content: center; }
+.cal-mnav:active { background: var(--tiffany); color: var(--white); }
+.cal-weekdays { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; margin-bottom: 6px; }
+.cal-weekdays span { text-align: center; font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); padding: 4px 0; }
+.cal-weekdays span:first-child { color: #C26A6A; }
+.cal-weekdays span:last-child { color: var(--gold-deep); }
+.cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
+.cal-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-family: var(--serif-jp); font-size: 14px; color: var(--ink); border-radius: 8px; cursor: pointer; transition: all var(--transition); border: 1px solid transparent; }
+.cal-day:hover { background: var(--tiffany-soft); }
+.cal-day.empty { cursor: default; }
+.cal-day.today { border-color: var(--tiffany); color: var(--tiffany-deep); font-weight: 600; }
+.cal-day.selected { background: var(--tiffany); color: var(--white); font-weight: 600; }
+.cal-day.sun { color: #C26A6A; }
+.cal-day.sat { color: var(--gold-deep); }
+.cal-day.has-booking::after { content: ''; position: absolute; transform: translateY(12px); width: 4px; height: 4px; border-radius: 50%; background: var(--gold-deep); }
+.cal-today { width: 100%; margin-top: 14px; background: var(--ivory); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); cursor: pointer; transition: all var(--transition); }
+.cal-today:active { background: var(--tiffany-soft); border-color: var(--tiffany); }
+
+/* ===== 凡例 ===== */
+.legend-bar {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  padding: 8px 24px; background: var(--ivory); border-bottom: 1px solid var(--line-soft);
+  flex-shrink: 0; font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft);
+}
+.legend-item { display: flex; align-items: center; gap: 6px; }
+.legend-sw { width: 22px; height: 12px; border-radius: 2px; }
+.legend-hint { margin-left: auto; font-style: italic; font-family: var(--serif-en); font-size: 12px; color: var(--gold-deep); }
+
+/* ===== タイムテーブル本体 ===== */
+.board-wrap { flex: 1; overflow: auto; position: relative; }
+.board {
+  position: relative;
+  min-width: 1240px;
+}
+/* 時間ヘッダー行 */
+.time-header {
+  display: flex; position: sticky; top: 0; z-index: 20; background: var(--white);
+  border-bottom: 2px solid var(--gold);
+}
+.corner {
+  width: 150px; flex-shrink: 0; position: sticky; left: 0; z-index: 21;
+  background: var(--ink); color: var(--white);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 8px;
+}
+.corner .en { font-family: var(--serif-en); font-style: italic; font-size: 12px; color: var(--tiffany); }
+.corner .jp { font-family: var(--serif-jp); font-size: 10px; color: var(--line); letter-spacing: 0.1em; }
+.time-cells { display: flex; flex: 1; }
+.time-cell {
+  flex: 1; min-width: 26px; text-align: center; padding: 7px 0;
+  border-left: 1px solid var(--line-soft);
+  font-family: var(--serif-en); color: var(--ink);
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  position: relative; min-height: 44px;
+}
+.time-cell.hour {
+  border-left: 2px solid var(--gold); background: var(--ivory);
+}
+.time-cell.hour .hh { font-size: 19px; font-weight: 600; color: var(--ink); line-height: 1; }
+.time-cell.hour .oclock { font-family: var(--serif-jp); font-size: 8px; color: var(--gold-deep); margin-top: 1px; }
+/* 30分: 中サイズではっきり */
+.time-cell.half { border-left: 1px solid var(--line); }
+.time-cell.half .mm {
+  font-size: 12px; color: var(--ink-soft); font-weight: 500; font-style: normal;
+  background: var(--ivory); border-radius: 3px; padding: 1px 5px;
+}
+/* 15分・45分: 小さいが読める数字＋目盛りドット */
+.time-cell.tick { border-left: 1px dashed var(--line-soft); }
+.time-cell.tick .mm-sm {
+  font-size: 9.5px; color: var(--ink-soft); opacity: 0.65; font-style: normal;
+}
+
+/* 区分セクション */
+.zone { border-bottom: 2px solid var(--line); }
+.zone-label-row { display: flex; }
+.zone-label {
+  width: 150px; flex-shrink: 0; position: sticky; left: 0; z-index: 10;
+  padding: 10px 14px; display: flex; flex-direction: column; gap: 2px;
+  border-right: 1px solid var(--line);
+}
+.zone-label .en { font-family: var(--serif-en); font-style: italic; font-size: 16px; font-weight: 500; letter-spacing: 0.01em; }
+.zone-label .jp { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); }
+.zone-label .cap-info { font-family: var(--serif-jp); font-size: 10px; color: var(--ink-soft); margin-top: 3px; }
+.zone-temp .zone-label { background: var(--temp-bg); border-left: 4px solid var(--temp); }
+.zone-temp .zone-label .en { color: var(--tiffany-deep); }
+.zone-woodstock .zone-label { background: var(--woodstock-bg); border-left: 4px solid var(--woodstock); }
+.zone-woodstock .zone-label .en { color: var(--gold-deep); }
+.zone-janis .zone-label { background: var(--janis-bg); border-left: 4px solid var(--janis); }
+.zone-janis .zone-label .en { color: var(--janis); }
+.zone-ext .zone-label { background: var(--ext-bg); border-left: 4px solid var(--ext); }
+.zone-ext .zone-label .en { color: var(--ext); }
+
+/* 予約行（レーン） */
+.lane { display: flex; position: relative; min-height: 46px; border-top: 1px solid var(--line-soft); }
+.lane-head {
+  width: 150px; flex-shrink: 0; position: sticky; left: 0; z-index: 9; background: var(--white);
+  border-right: 1px solid var(--line);
+  display: flex; align-items: center; padding: 4px 14px;
+  font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft);
+}
+.lane-track { flex: 1; position: relative; display: flex; }
+.slot {
+  flex: 1; min-width: 26px; border-left: 1px dashed var(--line-soft);
+  cursor: pointer; transition: background var(--transition);
+}
+.slot.hour { border-left: 2px solid rgba(201,169,97,0.4); }
+.slot.half { border-left: 1px solid var(--line); }
+.slot:active { background: var(--tiffany-soft); }
+.slot.closed { background: repeating-linear-gradient(45deg, var(--ivory-deep), var(--ivory-deep) 4px, transparent 4px, transparent 8px); cursor: default; }
+
+/* 予約バー（帯） */
+.booking-bar {
+  position: absolute; top: 5px; bottom: 5px; border-radius: 4px;
+  display: flex; align-items: stretch;
+  color: var(--white);
+  box-shadow: 0 1px 4px rgba(26,31,38,0.15);
+  overflow: hidden; white-space: nowrap; z-index: 5;
+  touch-action: none;
+}
+.bar-body {
+  flex: 1; display: flex; align-items: center; padding: 0 4px;
+  cursor: grab; min-width: 0;
+  font-family: var(--serif-jp); font-size: 12px; font-weight: 500;
+}
+.bar-body:active { cursor: grabbing; }
+.bar-name { overflow: hidden; text-overflow: ellipsis; }
+.bar-handle {
+  width: 10px; flex-shrink: 0; cursor: ew-resize;
+  background: rgba(255,255,255,0.25);
+  display: flex; align-items: center; justify-content: center;
+}
+.bar-handle::before {
+  content: ''; width: 2px; height: 40%; background: rgba(255,255,255,0.7); border-radius: 2px;
+}
+.bar-handle:active { background: rgba(255,255,255,0.4); }
+.booking-bar .age-chip {
+  background: rgba(255,255,255,0.28); border-radius: 8px; padding: 1px 6px;
+  font-size: 10px; margin-right: 5px; flex-shrink: 0;
+}
+.lunch-mark { margin-right: 4px; flex-shrink: 0; font-size: 13px; }
+.bar-memo {
+  font-size: 10px; opacity: 0.9; margin-left: 6px;
+  background: rgba(255,255,255,0.22); padding: 1px 6px; border-radius: 6px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.booking-bar.temp { background: var(--temp); }
+.booking-bar.woodstock { background: var(--woodstock); }
+.booking-bar.janis { background: var(--janis); }
+.booking-bar.ext { background: var(--ext); }
+.booking-bar.is-prov { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.16) 0 8px, transparent 8px 16px); }
+.bar-prov { font-size: 10px; margin-left: 6px; background: #fff; color: #C9802E; padding: 1px 7px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
+
+/* 空き枠の人数表示（各時間スロットの上） */
+.cap-badge {
+  position: absolute; top: 3px; font-family: var(--serif-en); font-size: 10px;
+  color: var(--ink-soft); pointer-events: none; z-index: 1;
+}
+
+/* ===== ボタン ===== */
+.fab {
+  position: fixed; bottom: 24px; right: 24px; z-index: 50;
+  background: var(--ink); color: var(--white); border: none;
+  padding: 16px 28px; border-radius: 40px; font-family: var(--serif-jp); font-size: 15px;
+  cursor: pointer; box-shadow: 0 4px 16px rgba(26,31,38,0.25); transition: all var(--transition);
+  display: flex; align-items: center; gap: 8px;
+}
+.fab:active { transform: scale(0.96); background: var(--tiffany-deep); }
+
+/* ===== モーダル ===== */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(26,31,38,0.5);
+  display: none; align-items: center; justify-content: center; z-index: 200; padding: 24px;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--white); border-radius: 6px; max-width: 460px; width: 100%;
+  padding: 32px; border-top: 3px solid var(--gold); max-height: 90vh; overflow-y: auto;
+}
+.modal-title { font-family: var(--serif-jp); font-size: 20px; font-weight: 500; margin-bottom: 2px; }
+.modal-title-en { font-family: var(--serif-en); font-style: italic; font-size: 13px; color: var(--gold-deep); margin-bottom: 20px; }
+.modal-context {
+  background: var(--ivory); border-left: 3px solid var(--gold); padding: 10px 14px;
+  border-radius: 2px; margin-bottom: 18px; font-family: var(--serif-jp); font-size: 13px; color: var(--ink);
+}
+.field { margin-bottom: 16px; }
+.field label { display: block; font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+.field input, .field select {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 2px;
+  font-family: var(--serif-jp); font-size: 15px; color: var(--ink); background: var(--white);
+}
+.field input:focus, .field select:focus { outline: none; border-color: var(--tiffany); }
+/* 年齢タブ */
+.age-tabs { display: flex; gap: 8px; }
+.age-tab {
+  flex: 1; padding: 12px 0; text-align: center; border: 1px solid var(--line); border-radius: 2px;
+  font-family: var(--serif-jp); font-size: 14px; cursor: pointer; background: var(--white); transition: all var(--transition);
+}
+.age-tab.active { background: var(--ink); color: var(--white); border-color: var(--ink); }
+.months-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.month-cell {
+  padding: 9px 0; text-align: center; border: 1px solid var(--line); border-radius: 2px;
+  font-family: var(--serif-jp); font-size: 13px; cursor: pointer; background: var(--white); transition: all var(--transition);
+}
+.month-cell.active { background: var(--gold-deep); color: var(--white); border-color: var(--gold-deep); }
+#mMonthsField { transition: opacity var(--transition); }
+
+/* 名前予測候補 */
+.name-suggest { margin-top: 6px; display: none; flex-direction: column; gap: 4px; }
+.name-suggest.show { display: flex; }
+.suggest-item {
+  padding: 10px 14px; border: 1px solid var(--line-soft); border-radius: 2px;
+  background: var(--ivory); cursor: pointer; transition: all var(--transition);
+  display: flex; align-items: center; gap: 10px;
+}
+.suggest-item:active { background: var(--tiffany-soft); border-color: var(--tiffany); }
+.suggest-avatar {
+  width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--gold);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif-jp); font-size: 13px; color: var(--gold-deep); flex-shrink: 0;
+}
+.suggest-info { flex: 1; }
+.suggest-name { font-family: var(--serif-jp); font-size: 14px; font-weight: 500; }
+.suggest-kana { font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--ink-soft); }
+.suggest-age {
+  font-family: var(--serif-jp); font-size: 10px; padding: 2px 8px; border-radius: 8px;
+  background: var(--tiffany-soft); color: var(--tiffany-deep);
+}
+
+/* カタカナ五十音索引 */
+.kana-index { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.kana-btn {
+  width: 38px; padding: 6px 0; text-align: center; border: 1px solid var(--line);
+  border-radius: 2px; background: var(--white); cursor: pointer;
+  font-family: var(--serif-jp); font-size: 12px; color: var(--ink); transition: all var(--transition);
+}
+.kana-btn:active { background: var(--tiffany-soft); }
+.kana-btn.active { background: var(--ink); color: var(--white); border-color: var(--ink); }
+.kana-btn.is-empty { opacity: 0.35; }
+
+.kana-result { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
+
+/* 所要時間タブ */
+.dur-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.dur-tab {
+  padding: 9px 14px; border: 1px solid var(--line); border-radius: 2px;
+  background: var(--white); cursor: pointer; font-family: var(--serif-jp); font-size: 13px;
+  transition: all var(--transition);
+}
+.dur-tab:active { transform: scale(0.97); }
+.dur-tab.active { background: var(--ink); color: var(--white); border-color: var(--ink); }
+.end-preview {
+  margin-top: 12px; padding: 12px 16px; background: var(--ivory); border-left: 3px solid var(--gold);
+  border-radius: 2px; font-family: var(--serif-jp); font-size: 14px; color: var(--ink);
+}
+.end-preview .time {
+  font-family: var(--serif-en); font-style: italic; font-size: 18px; color: var(--tiffany-deep); margin: 0 4px;
+}
+.modal-actions { display: flex; gap: 12px; margin-top: 24px; }
+.modal-actions .btn { flex: 1; }
+.modal-sub { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); margin: 4px 0 18px; }
+.ts-note { width: 100%; margin-top: 14px; background: var(--tiffany-soft, #E4F4F2); border: 1px solid var(--tiffany); color: var(--tiffany-deep); border-radius: 8px; padding: 12px 14px; font-family: var(--serif-jp); font-size: 12px; line-height: 1.7; box-sizing: border-box; }
+.ts-note strong { color: var(--tiffany-deep); }
+.btn {
+  font-family: var(--serif-jp); font-size: 15px; padding: 13px 24px; border-radius: 2px;
+  cursor: pointer; border: 1px solid var(--line); background: var(--white); color: var(--ink); transition: all var(--transition);
+}
+.btn:active { transform: scale(0.98); }
+.btn-primary { background: var(--ink); color: var(--white); border-color: var(--ink); }
+.btn-danger { background: var(--white); color: var(--error); border-color: var(--error); }
+
+/* ===== 通知 ===== */
+.notify-pop {
+  position: fixed; top: 70px; right: 24px; background: var(--white);
+  border: 1px solid var(--tiffany); border-left: 4px solid var(--tiffany); border-radius: 5px;
+  padding: 16px 22px; box-shadow: 0 8px 30px rgba(10,186,181,0.25); z-index: 150; max-width: 340px;
+  transform: translateX(420px); transition: transform 0.4s cubic-bezier(0.16,1,0.3,1);
+}
+.notify-pop.show { transform: translateX(0); }
+.notify-eyebrow { font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--tiffany-deep); letter-spacing: 0.15em; margin-bottom: 4px; }
+.notify-title { font-family: var(--serif-jp); font-size: 15px; font-weight: 500; margin-bottom: 5px; }
+.notify-body { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); line-height: 1.6; }
+
+/* プロト注記 */
+.proto-note {
+  background: var(--tiffany-soft); padding: 8px 24px; font-family: var(--serif-jp); font-size: 11px;
+  color: var(--ink-soft); flex-shrink: 0; text-align: center;
+}
+.proto-note strong { color: var(--tiffany-deep); }
+</style>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<div class="app-header">
+  <div class="header-brand">
+    <span class="en">Strawberry <span class="accent">Field</span></span>
+    <span class="jp"><span id="gardenLabel">月寒園</span> ・ 予約管理ボード</span>
+  </div>
+  <div class="header-right">
+    <div class="live-badge"><span class="live-dot"></span>サロンと同期中 ・ Live</div>
+  </div>
+</div>
+
+<!-- 日付バー -->
+<div class="date-bar">
+  <button onclick="changeDay(-1)">← 前日</button>
+  <button class="cur cur-btn" id="curDate" onclick="toggleCalendar()" title="タップで日付を選ぶ">5月19日 <span class="wd">Tue</span><span class="today-pill">本日</span><span class="cal-caret">▾</span></button>
+  <button onclick="changeDay(1)">翌日 →</button>
+</div>
+
+<!-- 自作カレンダー（月表示） -->
+<div class="cal-overlay" id="calOverlay" onclick="closeCalendar()">
+  <div class="cal-box" onclick="event.stopPropagation()">
+    <div class="cal-head">
+      <button class="cal-mnav" onclick="calShiftMonth(-1)">‹</button>
+      <span class="cal-title" id="calTitle">2026年 5月</span>
+      <button class="cal-mnav" onclick="calShiftMonth(1)">›</button>
+    </div>
+    <div class="cal-weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+    <div class="cal-grid" id="calGrid"></div>
+    <button class="cal-today" onclick="calGoToday()">本日（5/23）に戻る</button>
+  </div>
+</div>
+
+<!-- 凡例 -->
+<div class="legend-bar">
+  <div class="legend-item"><span class="legend-sw" style="background:var(--temp)"></span>一時預かり</div>
+  <div class="legend-item"><span class="legend-sw" style="background:var(--woodstock)"></span>ウッドストック</div>
+  <div class="legend-item"><span class="legend-sw" style="background:var(--janis)"></span>ジャニス</div>
+  <div class="legend-item"><span class="legend-sw" style="background:var(--ext)"></span>延長保育</div>
+  <span class="legend-hint">空いている枠をタップ → 予約を追加</span>
+</div>
+
+<!-- タイムテーブル -->
+<div class="board-wrap">
+  <div class="board" id="board"></div>
+</div>
+
+<!-- 追加ボタン -->
+<button class="fab" onclick="openModal()">＋ 予約を追加</button>
+
+<!-- 通知 -->
+<div class="notify-pop" id="notifyPop">
+  <div class="notify-eyebrow">◆ NEW RESERVATION</div>
+  <div class="notify-title" id="notifyTitle">新しい予約が入りました</div>
+  <div class="notify-body" id="notifyBody"></div>
+</div>
+
+<!-- モーダル -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-title" id="modalTitle">予約を追加</div>
+    <div class="modal-title-en">New Reservation</div>
+    <div class="modal-context" id="modalCtx" style="display:none;"></div>
+    <div class="field">
+      <label>お子様氏名 <span style="color:var(--gold-deep); font-style:italic; font-family:var(--serif-en); font-size:11px;">登録済みの方は入力で候補表示</span></label>
+      <input type="text" id="mName" placeholder="例: 山田 はな（入力すると候補が出ます）" autocomplete="off" oninput="onNameInput()">
+      <!-- 予測候補 -->
+      <div class="name-suggest" id="nameSuggest"></div>
+      <!-- カタカナ五十音索引 -->
+      <div class="kana-index" id="kanaIndex"></div>
+      <!-- 索引で絞った候補一覧 -->
+      <div class="kana-result" id="kanaResult"></div>
+    </div>
+    <div class="field">
+      <label>年齢クラス</label>
+      <div class="age-tabs" id="mAgeTabs">
+        <div class="age-tab" data-age="0">0歳</div>
+        <div class="age-tab active" data-age="1">1歳</div>
+        <div class="age-tab" data-age="2">2歳</div>
+        <div class="age-tab" data-age="3">3歳〜</div>
+      </div>
+    </div>
+    <div class="field" id="mMonthsField">
+      <label>月齢 <span style="color:var(--gold-deep); font-style:italic; font-family:var(--serif-en); font-size:11px;">任意（わかる場合）</span></label>
+      <div class="months-grid" id="mMonthsGrid"><!-- JSで生成 --></div>
+    </div>
+    <div class="field">
+      <label>区分</label>
+      <select id="mZone">
+        <option value="temp">通常の一時預かり（有料）</option>
+        <option value="woodstock">ウッドストック（無料）</option>
+        <option value="janis">ジャニス（無料）</option>
+        <option value="ext">延長保育（自園生徒）</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>メモ <span style="color:var(--gold-deep); font-style:italic; font-family:var(--serif-en); font-size:11px;">任意（アレルギー・お迎え者など）</span></label>
+      <input type="text" id="mMemo" placeholder="例: 卵アレルギー / 祖母お迎え" autocomplete="off">
+    </div>
+    <div class="field" id="mDateField">
+      <label>予約日</label>
+      <input type="date" id="mDate" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>開始時刻</label>
+      <select id="mStart" onchange="updateEndPreview()"></select>
+    </div>
+    <div class="field">
+      <label>ご利用時間（お預かりの長さ）</label>
+      <div class="dur-tabs" id="mDurTabs">
+        <div class="dur-tab" data-dur="30">30分</div>
+        <div class="dur-tab" data-dur="60">1時間</div>
+        <div class="dur-tab active" data-dur="90">1時間半</div>
+        <div class="dur-tab" data-dur="120">2時間</div>
+        <div class="dur-tab" data-dur="150">2時間半</div>
+        <div class="dur-tab" data-dur="180">3時間</div>
+        <div class="dur-tab" data-dur="240">4時間</div>
+        <div class="dur-tab" data-dur="300">5時間</div>
+      </div>
+      <div class="end-preview" id="endPreview"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="mDelete" onclick="deleteBooking()" style="display:none; flex:0 0 auto;">削除</button>
+      <button class="btn" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveBooking()">確定</button>
+    </div>
+    <div class="ts-note" id="tsNote" style="display:none;">📋 新規のお客様です。来園時に <strong>一時預かり受付（TimelySchool）</strong> を記入すると、正式なお名前・月齢・アレルギーがこの予約表に自動で反映されます。</div>
+  </div>
+</div>
+
+<div class="proto-note">◆ <strong>デザイン構想プロトタイプ</strong>です（サンプル表示）。空き枠タップ・予約バータップ・通知デモを実際に触ってご確認ください。</div>
+
+<script>
+// ===== 共有ストレージ連携（サロン予約画面から入った予約を取り込む） =====
+// ※ Claudeプレビュー内ではlocalStorage不可。ダウンロードして同一ブラウザで開くと連携します。
+const SF_KEY = 'sf_bookings_v1';
+// ===== 園マスター（園軸） =====
+// 当面は月寒園のみ。将来サポラクリ園・白石園などを足すときはここに1件追加する。
+// 各園に連携サロン（zone）を紐づける。woodstock/janis は既存のサロン区分。
+const GARDENS = {
+  tsukisamu:  { name:'月寒園',       salons:['woodstock','janis'] },
+  // 将来の拡張例（今は無効）:
+  // saporakuri: { name:'サポラクリ園', salons:['woodstock','janis'] },
+  // shiraishi:  { name:'白石園',       salons:['buddybrown','janis_shiraishi'] },
+};
+// 現在運用中の園（固定表示）。将来はここを切り替え可能にする。
+const CURRENT_GARDEN = 'tsukisamu';
+// gardenId が無い既存レコードは月寒園として扱う（補完）
+function normGarden(g) {
+  // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
+  if (g == null || g === '') return CURRENT_GARDEN;
+  return g;
+}
+function gardenName(g) {
+  const id = normGarden(g);
+  return (GARDENS[id] || GARDENS[CURRENT_GARDEN] || {}).name || '月寒園';
+}
+
+function sfLoad() {
+  try { const raw = localStorage.getItem(SF_KEY); return raw ? JSON.parse(raw) : []; }
+  catch(e) { return []; }
+}
+function sfSave(arr) {
+  try { localStorage.setItem(SF_KEY, JSON.stringify(arr)); return true; }
+  catch(e) { return false; }
+}
+
+// ===== 設定 =====
+const START_HOUR = 7, END_HOUR = 20;       // 7:00〜20:00（朝7〜8時、夕方18〜20時は保育園のみ）
+const SLOT_MIN = 15;                         // 15分刻み
+const SLOTS = []; // ['08:00','08:15','08:30','08:45',...]
+for (let h = START_HOUR; h < END_HOUR; h++) {
+  for (let m = 0; m < 60; m += SLOT_MIN) {
+    SLOTS.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+  }
+}
+const N = SLOTS.length;
+
+const ZONES = [
+  { key:'temp', jp:'一時預かり', en:'Drop-in Care', lanes:3, cap:'各時間 6名まで' },
+  { key:'woodstock', jp:'ウッドストック', en:'WOODSTOCK', lanes:3, cap:'美容室ご利用者' },
+  { key:'janis', jp:'ジャニス', en:'JANIS', lanes:2, cap:'サロンご利用者' },
+  { key:'ext', jp:'延長保育', en:'Extension', lanes:3, cap:'15時〜 自園生徒' },
+];
+
+// 各区分の利用可能時間（延長保育は15時以降のみ）
+function isSlotOpen(zoneKey, slotIdx) {
+  if (zoneKey === 'ext') {
+    return SLOTS[slotIdx] >= '15:00';
+  }
+  return true;
+}
+
+// サンプル予約: { zone, lane, name, age, start, end }
+const SAMPLE_BOOKINGS = [
+  { zone:'temp', lane:0, name:'西村 ゆい', age:'2', start:'10:30', end:'15:00', memo:'' },
+  { zone:'ext', lane:0, name:'大野 たろう', age:'3', start:'15:00', end:'18:00', memo:'' },
+  { zone:'ext', lane:1, name:'山口 ひかる', age:'3', start:'15:30', end:'17:00', memo:'' },
+];
+let bookings = SAMPLE_BOOKINGS.map(b=>({...b}));
+
+const ZONE_LABEL = {
+  temp:'通常の一時預かり', woodstock:'ウッドストック', janis:'ジャニス', ext:'延長保育'
+};
+
+// ===== 登録済み顧客名簿（本番では受付アプリの顧客データと連携） =====
+const REGISTERED = [
+  { name:'森 はると', kana:'モリ ハルト', age:'1' },
+  { name:'渡辺 みなと', kana:'ワタナベ ミナト', age:'0' },
+  { name:'岡田 あゆみ', kana:'オカダ アユミ', age:'2' },
+  { name:'西村 ゆい', kana:'ニシムラ ユイ', age:'1' },
+  { name:'藤井 れん', kana:'フジイ レン', age:'1' },
+  { name:'三浦 さくら', kana:'ミウラ サクラ', age:'2' },
+  { name:'横山 ひろと', kana:'ヨコヤマ ヒロト', age:'3' },
+  { name:'青山 ことね', kana:'アオヤマ コトネ', age:'0' },
+  { name:'佐藤 ゆうと', kana:'サトウ ユウト', age:'2' },
+  { name:'田村 みお', kana:'タムラ ミオ', age:'1' },
+  { name:'中川 はな', kana:'ナカガワ ハナ', age:'2' },
+  { name:'長谷川 そら', kana:'ハセガワ ソラ', age:'3' },
+  { name:'松田 りく', kana:'マツダ リク', age:'1' },
+  { name:'山下 あおい', kana:'ヤマシタ アオイ', age:'0' },
+];
+
+// カタカナ五十音 行マップ
+const KANA_ROWS = {
+  'ア': ['ア','イ','ウ','エ','オ'],
+  'カ': ['カ','キ','ク','ケ','コ','ガ','ギ','グ','ゲ','ゴ'],
+  'サ': ['サ','シ','ス','セ','ソ','ザ','ジ','ズ','ゼ','ゾ'],
+  'タ': ['タ','チ','ツ','テ','ト','ダ','ヂ','ヅ','デ','ド'],
+  'ナ': ['ナ','ニ','ヌ','ネ','ノ'],
+  'ハ': ['ハ','ヒ','フ','ヘ','ホ','バ','ビ','ブ','ベ','ボ','パ','ピ','プ','ペ','ポ'],
+  'マ': ['マ','ミ','ム','メ','モ'],
+  'ヤ': ['ヤ','ユ','ヨ'],
+  'ラ': ['ラ','リ','ル','レ','ロ'],
+  'ワ': ['ワ','ヲ','ン'],
+};
+const KANA_ROW_KEYS = ['ア','カ','サ','タ','ナ','ハ','マ','ヤ','ラ','ワ'];
+
+// ひらがな→カタカナ
+function toKata(s) {
+  return (s||'').replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0)+0x60));
+}
+// 顧客の姓の先頭カナから行を判定
+function kanaRowOf(cust) {
+  const first = toKata(cust.kana).charAt(0);
+  for (const row of KANA_ROW_KEYS) {
+    if (KANA_ROWS[row].includes(first)) return row;
+  }
+  return null;
+}
+
+function slotIndex(t) { return SLOTS.indexOf(t); }
+// ===== 昼食判定: 11:00以降にかかり、かつ3時間以上 =====
+function needsLunch(b) {
+  const durMin = timeToMin(b.end) - timeToMin(b.start);
+  const overlaps11 = timeToMin(b.end) > timeToMin('11:00') && timeToMin(b.start) < timeToMin('14:00');
+  return durMin >= 180 && overlaps11;
+}
+
+// ===== ボード描画 =====
+function renderBoard() {
+  const board = document.getElementById('board');
+  let html = '';
+  // 時間ヘッダー（毎正時を大きく、15/30/45は小さい目盛り）
+  html += '<div class="time-header"><div class="corner"><span class="en">Time</span><span class="jp">時間帯</span></div><div class="time-cells">';
+  SLOTS.forEach(t => {
+    const mm = t.slice(3);
+    let cls = 'q' + mm; // q00 / q15 / q30 / q45
+    if (mm === '00') {
+      html += `<div class="time-cell hour"><span class="hh">${t.slice(0,2)}</span><span class="oclock">時</span></div>`;
+    } else if (mm === '30') {
+      html += `<div class="time-cell half"><span class="mm">30</span></div>`;
+    } else {
+      html += `<div class="time-cell tick"><span class="mm-sm">${mm}</span></div>`;
+    }
+  });
+  html += '</div></div>';
+
+  // 各区分
+  ZONES.forEach(zone => {
+    html += `<div class="zone zone-${zone.key}">`;
+    for (let ln = 0; ln < zone.lanes; ln++) {
+      html += '<div class="lane">';
+      if (ln === 0) {
+        html += `<div class="zone-label"><span class="en">${zone.en}</span><span class="jp">${zone.jp}</span><span class="cap-info">${zone.cap}</span></div>`;
+      } else {
+        html += `<div class="lane-head"></div>`;
+      }
+      html += '<div class="lane-track">';
+      SLOTS.forEach((t, i) => {
+        const mm = t.slice(3);
+        const isHour = mm === '00';
+        const isHalf = mm === '30';
+        const open = isSlotOpen(zone.key, i);
+        let cls = 'slot';
+        if (isHour) cls += ' hour';
+        else if (isHalf) cls += ' half';
+        if (!open) cls += ' closed';
+        html += `<div class="${cls}" ${open?`onclick="onSlotTap('${zone.key}',${ln},${i})"`:''}></div>`;
+      });
+      // 予約バー
+      bookings.filter(b => b.zone === zone.key && b.lane === ln).forEach((b) => {
+        const si = slotIndex(b.start), ei = slotIndex(b.end);
+        if (si < 0) return;
+        const endIdx = ei < 0 ? N : ei;
+        const left = (si / N) * 100;
+        const width = ((endIdx - si) / N) * 100;
+        const ageLabel = b.age === '3' ? '3歳〜' : (b.months != null ? `${b.age}歳${b.months}ヶ月` : `${b.age}歳`);
+        const gidx = bookings.indexOf(b);
+        const lunch = needsLunch(b) ? '<span class="lunch-mark" title="昼食・軽食をお持ちください">🍙</span>' : '';
+        const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
+        const provMark = (b.provisional && !(b.info && b.info.name)) ? '<span class="bar-prov">新規・受付待ち</span>' : '';
+        html += `<div class="booking-bar ${zone.key} ${(b.provisional && !(b.info&&b.info.name))?'is-prov':''}" data-idx="${gidx}" style="left:${left}%; width:calc(${width}% - 4px); margin-left:2px;">
+          <span class="bar-handle bar-handle-l" data-idx="${gidx}" data-edge="l"></span>
+          <span class="bar-body" onclick="onBarTap(${gidx})">
+            <span class="age-chip">${ageLabel}</span>${lunch}<span class="bar-name">${escapeHtml(b.name)}</span>${provMark}${memo}
+          </span>
+          <span class="bar-handle bar-handle-r" data-idx="${gidx}" data-edge="r"></span>
+        </div>`;
+      });
+      html += '</div></div>';
+    }
+    html += '</div>';
+  });
+
+  board.innerHTML = html;
+  attachDragHandlers();
+}
+
+// HTMLエスケープ
+function escapeHtml(s) {
+  return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ===== バーのドラッグ（移動・伸縮） =====
+let dragState = null;
+
+function attachDragHandlers() {
+  document.querySelectorAll('.booking-bar').forEach(bar => {
+    const idx = parseInt(bar.dataset.idx);
+    // バー本体のドラッグ＝移動
+    const body = bar.querySelector('.bar-body');
+    body.addEventListener('pointerdown', e => startDrag(e, idx, 'move'));
+    // 左右ハンドルのドラッグ＝伸縮
+    bar.querySelectorAll('.bar-handle').forEach(h => {
+      h.addEventListener('pointerdown', e => {
+        e.stopPropagation();
+        startDrag(e, idx, h.dataset.edge === 'l' ? 'resize-l' : 'resize-r');
+      });
+    });
+  });
+}
+
+function startDrag(e, idx, mode) {
+  const track = e.currentTarget.closest('.lane-track');
+  if (!track) return;
+  const rect = track.getBoundingClientRect();
+  const slotW = rect.width / N;
+  dragState = {
+    idx, mode, startX: e.clientX, slotW,
+    origStart: slotIndex(bookings[idx].start),
+    origEnd: slotIndex(bookings[idx].end) < 0 ? N : slotIndex(bookings[idx].end),
+    moved: false,
+  };
+  e.target.setPointerCapture?.(e.pointerId);
+  document.addEventListener('pointermove', onDragMove);
+  document.addEventListener('pointerup', onDragEnd);
+}
+
+function onDragMove(e) {
+  if (!dragState) return;
+  const dx = e.clientX - dragState.startX;
+  const slotDelta = Math.round(dx / dragState.slotW);
+  if (Math.abs(dx) > 4) dragState.moved = true;
+  const b = bookings[dragState.idx];
+  let s = dragState.origStart, en = dragState.origEnd;
+
+  if (dragState.mode === 'move') {
+    s = dragState.origStart + slotDelta;
+    en = dragState.origEnd + slotDelta;
+    if (s < 0) { en -= s; s = 0; }
+    if (en > N) { s -= (en - N); en = N; }
+  } else if (dragState.mode === 'resize-l') {
+    s = Math.min(dragState.origStart + slotDelta, dragState.origEnd - 1);
+    s = Math.max(0, s);
+  } else if (dragState.mode === 'resize-r') {
+    en = Math.max(dragState.origEnd + slotDelta, dragState.origStart + 1);
+    en = Math.min(N, en);
+  }
+  b.start = SLOTS[s];
+  b.end = en >= N ? minToTime(END_HOUR*60) : SLOTS[en];
+  renderBoardLive(dragState.idx);
+}
+
+function onDragEnd(e) {
+  document.removeEventListener('pointermove', onDragMove);
+  document.removeEventListener('pointerup', onDragEnd);
+  if (dragState) {
+    const wasMoved = dragState.moved;
+    const idx = dragState.idx;
+    dragState = null;
+    if (wasMoved) {
+      // ドラッグで時間が変わったら共有ストレージにも反映（TimelySchool・サロン・お迎え通知に伝わる）
+      const b = bookings[idx];
+      if (b && b.sfId) sfWriteBack(b);
+    }
+    renderBoard();
+    // ドラッグでなく単なるタップだった場合は編集モーダルを開く
+    if (!wasMoved) onBarTap(idx);
+  }
+}
+
+// ドラッグ中だけ該当バーの位置を即時更新（軽量）
+function renderBoardLive(idx) {
+  const b = bookings[idx];
+  const bar = document.querySelector(`.booking-bar[data-idx="${idx}"]`);
+  if (!bar) return;
+  const si = slotIndex(b.start);
+  const ei = slotIndex(b.end) < 0 ? N : slotIndex(b.end);
+  bar.style.left = (si / N * 100) + '%';
+  bar.style.width = `calc(${(ei - si) / N * 100}% - 4px)`;
+}
+
+// ===== スロットタップ → 新規予約 =====
+let editingIdx = -1;
+function onSlotTap(zoneKey, lane, slotIdx) {
+  editingIdx = -1;
+  document.getElementById('modalTitle').textContent = '予約を追加';
+  document.getElementById('mDelete').style.display = 'none';
+  const ctx = document.getElementById('modalCtx');
+  ctx.style.display = 'block';
+  ctx.innerHTML = `${ZONE_LABEL[zoneKey]} ・ ${SLOTS[slotIdx]} 〜`;
+  document.getElementById('mName').value = '';
+  document.getElementById('mZone').value = zoneKey;
+  document.getElementById('mMemo').value = '';
+  document.getElementById('mDateField').style.display = 'none'; // 新規は現在のボード日付
+  document.getElementById('mDate').value = boardDateStr();
+  selectedMonths = null; renderMonthsActive();
+  setAge('1');
+  resetNameSearch();
+  buildStartSelect(SLOTS[slotIdx]);
+  setDuration(90);
+  document.getElementById('modal').classList.add('show');
+  document.getElementById('modal').dataset.lane = lane;
+}
+
+// ===== 予約バータップ → 編集 =====
+function onBarTap(gidx) {
+  const b = bookings[gidx];
+  editingIdx = gidx;
+  document.getElementById('modalTitle').textContent = '予約を編集';
+  document.getElementById('mDelete').style.display = 'block';
+  const ctx = document.getElementById('modalCtx');
+  ctx.style.display = 'none';
+  document.getElementById('mName').value = b.name;
+  document.getElementById('mZone').value = b.zone;
+  document.getElementById('mMemo').value = b.memo || '';
+  document.getElementById('mDateField').style.display = ''; // 編集時は日付変更可
+  document.getElementById('mDate').value = b.date || boardDateStr();
+  selectedMonths = (b.months != null) ? b.months : null; renderMonthsActive();
+  setAge(b.age);
+  resetNameSearch();
+  setTimeFromRange(b.start, b.end);
+  // 新規（仮）でまだ受付未連携なら、TimelySchool受付の案内を表示
+  const tsNote = document.getElementById('tsNote');
+  if (tsNote) tsNote.style.display = (b.sfId && b.provisional && !(b.info && b.info.name)) ? 'block' : 'none';
+  document.getElementById('modal').classList.add('show');
+  document.getElementById('modal').dataset.lane = b.lane;
+}
+
+// ===== TimelySchool（一時預かり受付）連携 =====
+// TimelySchool は localStorage 'timely_school_data_v1' に customers/visits を保存する。
+// 新規（仮）予約のカタカナ名と、TimelySchoolで受付済みの子のふりがなを照合し、
+// 正式氏名・月齢・アレルギーを予約表に自動反映する。
+const TS_KEY = 'timely_school_data_v1';
+function tsLoad() {
+  try { const raw = localStorage.getItem(TS_KEY); return raw ? JSON.parse(raw) : null; }
+  catch(e) { return null; }
+}
+// カタカナ正規化（ひらがな→カタカナ、空白除去）
+function normKana(s) {
+  return (s||'').replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0)+0x60)).replace(/[\s　]/g,'');
+}
+// 生年月日から月齢を概算（基準日 BOARD_BASE 時点）
+function ageMonthsFromBirth(by, bm, bd) {
+  if (!by || !bm || !bd) return { age: null, months: null };
+  const birth = new Date(by, bm-1, bd);
+  const ref = new Date(BOARD_BASE);
+  let months = (ref.getFullYear()-birth.getFullYear())*12 + (ref.getMonth()-birth.getMonth());
+  if (ref.getDate() < birth.getDate()) months--;
+  if (months < 0) months = 0;
+  const age = Math.floor(months/12);
+  return { age: String(Math.min(age,3)), months: age >= 3 ? null : (months % 12) };
+}
+// TimelySchool受付内容を新規（仮）予約に取り込む
+function syncFromTimelySchool() {
+  const data = tsLoad();
+  if (!data || !Array.isArray(data.customers)) return false;
+  let changed = false;
+  const recs = sfLoad();
+  let recsChanged = false;
+  bookings.forEach(b => {
+    if (!b.provisional || (b.info && b.info.name)) return; // 仮予約で未連携のものだけ
+    const targetKana = normKana(b.kana || b.name);
+    if (!targetKana) return;
+    // ふりがなで照合
+    const cust = data.customers.find(c => normKana(c.childKana) === targetKana || normKana(c.childName) === targetKana);
+    if (!cust) return;
+    // 月齢算出
+    const am = ageMonthsFromBirth(cust.birthY, cust.birthM, cust.birthD);
+    const allergy = (cust.allergyHas === 'あり')
+      ? [ (cust.allergyItems||[]).join('・'), cust.allergyDetail ].filter(Boolean).join(' ')
+      : '';
+    const info = {
+      name: cust.childName, kana: cust.childKana,
+      age: am.age || b.age, months: (am.months != null ? am.months : b.months),
+      allergy, guardian: cust.parentName || '', phone: cust.parentTel || cust.emergency1Tel || '',
+      tsCustomerId: cust.id, fromTimelySchool: true,
+    };
+    // ボード側を更新
+    b.name = info.name; b.kana = info.kana; b.age = info.age; b.months = info.months;
+    b.provisional = false; b.info = info;
+    if (allergy) b.memo = allergy;
+    changed = true;
+    // 共有ストレージも更新（サロン・通知に反映）
+    const rec = recs.find(r => r.id === b.sfId);
+    if (rec) {
+      rec.info = info; rec.name = info.name; rec.kana = info.kana;
+      rec.age = info.age; rec.months = info.months; rec.provisional = false;
+      if (allergy) rec.memo = allergy;
+      recsChanged = true;
+    }
+  });
+  if (recsChanged) sfSave(recs);
+  if (changed) {
+    renderBoard();
+    // 反映バナー
+    const nt = document.getElementById('notifyTitle');
+    if (nt) nt.textContent = '✓ 一時預かり受付の内容を反映しました';
+    const nb = document.getElementById('notifyBody');
+    if (nb) nb.textContent = 'TimelySchoolで受付されたお客様の正式情報を予約表に反映しました。';
+    const pop = document.getElementById('notifyPop');
+    if (pop) { pop.classList.add('show'); setTimeout(()=>pop.classList.remove('show'), 4000); }
+  }
+  return changed;
+}
+
+let selectedMonths = null; // 選択中の月齢（0〜11）。未選択は null
+
+// 月齢グリッドを生成（0〜11ヶ月）
+function buildMonthsGrid() {
+  const grid = document.getElementById('mMonthsGrid');
+  if (!grid) return;
+  let html = '';
+  for (let m = 2; m <= 11; m++) {
+    html += `<div class="month-cell" data-m="${m}">${m}ヶ月</div>`;
+  }
+  grid.innerHTML = html;
+  grid.querySelectorAll('.month-cell').forEach(c => {
+    c.addEventListener('click', () => {
+      const v = c.dataset.m === '' ? null : parseInt(c.dataset.m, 10);
+      // 同じものを再タップしたら選択解除（任意項目なので未選択に戻せる）
+      selectedMonths = (selectedMonths === v) ? null : v;
+      renderMonthsActive();
+    });
+  });
+}
+function renderMonthsActive() {
+  document.querySelectorAll('#mMonthsGrid .month-cell').forEach(c => {
+    const v = c.dataset.m === '' ? null : parseInt(c.dataset.m, 10);
+    c.classList.toggle('active', v === selectedMonths);
+  });
+}
+// 年齢クラスに応じて月齢欄の表示/非表示を切り替え（3歳〜は月齢なし）
+function updateMonthsVisibility() {
+  const field = document.getElementById('mMonthsField');
+  if (!field) return;
+  const age = getAge();
+  if (age === '3') {
+    field.style.display = 'none';
+    selectedMonths = null;
+    renderMonthsActive();
+  } else {
+    field.style.display = '';
+  }
+}
+
+function setAge(age) {
+  document.querySelectorAll('#mAgeTabs .age-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.age === age);
+  });
+  updateMonthsVisibility();
+}
+function getAge() {
+  const el = document.querySelector('#mAgeTabs .age-tab.active');
+  return el ? el.dataset.age : '1';
+}
+function getMonths() {
+  // 3歳〜は月齢なし。それ以外は選択値（未選択は null）
+  return getAge() === '3' ? null : selectedMonths;
+}
+document.querySelectorAll('#mAgeTabs .age-tab').forEach(t => {
+  t.addEventListener('click', () => setAge(t.dataset.age));
+});
+buildMonthsGrid();
+
+// ===== 時間: 開始時刻 + 所要時間(分) =====
+function timeToMin(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
+function minToTime(min) { const h=Math.floor(min/60), m=min%60; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; }
+
+function buildStartSelect(start) {
+  const s = document.getElementById('mStart');
+  s.innerHTML = SLOTS.map(t => `<option ${t===start?'selected':''}>${t}</option>`).join('');
+}
+function setDuration(dur) {
+  document.querySelectorAll('#mDurTabs .dur-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.dur === String(dur));
+  });
+  updateEndPreview();
+}
+function getDuration() {
+  const el = document.querySelector('#mDurTabs .dur-tab.active');
+  return el ? parseInt(el.dataset.dur) : 90;
+}
+// 開始 + 所要時間 から終了時刻を計算して表示
+function updateEndPreview() {
+  const start = document.getElementById('mStart').value;
+  const dur = getDuration();
+  const endMin = timeToMin(start) + dur;
+  const endTime = minToTime(endMin);
+  const closeMin = END_HOUR * 60;
+  const preview = document.getElementById('endPreview');
+  if (endMin > closeMin) {
+    preview.innerHTML = `<span style="color:var(--error);">⚠ 終了が ${endTime} で閉園(${END_HOUR}:00)を超えます。時間を調整してください。</span>`;
+  } else {
+    const h = Math.floor(dur/60), m = dur%60;
+    const durLabel = (h?`${h}時間`:'') + (m?`${m}分`:'');
+    preview.innerHTML = `お預かり: <span class="time">${start}</span>〜<span class="time">${endTime}</span>（${durLabel}）`;
+  }
+}
+// 編集時に既存の開始・終了から所要時間タブを推定
+function setTimeFromRange(start, end) {
+  buildStartSelect(start);
+  const dur = timeToMin(end) - timeToMin(start);
+  // 該当する所要タブがあれば選択、なければ最も近いものに
+  const durs = [30,60,90,120,150,180,240,300];
+  const closest = durs.reduce((a,b) => Math.abs(b-dur) < Math.abs(a-dur) ? b : a, 90);
+  setDuration(durs.includes(dur) ? dur : closest);
+}
+
+// 所要時間タブのクリック
+document.querySelectorAll('#mDurTabs .dur-tab').forEach(t => {
+  t.addEventListener('click', () => setDuration(parseInt(t.dataset.dur)));
+});
+
+// ===== 名前: 予測検索 + 五十音索引 =====
+let _kanaRow = null;
+
+// 入力に応じて予測候補を表示
+function onNameInput() {
+  const q = document.getElementById('mName').value.trim();
+  const box = document.getElementById('nameSuggest');
+  if (!q) { box.classList.remove('show'); box.innerHTML=''; return; }
+  const qk = toKata(q);
+  const hits = REGISTERED.filter(c =>
+    c.name.includes(q) || toKata(c.kana).includes(qk) || c.kana.includes(qk)
+  ).slice(0, 5);
+  if (hits.length === 0) { box.classList.remove('show'); box.innerHTML=''; return; }
+  box.innerHTML = hits.map(c => suggestItemHtml(c)).join('');
+  box.classList.add('show');
+}
+function suggestItemHtml(c) {
+  const ageLabel = c.age === '3' ? '3歳〜' : c.age + '歳';
+  const initial = c.name.charAt(0);
+  return `<div class="suggest-item" onclick="pickCustomer('${c.name}','${c.age}')">
+    <div class="suggest-avatar">${initial}</div>
+    <div class="suggest-info"><div class="suggest-name">${c.name}</div><div class="suggest-kana">${c.kana}</div></div>
+    <span class="suggest-age">${ageLabel}</span>
+  </div>`;
+}
+// 顧客を選択 → 氏名と年齢を自動セット
+function pickCustomer(name, age) {
+  document.getElementById('mName').value = name;
+  setAge(age);
+  document.getElementById('nameSuggest').classList.remove('show');
+  document.getElementById('kanaResult').innerHTML = '';
+  document.querySelectorAll('#kanaIndex .kana-btn').forEach(b => b.classList.remove('active'));
+  _kanaRow = null;
+}
+// 五十音索引を描画
+function renderKanaIndex() {
+  const el = document.getElementById('kanaIndex');
+  // どの行に登録者がいるか
+  const rowsWithData = new Set(REGISTERED.map(c => kanaRowOf(c)).filter(Boolean));
+  el.innerHTML = KANA_ROW_KEYS.map(row => {
+    const empty = !rowsWithData.has(row) ? 'is-empty' : '';
+    return `<div class="kana-btn ${empty}" onclick="filterByKana('${row}')">${row}</div>`;
+  }).join('');
+}
+// 行で絞り込んで候補表示
+function filterByKana(row) {
+  _kanaRow = row;
+  document.querySelectorAll('#kanaIndex .kana-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent === row);
+  });
+  const hits = REGISTERED.filter(c => kanaRowOf(c) === row);
+  const res = document.getElementById('kanaResult');
+  if (hits.length === 0) {
+    res.innerHTML = '<div style="font-family:var(--serif-jp); font-size:12px; color:var(--ink-soft); padding:6px 0;">この行に登録者はいません</div>';
+  } else {
+    res.innerHTML = hits.map(c => suggestItemHtml(c)).join('');
+  }
+  document.getElementById('nameSuggest').classList.remove('show');
+}
+
+function openModal() {
+  editingIdx = -1;
+  document.getElementById('modalTitle').textContent = '予約を追加';
+  document.getElementById('mDelete').style.display = 'none';
+  document.getElementById('modalCtx').style.display = 'none';
+  document.getElementById('mName').value = '';
+  document.getElementById('mZone').value = 'woodstock';
+  document.getElementById('mMemo').value = '';
+  setAge('1');
+  resetNameSearch();
+  buildStartSelect('10:00');
+  setDuration(90);
+  document.getElementById('modal').dataset.lane = '0';
+  document.getElementById('modal').classList.add('show');
+}
+// 名前検索UIをリセット(候補を閉じ、五十音索引を描画)
+function resetNameSearch() {
+  document.getElementById('nameSuggest').classList.remove('show');
+  document.getElementById('nameSuggest').innerHTML = '';
+  document.getElementById('kanaResult').innerHTML = '';
+  _kanaRow = null;
+  renderKanaIndex();
+}
+function closeModal() { document.getElementById('modal').classList.remove('show'); }
+
+function saveBooking() {
+  const name = document.getElementById('mName').value.trim();
+  if (!name) { alert('お子様氏名を入力してください'); return; }
+  const zone = document.getElementById('mZone').value;
+  const age = getAge();
+  const months = getMonths();
+  const memo = document.getElementById('mMemo').value.trim();
+  const start = document.getElementById('mStart').value;
+  const dur = getDuration();
+  const endMin = timeToMin(start) + dur;
+  if (endMin > END_HOUR * 60) { alert(`終了時刻が閉園(${END_HOUR}:00)を超えます。開始時刻またはご利用時間を調整してください。`); return; }
+  const end = minToTime(endMin);
+
+  if (editingIdx >= 0) {
+    const prev = bookings[editingIdx];
+    // 編集時は日付欄から予約日を取得（未入力なら元の日付を維持）
+    const newDate = document.getElementById('mDate').value || prev.date || boardDateStr();
+    const movedToOtherDay = (newDate !== (prev.date || boardDateStr()));
+    const updated = { ...prev, name, zone, age, months, memo, start, end, date: newDate,
+      lane: findFreeLane(zone, start, end, editingIdx) };
+    // 共有ストレージにも反映（sfId を持つ＝共有由来の予約のみ）
+    sfWriteBack(updated);
+    if (movedToOtherDay) {
+      // 別の日に移動した予約は、現在表示中の日のボードからは外す（移動先の日で表示される）
+      bookings.splice(editingIdx, 1);
+    } else {
+      bookings[editingIdx] = updated;
+    }
+  } else {
+    const lane = findFreeLane(zone, start, end, -1);
+    if (lane < 0) { alert('この時間帯はこの区分の枠が満員です'); return; }
+    const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, memo, start, end, date: boardDateStr() };
+    // 延長保育(ext)以外は共有ストレージに保存し、TimelySchool予約画面・サロン側に表記連携する
+    if (zone !== 'ext') {
+      nb.sfId = sfWriteNew(nb);
+    }
+    bookings.push(nb);
+    if (zone === 'woodstock' || zone === 'janis') {
+      showNotify(`${name} さん（${age==='3'?'3歳〜':age+'歳'}）<br>${start} 〜 ${end} ・ ${ZONE_LABEL[zone]}`);
+    }
+  }
+  closeModal();
+  renderBoard();
+}
+
+// ===== 共有ストレージへの書き戻し（予約管理ボード → サロン・お迎え通知・TimelySchool予約） =====
+// 新規レコードを共有ストレージに追加し、採番した id を返す
+function sfWriteNew(b) {
+  const arr = sfLoad();
+  const id = 'board_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+  arr.push({
+    id, gardenId: CURRENT_GARDEN,
+    salon: b.zone, // temp / woodstock / janis（ext は呼び出し側で除外済み）
+    name: b.name, kana: b.kana || '', age: b.age, months: b.months != null ? b.months : null,
+    start: b.start, end: b.end, date: boardDateStr(),
+    nextReservation: null, provisional: false, info: null, memo: b.memo || '',
+    fromBoard: true,
+  });
+  sfSave(arr);
+  return id;
+}
+// 既存の共有レコードを更新（編集時）。sfId が無いレコード（サンプル等）は何もしない
+function sfWriteBack(b) {
+  if (!b || !b.sfId) return;
+  const arr = sfLoad();
+  const rec = arr.find(r => r.id === b.sfId);
+  if (!rec) return;
+  rec.name = b.name; rec.age = b.age; rec.start = b.start; rec.end = b.end;
+  rec.months = (b.months != null ? b.months : null);
+  if (b.date) rec.date = b.date; // 予約日の変更を反映（TimelySchool・サロン・お迎え通知にも伝わる）
+  rec.memo = b.memo || ''; rec.salon = b.zone; rec.gardenId = normGarden(b.gardenId);
+  sfSave(arr);
+}
+
+// 空いているレーンを探す（重複しないレーン）
+function findFreeLane(zone, start, end, excludeIdx) {
+  const zoneObj = ZONES.find(z => z.key === zone);
+  const maxLanes = zoneObj ? zoneObj.lanes : 3;
+  for (let ln = 0; ln < maxLanes; ln++) {
+    const conflict = bookings.some((b, idx) =>
+      idx !== excludeIdx && b.zone === zone && b.lane === ln &&
+      !(end <= b.start || start >= b.end)
+    );
+    if (!conflict) return ln;
+  }
+  return -1;
+}
+
+function deleteBooking() {
+  if (editingIdx < 0) return;
+  if (!confirm('この予約を削除しますか？')) return;
+  const b = bookings[editingIdx];
+  // 共有由来（sfId付き）なら共有ストレージからも削除し、サロン・通知・TimelySchool予約から消す
+  if (b && b.sfId) {
+    const arr = sfLoad().filter(r => r.id !== b.sfId);
+    sfSave(arr);
+  }
+  bookings.splice(editingIdx, 1);
+  closeModal();
+  renderBoard();
+}
+
+// ===== 通知 =====
+function showNotify(body, title) {
+  document.getElementById('notifyTitle').textContent = title || '新しい予約が入りました';
+  document.getElementById('notifyBody').innerHTML = body;
+  const pop = document.getElementById('notifyPop');
+  pop.classList.add('show');
+  setTimeout(() => pop.classList.remove('show'), 4500);
+}
+
+// ===== 日付（プロトなので表示のみ） =====
+let dayOffset = 0;
+const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const BOARD_BASE = new Date(2026, 4, 23); // 基準日を3画面で統一（5/23）
+function boardDateStr() {
+  const d = new Date(BOARD_BASE); d.setDate(d.getDate()+dayOffset);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function changeDay(d) {
+  dayOffset += d;
+  updateDateLabel();
+  // 日付を変えたら、その日の予約を取り込み直す
+  reloadBoardForDate();
+}
+function updateDateLabel() {
+  const base = new Date(BOARD_BASE);
+  base.setDate(base.getDate() + dayOffset);
+  const m = base.getMonth()+1, dd = base.getDate();
+  const isToday = dayOffset === 0;
+  document.getElementById('curDate').innerHTML =
+    `${m}月${dd}日 <span class="wd">${WD[base.getDay()]}</span>${isToday?'<span class="today-pill">本日</span>':''}<span class="cal-caret">▾</span>`;
+}
+// ===== 自作カレンダー（サロン予約画面と同じ操作感） =====
+let calViewYear, calViewMonth;
+function curBoardDate() { const d = new Date(BOARD_BASE); d.setDate(d.getDate()+dayOffset); return d; }
+function toggleCalendar() {
+  const ov = document.getElementById('calOverlay');
+  if (ov.classList.contains('show')) { closeCalendar(); return; }
+  const cur = curBoardDate();
+  calViewYear = cur.getFullYear(); calViewMonth = cur.getMonth();
+  renderCalendar();
+  ov.classList.add('show');
+}
+function closeCalendar() { document.getElementById('calOverlay').classList.remove('show'); }
+function calShiftMonth(d) {
+  const nd = new Date(calViewYear, calViewMonth + d, 1);
+  calViewYear = nd.getFullYear(); calViewMonth = nd.getMonth();
+  renderCalendar();
+}
+function calGoToday() { dayOffset = 0; updateDateLabel(); reloadBoardForDate(); closeCalendar(); }
+// 予約がある日付の集合（共有ストレージ＋サンプル基準日）を作る
+function datesWithBookings() {
+  const set = new Set();
+  sfLoad().forEach(r => { if (r && r.date) set.add(r.date); });
+  // 初期サンプルは基準日に存在
+  const b = `${BOARD_BASE.getFullYear()}-${String(BOARD_BASE.getMonth()+1).padStart(2,'0')}-${String(BOARD_BASE.getDate()).padStart(2,'0')}`;
+  if (SAMPLE_BOOKINGS.length) set.add(b);
+  return set;
+}
+function renderCalendar() {
+  document.getElementById('calTitle').textContent = `${calViewYear}年 ${calViewMonth+1}月`;
+  const first = new Date(calViewYear, calViewMonth, 1);
+  const startDow = first.getDay();
+  const daysInMonth = new Date(calViewYear, calViewMonth+1, 0).getDate();
+  const sel = curBoardDate();
+  const selStr = `${sel.getFullYear()}-${sel.getMonth()}-${sel.getDate()}`;
+  const today = new Date(BOARD_BASE);
+  const todayStr = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+  const booked = datesWithBookings();
+  let html = '';
+  for (let i = 0; i < startDow; i++) html += '<div class="cal-day empty"></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(calViewYear, calViewMonth, d).getDay();
+    const key = `${calViewYear}-${calViewMonth}-${d}`;
+    const bk = `${calViewYear}-${String(calViewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const cls = ['cal-day'];
+    if (dow === 0) cls.push('sun');
+    if (dow === 6) cls.push('sat');
+    if (key === todayStr) cls.push('today');
+    if (key === selStr) cls.push('selected');
+    if (booked.has(bk)) cls.push('has-booking');
+    html += `<div class="${cls.join(' ')}" style="position:relative;" onclick="calPickDay(${d})">${d}</div>`;
+  }
+  document.getElementById('calGrid').innerHTML = html;
+}
+function calPickDay(d) {
+  const sel = new Date(calViewYear, calViewMonth, d);
+  const base0 = new Date(BOARD_BASE); base0.setHours(0,0,0,0);
+  dayOffset = Math.round((sel - base0) / (24*60*60*1000));
+  updateDateLabel();
+  reloadBoardForDate();
+  closeCalendar();
+}
+// 表示中の日付の予約だけにして取り込み直す
+function reloadBoardForDate() {
+  // 初期サンプル（sfIdなし）は基準日(5/23)のみ表示。共有由来(sfId付き)は一旦全消しして当日分を入れ直す。
+  bookings = SAMPLE_BOOKINGS.map(b=>({...b}));
+  if (dayOffset !== 0) bookings = []; // 基準日以外はサンプルを出さない
+  importSharedBookings();
+  renderBoard();
+}
+
+// ===== 共有ストレージから予約を取り込む（サロン予約画面 → この管理ボード） =====
+const ZONE_LANES = { temp:3, woodstock:3, janis:2, ext:3 };
+// その zone/時間帯で空いているレーンを探す
+function findFreeLane(zone, start, end) {
+  const sIdx = slotIndex(start), eIdx = (slotIndex(end) < 0 ? SLOTS.length : slotIndex(end));
+  const lanes = ZONE_LANES[zone] || 3;
+  for (let ln = 0; ln < lanes; ln++) {
+    const clash = bookings.some(b => {
+      if (b.zone !== zone || b.lane !== ln) return false;
+      const bs = slotIndex(b.start), be = (slotIndex(b.end) < 0 ? SLOTS.length : slotIndex(b.end));
+      return sIdx < be && bs < eIdx; // 時間が重なる
+    });
+    if (!clash) return ln;
+  }
+  return lanes - 1; // 全部埋まっていたら最終レーンに重ねる
+}
+function importSharedBookings() {
+  const recs = sfLoad();
+  const curDate = boardDateStr();
+  let added = false, updated = false;
+  recs.forEach(r => {
+    if (!r || !r.salon) return;
+    // 園で絞り込み（gardenId 無しは月寒園として扱う）。当面は月寒園のみ表示。
+    if (normGarden(r.gardenId) !== CURRENT_GARDEN) return;
+    const zone = r.salon; // woodstock / janis がそのまま zone に対応
+    if (!ZONE_LANES[zone]) return;
+    // 表示中の日付の予約のみ（日付なしレコードは当日扱い）
+    if (r.date && r.date !== curDate) return;
+    // 取り込み済み？（sfId優先。sfIdなしは同名・同開始で照合）
+    const existing = bookings.find(b => (b.sfId && b.sfId === r.id) || (!b.sfId && b.zone===zone && b.name===r.name && b.start===r.start));
+    if (existing) {
+      // インフォシート登録・時間変更などの更新を反映
+      const newName = (r.info && r.info.name) ? r.info.name : r.name;
+      if (existing.name !== newName || existing.provisional !== r.provisional || JSON.stringify(existing.info||null) !== JSON.stringify(r.info||null) || existing.months !== r.months || existing.start !== r.start || existing.end !== r.end) {
+        existing.name = newName; existing.kana = r.kana; existing.months = r.months;
+        existing.provisional = r.provisional; existing.info = r.info || null;
+        existing.start = r.start; existing.end = r.end;
+        updated = true;
+      }
+      return;
+    }
+    const lane = findFreeLane(zone, r.start, r.end);
+    bookings.push({ zone, lane, gardenId: normGarden(r.gardenId), name: (r.info&&r.info.name)?r.info.name:r.name, kana: r.kana, age: r.age, months: r.months,
+      start: r.start, end: r.end, date: r.date || boardDateStr(), memo: r.memo||'', sfId: r.id, provisional: r.provisional, info: r.info||null });
+    added = true;
+  });
+  if (added || updated) renderBoard();
+  return added || updated;
+}
+
+// 初期化
+const _gl = document.getElementById('gardenLabel'); if (_gl) _gl.textContent = gardenName(CURRENT_GARDEN);
+updateDateLabel();
+renderBoard();
+importSharedBookings();
+syncFromTimelySchool(); // TimelySchool受付の内容を初回反映
+// サロン予約画面で予約が入ったら自動反映
+window.addEventListener('storage', (e) => {
+  if (e.key === SF_KEY) {
+    if (importSharedBookings()) {
+      const nt = document.getElementById('notifyTitle');
+      if (nt) nt.textContent = '🆕 サロンから新しい予約が入りました';
+      const nb = document.getElementById('notifyBody');
+      if (nb) nb.textContent = 'サロン予約画面からの予約をボードに反映しました。';
+      const pop = document.getElementById('notifyPop');
+      if (pop) { pop.classList.add('show'); setTimeout(()=>pop.classList.remove('show'), 4000); }
+    }
+  }
+  // TimelySchoolで受付が記入されたら反映
+  if (e.key === TS_KEY) { syncFromTimelySchool(); }
+});
+setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); // フォールバック
+</script>
+</body>
+</html>

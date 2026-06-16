@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>テスト運用の進め方 ・ Strawberry Field</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500&family=Noto+Serif+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ivory: #F8F4ED; --ivory-deep: #EFE8DA;
+  --tiffany: #0ABAB5; --tiffany-deep: #089A95; --tiffany-soft: #E8F4F3;
+  --gold: #C9A961; --gold-deep: #A88A4A;
+  --ink: #1A1F26; --ink-soft: #4A5158;
+  --line: #DDD4C2; --line-soft: #EAE4D4;
+  --error: #B23E4C; --success: #5A8A6A; --warning: #D89A3E; --white: #FFFFFF;
+  --serif-en: 'Cormorant Garamond', serif; --serif-jp: 'Noto Serif JP', serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--serif-jp); color: var(--ink); background: var(--ivory-deep); line-height: 1.9; -webkit-font-smoothing: antialiased; }
+.page { max-width: 880px; margin: 0 auto; background: var(--ivory); padding: 56px 64px; }
+
+/* 表紙 */
+.cover { text-align: center; padding: 40px 0 50px; border-bottom: 2px solid var(--gold); margin-bottom: 44px; }
+.cover .brand { font-family: var(--serif-en); font-style: italic; font-size: 24px; color: var(--tiffany-deep); letter-spacing: 0.04em; margin-bottom: 22px; }
+.cover .brand .gold { color: var(--gold-deep); }
+.cover .eyebrow { font-family: var(--serif-en); font-style: italic; font-size: 13px; color: var(--gold-deep); letter-spacing: 0.3em; margin-bottom: 12px; }
+.cover h1 { font-family: var(--serif-jp); font-size: 30px; font-weight: 600; letter-spacing: 0.04em; margin-bottom: 8px; }
+.cover .sub-en { font-family: var(--serif-en); font-style: italic; font-size: 17px; color: var(--ink-soft); }
+.cover .ornament { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 24px; }
+.cover .ornament .line { width: 56px; height: 1px; background: var(--gold); }
+.cover .ornament .diamond { color: var(--gold); font-size: 9px; }
+.cover .date { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-top: 20px; letter-spacing: 0.1em; }
+
+/* 見出し */
+h2 { font-family: var(--serif-jp); font-size: 22px; font-weight: 600; margin: 44px 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; }
+h2 .num { font-family: var(--serif-en); font-style: italic; font-size: 20px; color: var(--gold-deep); }
+h2 .en { font-family: var(--serif-en); font-style: italic; font-size: 13px; color: var(--ink-soft); font-weight: 400; margin-left: auto; }
+h3 { font-family: var(--serif-jp); font-size: 16px; font-weight: 600; margin: 26px 0 10px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+h3::before { content: '◆'; color: var(--gold); font-size: 10px; }
+p { font-family: var(--serif-jp); font-size: 14px; margin-bottom: 14px; }
+strong { color: var(--tiffany-deep); font-weight: 600; }
+
+/* リード文 */
+.lead { background: var(--white); border-left: 3px solid var(--gold); padding: 18px 24px; border-radius: 0 4px 4px 0; margin-bottom: 8px; font-size: 14px; }
+
+/* カード */
+.box { background: var(--white); border: 1px solid var(--line-soft); border-radius: 5px; padding: 22px 26px; margin: 16px 0; }
+.box.tiffany { border-left: 3px solid var(--tiffany); }
+.box.gold { border-left: 3px solid var(--gold); }
+.box.warn { border-left: 3px solid var(--warning); background: #FCF7EC; }
+.box-title { font-family: var(--serif-jp); font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+
+/* 現在地バー */
+.phasebar { display: flex; gap: 0; margin: 22px 0 8px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+.phasebar .ph { flex: 1; text-align: center; padding: 14px 8px; font-family: var(--serif-jp); font-size: 13px; background: var(--white); color: var(--ink-soft); position: relative; }
+.phasebar .ph .pn { font-family: var(--serif-en); font-style: italic; font-size: 12px; display: block; color: var(--gold-deep); margin-bottom: 2px; }
+.phasebar .ph.now { background: var(--tiffany-soft); color: var(--tiffany-deep); font-weight: 600; }
+.phasebar .ph.now .pn { color: var(--tiffany-deep); }
+.phasebar .ph:not(:last-child) { border-right: 1px solid var(--line-soft); }
+.now-tag { display: inline-block; font-family: var(--serif-en); font-style: italic; font-size: 10px; background: var(--tiffany-deep); color: var(--white); padding: 1px 8px; border-radius: 8px; margin-top: 4px; }
+
+/* 図（フロー） */
+.diagram { background: var(--white); border: 1px solid var(--line-soft); border-radius: 5px; padding: 24px; margin: 18px 0; text-align: center; }
+.diagram .hub { display: inline-block; background: var(--ink); color: var(--white); border-radius: 6px; padding: 12px 24px; margin: 8px; font-family: var(--serif-jp); font-size: 13px; }
+.diagram .hub .en { display: block; font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--tiffany); }
+.diagram .arrows { font-size: 18px; color: var(--gold); margin: 4px 0; }
+.diagram .nodes { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.diagram .node { background: var(--tiffany-soft); border: 1px solid var(--tiffany); border-radius: 5px; padding: 9px 14px; font-family: var(--serif-jp); font-size: 12px; color: var(--tiffany-deep); }
+.diagram .cap { font-family: var(--serif-jp); font-size: 12px; margin-bottom: 12px; color: var(--ink-soft); }
+.diagram .cap.ok { color: var(--tiffany-deep); margin: 12px 0 0; }
+.diagram .cap.warn { color: var(--error); margin: 12px 0 0; }
+
+/* リスト */
+ul.clean { list-style: none; margin: 10px 0; }
+ul.clean li { font-family: var(--serif-jp); font-size: 14px; padding: 5px 0 5px 24px; position: relative; }
+ul.clean li::before { content: '—'; position: absolute; left: 0; color: var(--gold-deep); }
+
+/* テーブル */
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+th { background: var(--ink); color: var(--white); font-family: var(--serif-jp); font-weight: 500; padding: 10px 12px; text-align: left; font-size: 12px; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--line-soft); font-family: var(--serif-jp); vertical-align: top; }
+tr:nth-child(even) td { background: var(--white); }
+
+/* ステップ */
+.step { display: flex; gap: 16px; margin: 14px 0; align-items: flex-start; }
+.step-badge { flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%; background: var(--gold); color: var(--white); display: flex; align-items: center; justify-content: center; font-family: var(--serif-en); font-style: italic; font-size: 17px; }
+.step-body { flex: 1; }
+.step-body .t { font-family: var(--serif-jp); font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+.step-body .d { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); }
+.step-body .tag { display: inline-block; font-family: var(--serif-en); font-style: italic; font-size: 11px; background: var(--tiffany-soft); color: var(--tiffany-deep); padding: 2px 10px; border-radius: 10px; margin-top: 4px; }
+
+/* 役割タグ */
+.role-tag { display: inline-block; padding: 2px 9px; font-family: var(--serif-jp); font-size: 11px; border-radius: 3px; margin-right: 4px; }
+.role-salon { background: var(--ivory); color: var(--gold-deep); border: 1px solid var(--gold); }
+.role-en { background: var(--tiffany-soft); color: var(--tiffany-deep); border: 1px solid var(--tiffany); }
+
+/* 印刷 */
+.print-btn { position: fixed; bottom: 24px; right: 24px; background: var(--ink); color: var(--white); border: none; padding: 14px 24px; border-radius: 30px; font-family: var(--serif-jp); font-size: 14px; cursor: pointer; box-shadow: 0 4px 16px rgba(26,31,38,0.2); z-index: 50; }
+.footer { text-align: center; margin-top: 50px; padding-top: 24px; border-top: 1px solid var(--line); font-family: var(--serif-en); font-style: italic; font-size: 12px; color: var(--ink-soft); }
+
+@media print {
+  body { background: white; }
+  .page { max-width: 100%; padding: 20px; }
+  .print-btn { display: none; }
+  h2 { page-break-after: avoid; }
+  .box, .diagram, .step, .phasebar { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- 表紙 -->
+  <div class="cover">
+    <div class="brand">Strawberry <span class="gold">Field</span></div>
+    <div class="eyebrow">◆ NEXT STEPS GUIDE ◆</div>
+    <h1>テスト運用 〜 クラウド化までの進め方</h1>
+    <div class="sub-en">From Staff Testing to the Cloud</div>
+    <div class="ornament"><span class="line"></span><span class="diamond">◆</span><span class="line"></span></div>
+    <div class="date">2026年5月 ・ STRAWBERRY FIELD Children's Garden</div>
+  </div>
+
+  <!-- はじめに -->
+  <div class="lead">
+    この資料は、完成した4つの画面を<strong>まず各部署でテストしてもらい、修正を重ねながら、最終的にクラウド管理（全部署での共有）へ進める</strong>ための進め方を一枚にまとめたものです。一気に全部やるのではなく、小さく確かめながら進めていきます。
+  </div>
+
+  <!-- 現在地 -->
+  <h2><span class="num">00</span>いま、どこにいるか<span class="en">Where We Are</span></h2>
+  <p>4つの画面（サロン予約・予約ボード・お迎え通知・受付アプリ）が完成し、<strong>同じパソコンの中なら本物のように連動して動く</strong>状態です。これはクラウド化の「足がかり」が整った段階です。これから進む全体の流れは次の3つのフェーズです。</p>
+
+  <div class="phasebar">
+    <div class="ph now">
+      <span class="pn">Phase 1</span>各部署でテスト
+      <div class="now-tag">NOW</div>
+    </div>
+    <div class="ph">
+      <span class="pn">Phase 2</span>修正を重ねる
+    </div>
+    <div class="ph">
+      <span class="pn">Phase 3</span>クラウド化
+    </div>
+  </div>
+  <p style="font-size:13px; color:var(--ink-soft); text-align:center; margin-top:10px;">まず集中するのは Phase 1・2。Phase 3 はその先の本命です。</p>
+
+  <!-- Phase 1 -->
+  <h2><span class="num">01</span>各部署に配ってテストしてもらう<span class="en">Phase 1 ・ Testing</span></h2>
+  <p>各部署に渡すのは、完成した<strong>4つのHTMLファイルそのもの</strong>です。メール・共有フォルダ・USBなどで渡し、各端末のブラウザで開いてもらいます。</p>
+
+  <div class="box warn">
+    <div class="box-title">⚠ テスト段階での最重要ポイント</div>
+    <p style="margin-bottom:0;">画面どうしの<strong>連動（予約が他の画面に反映される動き）を確認するには、4つの画面を「同じ1台の端末・同じブラウザ」で開く</strong>必要があります。今はまだ各画面が同じパソコンの中だけでデータを共有する仕組みのため、別々のパソコンに分けて配ると連動しません。テスト中は「サロン役・保育園役を1台で切り替えて触る」形が確実です。<br><span style="color:var(--ink-soft); font-size:13px;">※ 拠点をまたいだ連動は、Phase 3 のクラウド化で実現します。</span></p>
+  </div>
+
+  <div class="diagram">
+    <div class="cap">＜テスト時＞ 1台のパソコンで4画面を開いて確認</div>
+    <div class="hub">1台のブラウザ<span class="en">localStorage で4画面が連動</span></div>
+    <div class="arrows">↑↓　↑↓　↑↓　↑↓</div>
+    <div class="nodes">
+      <div class="node">サロン予約</div>
+      <div class="node">予約ボード</div>
+      <div class="node">お迎え通知</div>
+      <div class="node">受付アプリ</div>
+    </div>
+    <div class="cap ok">↑ この1台の中では、予約や通知が本物のように連動する</div>
+  </div>
+
+  <h3>誰に・何を見てもらうか</h3>
+  <p>役割ごとに見てほしい点を絞ると、フィードバックが集まりやすくなります。</p>
+  <table>
+    <tr><th style="width:150px;">担当</th><th>重点的に触ってほしいこと</th></tr>
+    <tr>
+      <td><span class="role-tag role-salon">サロン</span>美容室・まつげサロンのスタッフ</td>
+      <td>予約の入れやすさ／空き状況の見え方／次回予約のとりやすさ／お迎え通知の送りやすさ</td>
+    </tr>
+    <tr>
+      <td><span class="role-tag role-en">保育園</span>保育園のスタッフ</td>
+      <td>予約ボード（タイムライン）の見やすさ／新規のお客様の受付連携／お迎え通知の届き方・気づきやすさ</td>
+    </tr>
+  </table>
+
+  <!-- Phase 2 -->
+  <h2><span class="num">02</span>フィードバックを集めて修正を重ねる<span class="en">Phase 2 ・ Refine</span></h2>
+  <p>テストで出た「使いにくい」「こうしたい」という声を集め、画面を直していくサイクルです。修正版を作って配り直す、を繰り返します。</p>
+
+  <div class="box tiffany">
+    <div class="box-title">声は「具体的に」集めるのがコツ</div>
+    <p style="margin-bottom:0;">次の4点がわかると、修正がすぐにできます。</p>
+    <ul class="clean" style="margin-bottom:0;">
+      <li><strong>どの画面か</strong>（例：サロン予約画面）</li>
+      <li><strong>どこで</strong>（例：時間を選ぶところ）</li>
+      <li><strong>何をしようとして</strong>（例：30分単位で予約したかった）</li>
+      <li><strong>どうなってほしかったか</strong>（例：もっと細かく選べると嬉しい）</li>
+    </ul>
+  </div>
+
+  <div class="diagram">
+    <div class="cap">＜修正サイクル＞ 小さく回して、確実に良くする</div>
+    <div class="nodes">
+      <div class="node">① テスト</div>
+      <div class="node">② 声を集める</div>
+      <div class="node">③ 修正</div>
+      <div class="node">④ 配り直す</div>
+    </div>
+    <div class="cap ok">↑ ②〜④を繰り返しながら、画面の作りを安定させていく</div>
+  </div>
+
+  <!-- Phase 3 -->
+  <h2><span class="num">03</span>整ったらクラウド化へ<span class="en">Phase 3 ・ Cloud</span></h2>
+  <p>テストが落ち着き、画面の作りが安定したら、いよいよ本命の<strong>クラウド化（Firebase）</strong>です。これで拠点をまたいで予約・通知がリアルタイムに連動し、全部署で共有して使えるようになります。詳しい手順は別資料「Firebase化 ロードマップ」にまとめています。</p>
+
+  <div class="box gold">
+    <div class="box-title">クラウド化の前に、関係者と決めておくこと</div>
+    <p style="margin-bottom:0;">これらは<strong>テスト期間中に並行して話し合っておく</strong>と、クラウド化がスムーズです。</p>
+    <ul class="clean" style="margin-bottom:0;">
+      <li><strong>個人情報の扱い</strong> — お子様・保護者の情報をクラウドに置くため、誰がどのデータを見られるか（権限）のルール</li>
+      <li><strong>各拠点のネット環境</strong> — 保育園・ウッドストック・ジャニスに安定したWi-Fi等があるか</li>
+      <li><strong>運用ルール</strong> — 予約の変更・キャンセルの扱い、余裕活用型の枠配分など</li>
+    </ul>
+  </div>
+
+  <!-- いますぐの一歩 -->
+  <h2><span class="num">04</span>いますぐ着手できる3つのこと<span class="en">Start Today</span></h2>
+
+  <div class="step">
+    <div class="step-badge">1</div>
+    <div class="step-body">
+      <div class="t">4つのHTMLを各部署に配る</div>
+      <div class="d">「同じ1台で4画面を開いて連動を確認してもらう」という使い方を、あわせて伝える。</div>
+      <span class="tag">今週中に</span>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-badge">2</div>
+    <div class="step-body">
+      <div class="t">フィードバックの集め方を決める</div>
+      <div class="d">「どの画面・どこで・何をして・どうなってほしいか」を書いてもらえる簡単な記入シートを用意する。</div>
+      <span class="tag">配布と同時に</span>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-badge">3</div>
+    <div class="step-body">
+      <div class="t">運用ルールの話し合いを始める</div>
+      <div class="d">テストと並行して、上の「決めておくこと」を関係者ですり合わせておく。</div>
+      <span class="tag">テストと並行</span>
+    </div>
+  </div>
+
+  <div class="box" style="margin-top:24px; text-align:center; border-color:var(--gold);">
+    <p style="margin-bottom:0;">テストの声が集まったら、いつでも修正版を作れます。準備が整えば、クラウド化（Phase 3）へ一緒に進んでいきましょう。</p>
+  </div>
+
+  <div class="footer">Strawberry Field Children's Garden ・ Next Steps Guide ・ 2026.05</div>
+</div>
+
+<button class="print-btn" onclick="window.print()">📄 印刷 / PDF保存</button>
+</body>
+</html>

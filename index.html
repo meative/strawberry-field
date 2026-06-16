@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STRAWBERRY FIELD 予約システム</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@400;500;600;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ivory: #F8F4ED;
+  --ivory-deep: #EFE8DA;
+  --tiffany: #0ABAB5;
+  --tiffany-deep: #089A95;
+  --gold: #C9A961;
+  --gold-deep: #A88A4A;
+  --ink: #1A1F26;
+  --ink-soft: #4A5158;
+  --line: #DDD4C2;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Noto Serif JP', serif;
+  background: var(--ivory);
+  color: var(--ink);
+  min-height: 100vh;
+  padding: 40px 20px;
+}
+.container { max-width: 720px; margin: 0 auto; }
+.header { text-align: center; margin-bottom: 48px; }
+.brand-mark {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 13px;
+  letter-spacing: 0.3em;
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+.brand-en {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 32px;
+  letter-spacing: 0.16em;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.brand-jp {
+  font-size: 14px;
+  letter-spacing: 0.16em;
+  color: var(--ink-soft);
+}
+.ornament {
+  margin: 24px auto;
+  width: 80px;
+  border-top: 1px solid var(--gold);
+  position: relative;
+}
+.ornament::before {
+  content: '◆';
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ivory);
+  padding: 0 6px;
+  color: var(--gold);
+  font-size: 10px;
+}
+.section-label {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  color: var(--gold-deep);
+  text-align: center;
+  margin-top: 32px;
+  margin-bottom: 20px;
+}
+.card-grid { display: grid; gap: 14px; }
+.card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px 26px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  text-decoration: none;
+  color: var(--ink);
+  transition: all 0.2s;
+}
+.card:hover {
+  border-color: var(--tiffany);
+  transform: translateX(2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+}
+.card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--ivory-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--gold-deep);
+  flex-shrink: 0;
+}
+.card-body { flex: 1; }
+.card-title-en {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--gold-deep);
+  margin-bottom: 2px;
+}
+.card-title-jp {
+  font-size: 17px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.card-desc { font-size: 12px; color: var(--ink-soft); line-height: 1.5; }
+.card-arrow { color: var(--gold); font-size: 14px; }
+.footer { text-align: center; margin-top: 56px; font-size: 11px; color: var(--ink-soft); letter-spacing: 0.1em; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="brand-mark">◆ STRAWBERRY FIELD ◆</div>
+    <div class="brand-en">Reservation System</div>
+    <div class="brand-jp">予約システム</div>
+    <div class="ornament"></div>
+  </div>
+  
+  <div class="section-label">— Applications · 業務アプリ —</div>
+  
+  <div class="card-grid">
+    <a href="apps/timely.html" class="card">
+      <div class="card-icon">⏱</div>
+      <div class="card-body">
+        <div class="card-title-en">Timely School Reception</div>
+        <div class="card-title-jp">TimelySchool 受付</div>
+        <div class="card-desc">当日入力・お会計・領収書発行（保育園スタッフ用）</div>
+      </div>
+      <div class="card-arrow">▶</div>
+    </a>
+    
+    <a href="apps/board.html" class="card">
+      <div class="card-icon">▦</div>
+      <div class="card-body">
+        <div class="card-title-en">Reservation Board</div>
+        <div class="card-title-jp">予約管理ボード</div>
+        <div class="card-desc">タイムライン形式の予約俯瞰（保育園スタッフ用）</div>
+      </div>
+      <div class="card-arrow">▶</div>
+    </a>
+    
+    <a href="apps/salon.html" class="card">
+      <div class="card-icon">◈</div>
+      <div class="card-body">
+        <div class="card-title-en">Salon Reservation</div>
+        <div class="card-title-jp">サロン予約画面</div>
+        <div class="card-desc">空き状況確認・予約登録（美容室/サロンスタッフ用）</div>
+      </div>
+      <div class="card-arrow">▶</div>
+    </a>
+    
+    <a href="apps/notify.html" class="card">
+      <div class="card-icon">◇</div>
+      <div class="card-body">
+        <div class="card-title-en">Pickup Notification</div>
+        <div class="card-title-jp">お迎え遅延通知</div>
+        <div class="card-desc">双方向の進捗・遅れ・お迎え通知（共用）</div>
+      </div>
+      <div class="card-arrow">▶</div>
+    </a>
+  </div>
+  
+  <div class="section-label">— Documents · 説明書 —</div>
+  
+  <div class="card-grid">
+    <a href="docs/timely-staff-manual.html" class="card">
+      <div class="card-icon">📖</div>
+      <div class="card-body">
+        <div class="card-title-en">Staff Manual · Timely School</div>
+        <div class="card-title-jp">TimelySchool スタッフ向け取扱説明書</div>
+      </div>
+      <div class="card-arrow">▶</div>
+    </a>
+    
+    <a href="docs/onboarding-guide.html" class="card">
+      <div class="card-icon">✎</div>
+      <div class="card-body">
+        <div class="card-title-en">Onboarding Guide</div>
+        <div class="card-title-jp">進め方ガイド</div>
+      </div>
+      <div class="card-arrow">▶</div>
+    </a>
+  </div>
+  
+  <div class="footer">STRAWBERRY FIELD · Multi-Garden Reservation System</div>
+</div>
+</body>
+</html>

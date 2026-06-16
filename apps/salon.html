@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>サロン予約 ・ Strawberry Field 保育</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Inter:wght@300;400;500&family=Noto+Serif+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ivory: #F8F4ED; --ivory-deep: #EFE8DA;
+  --tiffany: #0ABAB5; --tiffany-deep: #089A95; --tiffany-soft: #E8F4F3;
+  --gold: #C9A961; --gold-deep: #A88A4A;
+  --ink: #1A1F26; --ink-soft: #4A5158;
+  --line: #DDD4C2; --line-soft: #EAE4D4;
+  --error: #B23E4C; --success: #5A8A6A; --warning: #D89A3E; --white: #FFFFFF;
+  --woodstock: #C9A961; --woodstock-deep: #A88A4A; --woodstock-soft: #FAF3DE;
+  --janis: #5B8DB8; --janis-deep: #3F6E94; --janis-soft: #E4EEF5;
+  --serif-en: 'Cormorant Garamond', serif; --serif-jp: 'Noto Serif JP', serif; --sans: 'Inter', sans-serif;
+  --transition: 0.15s ease;
+  --salon: var(--woodstock); --salon-deep: var(--woodstock-deep); --salon-soft: var(--woodstock-soft);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: rgba(10, 186, 181, 0.15); }
+body { font-family: var(--serif-jp); color: var(--ink); background: var(--ivory); -webkit-font-smoothing: antialiased; display: flex; flex-direction: column; min-height: 100vh; -webkit-text-size-adjust: 100%; }
+
+/* iPad / iOS Safari: タップ反応を確実にする */
+button, .age-big, .month-chip, .kana-btn, .cal-day, .cal-today, .cal-mnav, .cal-overlay, .cal-box,
+.suggest-item, .modal-cust, .alt-chip, .ct-tab, .salon-pill, [onclick] {
+  touch-action: manipulation;       /* ダブルタップズームの300ms遅延を解消 */
+  -webkit-user-select: none;        /* タップ時の文字選択を防止 */
+  user-select: none;
+}
+/* タップ時のアクティブ表現（押した実感を出す） */
+.age-big:active, .month-chip:active, .kana-btn:active, .cal-day:active,
+.suggest-item:active, .modal-cust:active, .alt-chip:active, .ct-tab:active,
+button:active { opacity: 0.7; }
+
+.app-header { background: var(--ink); padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.header-left { display: flex; align-items: baseline; gap: 12px; }
+.salon-name { font-family: var(--serif-en); font-style: italic; font-size: 24px; color: var(--salon); letter-spacing: 0.02em; }
+.salon-sub { font-family: var(--serif-jp); font-size: 11px; color: var(--line); letter-spacing: 0.15em; }
+.header-right { display: flex; align-items: center; gap: 16px; }
+.link-status { display: flex; align-items: center; gap: 7px; font-family: var(--serif-jp); font-size: 11px; color: var(--ivory); }
+.link-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tiffany); box-shadow: 0 0 8px var(--tiffany); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+.salon-switch { display: flex; gap: 4px; background: rgba(255,255,255,0.1); padding: 3px; border-radius: 20px; }
+.salon-switch button { border: none; background: transparent; color: var(--line); padding: 5px 14px; border-radius: 16px; font-family: var(--serif-jp); font-size: 11px; cursor: pointer; transition: all var(--transition); }
+.salon-switch button.active { background: var(--white); color: var(--ink); }
+
+.main { flex: 1; display: flex; flex-direction: column; max-width: 920px; width: 100%; margin: 0 auto; padding: 24px; }
+.intro { text-align: center; margin-bottom: 22px; }
+.intro-eyebrow { font-family: var(--serif-en); font-style: italic; font-size: 12px; color: var(--salon-deep); letter-spacing: 0.25em; margin-bottom: 6px; }
+.intro-title { font-family: var(--serif-jp); font-size: 22px; font-weight: 500; }
+.intro-note { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+
+/* 日付バー */
+.date-bar { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 26px; }
+.date-nav { background: var(--white); border: 1px solid var(--line); border-radius: 30px; padding: 10px 22px; font-family: var(--serif-jp); font-size: 13px; color: var(--ink); cursor: pointer; transition: all var(--transition); }
+.date-nav:active { background: var(--salon-soft); border-color: var(--salon); }
+.date-display { display: inline-flex; align-items: baseline; gap: 8px; background: var(--white); border: 1px solid var(--line); border-radius: 8px; padding: 10px 24px; font-family: var(--serif-jp); font-size: 21px; font-weight: 600; color: var(--ink); cursor: pointer; transition: all var(--transition); box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+.date-display:hover { border-color: var(--salon); }
+.date-display .wd { font-family: var(--serif-en); font-style: italic; color: var(--salon-deep); font-size: 15px; font-weight: 400; }
+.date-display .cal-caret { font-size: 11px; color: var(--salon-deep); margin-left: 2px; }
+/* 自作カレンダー */
+.cal-overlay { position: fixed; inset: 0; background: rgba(26,22,18,0.4); display: none; align-items: center; justify-content: center; z-index: 200; }
+.cal-overlay.show { display: flex; }
+.cal-box { background: var(--white); border-radius: 12px; padding: 22px 24px 18px; width: 340px; box-shadow: 0 16px 50px rgba(0,0,0,0.28); animation: calPop 0.2s cubic-bezier(0.16,1,0.3,1); }
+@keyframes calPop { from { opacity: 0; transform: scale(0.95) translateY(8px); } to { opacity: 1; transform: none; } }
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.cal-title { font-family: var(--serif-jp); font-size: 17px; font-weight: 600; color: var(--ink); }
+.cal-mnav { background: var(--ivory); border: 1px solid var(--line); border-radius: 50%; width: 34px; height: 34px; font-size: 16px; color: var(--salon-deep); cursor: pointer; transition: all var(--transition); display: flex; align-items: center; justify-content: center; }
+.cal-mnav:active { background: var(--salon); color: var(--white); }
+.cal-weekdays { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; margin-bottom: 6px; }
+.cal-weekdays span { text-align: center; font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); padding: 4px 0; }
+.cal-weekdays span:first-child { color: #C26A6A; }
+.cal-weekdays span:last-child { color: var(--salon-deep); }
+.cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
+.cal-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-family: var(--serif-jp); font-size: 14px; color: var(--ink); border-radius: 8px; cursor: pointer; transition: all var(--transition); border: 1px solid transparent; }
+.cal-day:hover { background: var(--salon-soft); }
+.cal-day.empty { cursor: default; }
+.cal-day.today { border-color: var(--salon); color: var(--salon-deep); font-weight: 600; }
+.cal-day.selected { background: var(--salon); color: var(--white); font-weight: 600; }
+.cal-day.sun { color: #C26A6A; }
+.cal-day.sat { color: var(--salon-deep); }
+.cal-today { width: 100%; margin-top: 14px; background: var(--ivory); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); cursor: pointer; transition: all var(--transition); }
+.cal-today:active { background: var(--salon-soft); border-color: var(--salon); }
+/* 予約モードタブ */
+.mode-tabs { display: flex; gap: 0; max-width: 560px; margin: 0 auto 22px; background: var(--ivory); border: 1px solid var(--line); border-radius: 30px; padding: 4px; }
+.mode-tab { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: transparent; border: none; border-radius: 26px; padding: 12px; font-family: var(--serif-jp); font-size: 15px; font-weight: 500; cursor: pointer; transition: all var(--transition); color: var(--ink-soft); white-space: nowrap; }
+.mode-tab .mt-ico { font-size: 15px; }
+.mode-tab.active { background: var(--salon); color: var(--white); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+.mode-tab:not(.active):active { color: var(--salon-deep); }
+/* 次回予約モード */
+.next-mode .next-intro { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); line-height: 1.7; margin-bottom: 22px; background: var(--salon-soft); padding: 12px 16px; border-radius: 4px; }
+.next-cust-list { display: flex; flex-direction: column; gap: 8px; }
+.next-cust { background: var(--white); border: 1px solid var(--line); border-radius: 4px; padding: 13px 16px; cursor: pointer; transition: all var(--transition); }
+.next-cust:active { background: var(--salon-soft); }
+.next-cust.active { border-color: var(--salon); border-width: 2px; background: var(--salon-soft); }
+.next-cust .nc-main { display: flex; align-items: center; gap: 10px; }
+.next-cust .nc-name { font-family: var(--serif-jp); font-size: 15px; font-weight: 600; }
+.next-cust .nc-has { font-family: var(--serif-jp); font-size: 10px; color: var(--white); background: var(--salon); padding: 2px 8px; border-radius: 10px; }
+.next-cust .nc-time { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+.next-empty { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); text-align: center; padding: 24px 0; line-height: 1.8; }
+.modal-cust-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+.modal-cust { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--white); border: 1px solid var(--line); border-radius: 6px; padding: 11px 14px; cursor: pointer; transition: all var(--transition); }
+.modal-cust:active { background: var(--salon-soft); }
+.modal-cust.active { border-color: var(--salon); border-width: 2px; background: var(--salon-soft); }
+.modal-cust .nc-name { font-family: var(--serif-jp); font-size: 15px; font-weight: 600; }
+.modal-cust .nc-time { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-left: auto; }
+.modal-cust .nc-has { font-family: var(--serif-jp); font-size: 10px; color: var(--white); background: var(--salon); padding: 2px 8px; border-radius: 10px; }
+.next-input-card { background: var(--white); border: 1px solid var(--line); border-radius: 4px; padding: 18px 20px; }
+.next-input-card .ni-row { display: flex; gap: 12px; }
+.next-input-card .ni-group { flex: 1; margin-bottom: 14px; }
+.next-input-card .ni-group label { display: block; font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+.next-input-card .ni-input { width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 2px; font-family: var(--serif-jp); font-size: 15px; background: var(--white); box-sizing: border-box; }
+.next-input-card .ni-input:focus { outline: none; border-color: var(--salon); }
+.ni-save-btn { width: 100%; background: var(--salon); color: var(--white); border: none; border-radius: 4px; padding: 14px; font-family: var(--serif-jp); font-size: 15px; font-weight: 500; cursor: pointer; transition: all var(--transition); margin-top: 4px; }
+.ni-save-btn:active { transform: scale(0.98); }
+
+/* ===== かんたん予約検索（メイン） ===== */
+.finder {
+  background: var(--white); border: 1px solid var(--line-soft); border-top: 3px solid var(--salon);
+  border-radius: 4px; padding: 26px 30px; margin-bottom: 24px;
+}
+.finder-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 22px; }
+.finder-title .en { font-family: var(--serif-en); font-style: italic; font-size: 14px; color: var(--salon-deep); letter-spacing: 0.1em; }
+.finder-title .jp { font-family: var(--serif-jp); font-size: 19px; font-weight: 500; }
+
+.step { margin-bottom: 22px; }
+.step-label { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--salon-deep); color: var(--white); display: flex; align-items: center; justify-content: center; font-family: var(--serif-en); font-style: italic; font-size: 13px; flex-shrink: 0; }
+.step-text { font-family: var(--serif-jp); font-size: 14px; font-weight: 500; }
+
+/* 年齢タブ（大きめ） */
+.age-row { display: flex; gap: 10px; }
+.age-big {
+  flex: 1; padding: 16px 0; text-align: center; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--white); cursor: pointer; transition: all var(--transition);
+  font-family: var(--serif-jp); font-size: 16px;
+}
+.age-big .en { display: block; font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+.age-big.active { background: var(--ink); color: var(--white); border-color: var(--ink); }
+.age-big.active .en { color: rgba(255,255,255,0.7); }
+.age-big.disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 開始時刻＋長さ */
+.want-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
+.want-group { flex: 1; min-width: 140px; }
+.want-group label { display: block; font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+.want-group select { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 2px; font-family: var(--serif-jp); font-size: 15px; background: var(--white); }
+.want-group select:focus { outline: none; border-color: var(--salon); }
+
+/* 受付可能時間の案内 */
+.accept-info { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-top: 10px; padding: 8px 12px; background: var(--ivory); border-radius: 2px; }
+.accept-info .hl { color: var(--salon-deep); font-weight: 500; }
+.month-row { margin-top: 14px; }
+.month-label { font-family: var(--serif-jp); font-size: 13px; color: var(--ink); margin-bottom: 8px; }
+.month-chips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.month-chip { font-family: var(--serif-jp); font-size: 12px; color: var(--ink); background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 8px 4px; cursor: pointer; transition: all var(--transition); text-align: center; white-space: nowrap; }
+.month-chip:hover { border-color: var(--salon); }
+.month-chip.active { background: var(--salon); color: var(--white); border-color: var(--salon); font-weight: 600; }
+.cust-type-tabs { display: flex; gap: 0; background: var(--ivory); border: 1px solid var(--line); border-radius: 24px; padding: 3px; margin-bottom: 16px; }
+.ct-tab { flex: 1; background: transparent; border: none; border-radius: 20px; padding: 9px; font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); cursor: pointer; transition: all var(--transition); }
+.ct-tab.active { background: var(--salon); color: var(--white); font-weight: 600; }
+.new-note { font-family: var(--serif-jp); font-size: 11px; color: var(--salon-deep); background: var(--salon-soft); border-radius: 6px; padding: 10px 12px; margin-top: 10px; line-height: 1.7; }
+.kana-name-row { display: flex; gap: 10px; }
+.kana-name-row input { flex: 1; }
+.mb-prov { font-family: var(--serif-jp); font-size: 10px; color: var(--white); background: #C9802E; padding: 2px 8px; border-radius: 10px; margin-left: 8px; vertical-align: middle; }
+
+/* 判定結果 */
+.result-area { margin-top: 18px; }
+.result-ok, .result-ng {
+  border-radius: 4px; padding: 18px 22px;
+}
+.result-ok { background: var(--tiffany-soft); border: 1px solid var(--tiffany); }
+.result-ng { background: var(--ivory-deep); border: 1px solid var(--line); }
+.result-headline { font-family: var(--serif-jp); font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+.result-ok .result-headline { color: var(--tiffany-deep); }
+.result-detail { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); margin-bottom: 14px; }
+.result-time {
+  font-family: var(--serif-en); font-style: italic; font-size: 22px; color: var(--ink);
+}
+.book-btn {
+  background: var(--salon-deep); color: var(--white); border: none; border-radius: 3px;
+  padding: 14px 32px; font-family: var(--serif-jp); font-size: 15px; cursor: pointer; transition: all var(--transition);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.book-btn:active { transform: scale(0.97); }
+
+/* 代替候補 */
+.alt-title { font-family: var(--serif-jp); font-size: 13px; color: var(--ink); margin: 4px 0 10px; }
+.alt-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.alt-chip {
+  border: 1px solid var(--salon); background: var(--white); color: var(--salon-deep);
+  border-radius: 20px; padding: 9px 18px; font-family: var(--serif-en); font-style: italic; font-size: 14px;
+  cursor: pointer; transition: all var(--transition);
+}
+.alt-chip:active { background: var(--salon-soft); }
+.alt-none { font-family: var(--serif-jp); font-size: 13px; color: var(--error); }
+
+/* ===== 自店の予約一覧 ===== */
+.my-bookings { background: var(--white); border: 1px solid var(--line-soft); border-radius: 4px; padding: 20px 26px; }
+.mb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.mb-head .t-en { font-family: var(--serif-en); font-style: italic; font-size: 12px; color: var(--salon-deep); letter-spacing: 0.15em; }
+.mb-head .t-jp { font-family: var(--serif-jp); font-size: 17px; font-weight: 500; }
+.mb-count { font-family: var(--serif-en); font-style: italic; font-size: 13px; color: var(--ink-soft); }
+.mb-list { display: flex; flex-direction: column; gap: 10px; }
+.mb-item { display: flex; align-items: center; gap: 16px; padding: 14px 18px; border: 1px solid var(--line-soft); border-left: 3px solid var(--salon); border-radius: 3px; transition: all var(--transition); }
+.mb-time { font-family: var(--serif-en); font-style: italic; font-size: 17px; min-width: 120px; }
+.mb-main { flex: 1; }
+.mb-name { font-family: var(--serif-jp); font-size: 15px; font-weight: 500; }
+.mb-meta { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+.mb-age { font-family: var(--serif-jp); font-size: 11px; padding: 3px 10px; border-radius: 10px; background: var(--salon-soft); color: var(--salon-deep); }
+.mb-empty { text-align: center; padding: 24px 0; font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); }
+.mb-lunch { margin-left: 6px; }
+
+/* ===== モーダル（顧客名入力） ===== */
+.modal-overlay { position: fixed; inset: 0; background: rgba(26,31,38,0.5); display: none; align-items: center; justify-content: center; z-index: 200; padding: 24px; }
+.modal-overlay.show { display: flex; }
+.modal { background: var(--white); border-radius: 6px; max-width: 460px; width: 100%; padding: 30px; border-top: 3px solid var(--salon); max-height: 92vh; overflow-y: auto; }
+.modal-title { font-family: var(--serif-jp); font-size: 20px; font-weight: 500; margin-bottom: 2px; }
+.modal-title-en { font-family: var(--serif-en); font-style: italic; font-size: 13px; color: var(--salon-deep); margin-bottom: 18px; }
+.modal-context { background: var(--salon-soft); border-left: 3px solid var(--salon); padding: 12px 16px; border-radius: 2px; margin-bottom: 18px; font-family: var(--serif-jp); font-size: 14px; }
+.modal-context .time { font-family: var(--serif-en); font-style: italic; font-size: 17px; color: var(--salon-deep); }
+.field { margin-bottom: 16px; }
+.field label { display: block; font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+.field .hint { font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--salon-deep); }
+.field input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 2px; font-family: var(--serif-jp); font-size: 15px; background: var(--white); }
+.field input:focus { outline: none; border-color: var(--salon); }
+.name-suggest { margin-top: 6px; display: none; flex-direction: column; gap: 4px; }
+.name-suggest.show { display: flex; }
+.suggest-item { padding: 10px 14px; border: 1px solid var(--line-soft); border-radius: 2px; background: var(--ivory); cursor: pointer; display: flex; align-items: center; gap: 10px; transition: all var(--transition); }
+.suggest-item:active { background: var(--salon-soft); }
+.suggest-avatar { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--salon); display: flex; align-items: center; justify-content: center; font-family: var(--serif-jp); font-size: 13px; color: var(--salon-deep); flex-shrink: 0; }
+.suggest-info { flex: 1; }
+.suggest-name { font-family: var(--serif-jp); font-size: 14px; font-weight: 500; }
+.suggest-kana { font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--ink-soft); }
+.suggest-age { font-family: var(--serif-jp); font-size: 10px; padding: 2px 8px; border-radius: 8px; background: var(--salon-soft); color: var(--salon-deep); }
+.kana-index { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.kana-btn { width: 38px; padding: 6px 0; text-align: center; border: 1px solid var(--line); border-radius: 2px; background: var(--white); cursor: pointer; font-family: var(--serif-jp); font-size: 12px; transition: all var(--transition); }
+.kana-btn.active { background: var(--ink); color: var(--white); border-color: var(--ink); }
+.kana-btn.is-empty { opacity: 0.35; }
+.kana-result { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+.modal-actions { display: flex; gap: 12px; margin-top: 22px; }
+.next-resv-field { border-top: 1px dashed var(--line); padding-top: 16px; }
+.next-resv-field .nr-row { display: flex; gap: 10px; margin-bottom: 8px; }
+.next-resv-field .nr-input { width: 100%; padding: 11px 13px; border: 1px solid var(--line); border-radius: 2px; font-family: var(--serif-jp); font-size: 14px; background: var(--white); box-sizing: border-box; }
+.next-resv-field .nr-input:focus { outline: none; border-color: var(--salon); }
+.btn { font-family: var(--serif-jp); font-size: 15px; padding: 13px 24px; border-radius: 2px; cursor: pointer; border: 1px solid var(--line); background: var(--white); color: var(--ink); transition: all var(--transition); }
+.btn:active { transform: scale(0.98); }
+.btn-primary { background: var(--salon-deep); color: var(--white); border-color: var(--salon-deep); flex: 1; }
+
+.toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: var(--white); padding: 14px 28px; border-radius: 30px; font-family: var(--serif-jp); font-size: 14px; opacity: 0; transition: all 0.3s; z-index: 300; pointer-events: none; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.proto-note { background: var(--tiffany-soft); padding: 8px 24px; font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); text-align: center; flex-shrink: 0; }
+.proto-note strong { color: var(--tiffany-deep); }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div class="header-left">
+    <span class="salon-name" id="salonName">WOODSTOCK</span>
+    <span class="salon-sub" id="salonSub">美容室 ・ 保育予約</span>
+  </div>
+  <div class="header-right">
+    <div class="salon-switch">
+      <button id="swWood" class="active" onclick="switchSalon('woodstock')">ウッドストック</button>
+      <button id="swJanis" onclick="switchSalon('janis')">ジャニス</button>
+    </div>
+    <div class="link-status"><span class="link-dot"></span><span id="gardenLabel">月寒園</span>と連携中</div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="intro">
+    <div class="intro-eyebrow">◆ NURSERY RESERVATION ◆</div>
+    <div class="intro-title">お子様の保育予約</div>
+    <div class="intro-note">年齢とご希望の時間を選ぶと、お預かりできる時間をご案内します</div>
+  </div>
+
+  <div class="date-bar">
+    <button class="date-nav" onclick="changeDay(-1)">‹ 前日</button>
+    <button class="date-display" id="curDate" onclick="toggleCalendar()" title="タップで日付を選ぶ">5月23日 <span class="wd">Sat</span><span class="cal-caret">▾</span></button>
+    <button class="date-nav" onclick="changeDay(1)">翌日 ›</button>
+  </div>
+
+  <!-- 自作カレンダー（月表示） -->
+  <div class="cal-overlay" id="calOverlay" onclick="closeCalendar()">
+    <div class="cal-box" onclick="event.stopPropagation()">
+      <div class="cal-head">
+        <button class="cal-mnav" onclick="calShiftMonth(-1)">‹</button>
+        <span class="cal-title" id="calTitle">2026年 5月</span>
+        <button class="cal-mnav" onclick="calShiftMonth(1)">›</button>
+      </div>
+      <div class="cal-weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+      <div class="cal-grid" id="calGrid"></div>
+      <button class="cal-today" onclick="calGoToday()">本日（5/23）に戻る</button>
+    </div>
+  </div>
+
+  <!-- 予約モード切替タブ -->
+  <div class="mode-tabs">
+    <button class="mode-tab active" id="tabBook" onclick="switchMode('book')"><span class="mt-ico">📋</span>今回の予約</button>
+    <button class="mode-tab" id="tabNext" onclick="switchMode('next')"><span class="mt-ico">🗓</span>次回予約</button>
+  </div>
+
+  <!-- かんたん予約検索（今回の予約モード） -->
+  <div class="finder" id="bookMode">
+    <div class="finder-title">
+      <span class="en" id="finderEn">Quick Finder</span>
+      <span class="jp" id="finderJp">かんたん予約検索</span>
+    </div>
+    <div class="next-intro" id="nextHint" style="display:none;">次回のご予約を登録します。上の日付を次回の来店日に合わせ、年齢・時間を選んでください。予約時に「本日ご利用のどのお客様か」を選ぶと、お迎え時に保育園からお声がけできます。</div>
+
+    <!-- ステップ1: 年齢 -->
+    <div class="step">
+      <div class="step-label"><span class="step-num">1</span><span class="step-text">お子様の年齢を選ぶ</span></div>
+      <div class="age-row" id="ageRow"></div>
+      <div class="month-row" id="monthRow" style="display:none;">
+        <div class="month-label" id="monthLabel">月齢を選ぶ</div>
+        <div class="month-chips" id="monthChips"></div>
+      </div>
+      <div class="accept-info" id="acceptInfo"></div>
+    </div>
+
+    <!-- ステップ2: 希望時間 -->
+    <div class="step">
+      <div class="step-label"><span class="step-num">2</span><span class="step-text">ご希望の開始時刻と長さを選ぶ</span></div>
+      <div class="want-row">
+        <div class="want-group">
+          <label>開始時刻</label>
+          <select id="wantStart" onchange="checkAvailability()"></select>
+        </div>
+        <div class="want-group">
+          <label>お預かりの長さ</label>
+          <select id="wantDur" onchange="checkAvailability()">
+            <option value="30">30分</option>
+            <option value="60">1時間</option>
+            <option value="90" selected>1時間半</option>
+            <option value="120">2時間</option>
+            <option value="150">2時間半</option>
+            <option value="180">3時間</option>
+            <option value="240">4時間</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- ステップ3: 結果 -->
+    <div class="step" style="margin-bottom:0;">
+      <div class="step-label"><span class="step-num">3</span><span class="step-text">予約できる時間のご案内</span></div>
+      <div class="result-area" id="resultArea"></div>
+    </div>
+  </div>
+
+  <!-- 自店の予約 -->
+  <div class="my-bookings">
+    <div class="mb-head">
+      <div>
+        <div class="t-en">Your Reservations</div>
+        <div class="t-jp" id="mbTitle">ウッドストック経由の本日の予約</div>
+      </div>
+      <div class="mb-count" id="mbCount"></div>
+    </div>
+    <div class="mb-list" id="mbList"></div>
+  </div>
+</div>
+
+<!-- 予約モーダル -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-title" id="modalTitle">予約のお名前</div>
+    <div class="modal-title-en">Reservation</div>
+    <div class="modal-context" id="modalCtx"></div>
+
+    <!-- 今回の予約：氏名入力（登録済みなら候補表示／新規はカタカナで一時予約） -->
+    <div id="bookFields">
+      <div class="field">
+        <label>お子様のお名前 <span class="hint">登録済みの方は入力で候補表示／新規の方はカタカナでご入力</span></label>
+        <input type="text" id="mName" placeholder="例: 山田 はな ／ ヤマダ ハナ" autocomplete="off" oninput="onNameInput()">
+        <div class="name-suggest" id="nameSuggest"></div>
+        <div class="kana-index" id="kanaIndex"></div>
+        <div class="kana-result" id="kanaResult"></div>
+        <div class="new-note" id="newNote" style="display:none;">📝 新規のお客様として、カタカナのお名前で一時予約します。保育園で一時預かり受付（TimelySchool）を記入すると、正式な情報が自動で予約表に反映されます。</div>
+      </div>
+    </div>
+
+    <!-- 次回予約：本日のお客様を選ぶ -->
+    <div id="nextFields" style="display:none;">
+      <div class="field">
+        <label>本日ご利用のどのお客様の次回予約ですか？</label>
+        <div class="modal-cust-list" id="modalCustList"></div>
+      </div>
+      <div class="field">
+        <label>メニュー <span class="hint">（任意）</span></label>
+        <input type="text" id="mNextMenu2" class="nr-input" placeholder="例：カット&カラー">
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" id="modalConfirmBtn" onclick="confirmReserve()">この内容で予約</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="proto-note">◆ <strong>サロン側 予約画面プロトタイプ v2</strong>（サンプル表示）。年齢→希望時間を選ぶと、予約できる時間が自動で出ます。満員なら近い空き時間を提案します。</div>
+
+<script>
+// ===== 共有ストレージ（3画面連携：サロン予約・予約管理・通知モデル） =====
+// localStorage キー sf_bookings_v1 に予約配列を保存。同一ブラウザの別タブと連携。
+// ※ Claudeのプレビュー内ではlocalStorageが使えないため、ダウンロードしてブラウザで開くと連携します。
+const SF_KEY = 'sf_bookings_v1';
+// ===== 園マスター（園軸） =====
+// 当面は月寒園のみ。将来サポラクリ園・白石園などを足すときはここに1件追加する。
+// 各園に連携サロン（zone）を紐づける。woodstock/janis は既存のサロン区分。
+const GARDENS = {
+  tsukisamu:  { name:'月寒園',       salons:['woodstock','janis'] },
+  // 将来の拡張例（今は無効）:
+  // saporakuri: { name:'サポラクリ園', salons:['woodstock','janis'] },
+  // shiraishi:  { name:'白石園',       salons:['buddybrown','janis_shiraishi'] },
+};
+// 現在運用中の園（固定表示）。将来はここを切り替え可能にする。
+const CURRENT_GARDEN = 'tsukisamu';
+// gardenId が無い既存レコードは月寒園として扱う（補完）
+function normGarden(g) {
+  // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
+  if (g == null || g === '') return CURRENT_GARDEN;
+  return g;
+}
+function gardenName(g) {
+  const id = normGarden(g);
+  return (GARDENS[id] || GARDENS[CURRENT_GARDEN] || {}).name || '月寒園';
+}
+
+function sfLoad() {
+  try { const raw = localStorage.getItem(SF_KEY); return raw ? JSON.parse(raw) : []; }
+  catch(e) { return []; }
+}
+function sfSave(arr) {
+  try { localStorage.setItem(SF_KEY, JSON.stringify(arr)); return true; }
+  catch(e) { return false; }
+}
+function sfAdd(rec) {
+  const arr = sfLoad();
+  rec.id = 'bk_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+  arr.push(rec);
+  sfSave(arr);
+  return rec.id;
+}
+// サンプル予約を共有ストレージに種まき（初回のみ・重複防止）。これで次回予約タブ・管理ボード・通知に揃って出る。
+function seedSampleBookings() {
+  const today = new Date(2026,4,23); // 基準日
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const arr = sfLoad();
+  let changed = false;
+  ['woodstock','janis'].forEach(sk => {
+    (SEED_BOOKINGS[sk] || []).forEach(b => {
+      const dup = arr.some(r => r.salon===sk && r.name===b.name && r.date===dateStr && r.start===b.start);
+      if (!dup) {
+        arr.push({ id:'seed_'+sk+'_'+b.name.replace(/\s/g,''), gardenId:CURRENT_GARDEN, salon:sk, name:b.name, age:b.age, start:b.start, end:b.end, date:dateStr, nextReservation:null });
+        changed = true;
+      }
+    });
+  });
+  if (changed) sfSave(arr);
+}
+
+// ===== 設定 =====
+const START_HOUR = 8, END_HOUR = 18, SLOT_MIN = 30;
+const SLOTS = [];
+for (let h = START_HOUR; h < END_HOUR; h++) { SLOTS.push(`${String(h).padStart(2,'0')}:00`); SLOTS.push(`${String(h).padStart(2,'0')}:30`); }
+const N = SLOTS.length;
+function timeToMin(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
+function minToTime(min){ return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`; }
+function slotIdx(t){ return SLOTS.indexOf(t); }
+
+const AGES = [
+  { key:'0', jp:'0歳', en:'Age 0' }, { key:'1', jp:'1歳', en:'Age 1' },
+  { key:'2', jp:'2歳', en:'Age 2' }, { key:'3', jp:'3歳〜', en:'Age 3+' },
+];
+
+// ===== 保育園が設定する「受け入れ条件」（年齢ごと） =====
+// open/close = 受付可能な時間帯, cap = 各30分スロットの人数上限
+const ACCEPT = {
+  '0': { open:'09:00', close:'15:00', cap:2 },
+  '1': { open:'08:00', close:'18:00', cap:3 },
+  '2': { open:'08:00', close:'18:00', cap:4 },
+  '3': { open:'09:00', close:'18:00', cap:2 },
+};
+
+// 既に入っている予約数（年齢 × 30分スロット）。保育園+両サロン合算
+let used = {};
+AGES.forEach(a => used[a.key] = new Array(N).fill(0));
+// サンプルで一部埋める
+function seed(age, start, end) { for (let i=slotIdx(start); i<slotIdx(end); i++) if(i>=0) used[age][i]++; }
+seed('0','10:00','11:30'); seed('0','13:00','14:00');
+seed('1','09:00','12:00'); seed('1','13:00','14:30');
+seed('2','11:00','13:00');
+seed('3','15:00','17:00');
+
+let salon = 'woodstock';
+const SALON_INFO = {
+  woodstock: { name:'WOODSTOCK', sub:'美容室 ・ 保育予約', jp:'ウッドストック' },
+  janis: { name:'JANIS', sub:'まつげサロン ・ 保育予約', jp:'ジャニス' },
+};
+const SEED_BOOKINGS = {
+  woodstock: [ { name:'渡辺 みなと', age:'0', start:'10:00', end:'11:30' }, { name:'岡田 あゆみ', age:'1', start:'13:00', end:'14:30' } ],
+  janis: [ { name:'三浦 さくら', age:'2', start:'11:00', end:'13:00' }, { name:'森 はると', age:'1', start:'12:00', end:'13:30' } ],
+};
+let myBookings = {
+  woodstock: SEED_BOOKINGS.woodstock.map(b=>({...b})),
+  janis: SEED_BOOKINGS.janis.map(b=>({...b})),
+};
+const REGISTERED = [
+  { name:'森 はると', kana:'モリ ハルト', age:'1' }, { name:'渡辺 みなと', kana:'ワタナベ ミナト', age:'0' },
+  { name:'岡田 あゆみ', kana:'オカダ アユミ', age:'1' }, { name:'西村 ゆい', kana:'ニシムラ ユイ', age:'1' },
+  { name:'藤井 れん', kana:'フジイ レン', age:'1' }, { name:'三浦 さくら', kana:'ミウラ サクラ', age:'2' },
+  { name:'横山 ひろと', kana:'ヨコヤマ ヒロト', age:'3' }, { name:'青山 ことね', kana:'アオヤマ コトネ', age:'0' },
+  { name:'佐藤 ゆうと', kana:'サトウ ユウト', age:'2' }, { name:'田村 みお', kana:'タムラ ミオ', age:'1' },
+  { name:'中川 はな', kana:'ナカガワ ハナ', age:'2' }, { name:'長谷川 そら', kana:'ハセガワ ソラ', age:'3' },
+];
+const KANA_ROWS = { 'ア':['ア','イ','ウ','エ','オ'],'カ':['カ','キ','ク','ケ','コ','ガ','ギ','グ','ゲ','ゴ'],'サ':['サ','シ','ス','セ','ソ','ザ','ジ','ズ','ゼ','ゾ'],'タ':['タ','チ','ツ','テ','ト','ダ','ヂ','ヅ','デ','ド'],'ナ':['ナ','ニ','ヌ','ネ','ノ'],'ハ':['ハ','ヒ','フ','ヘ','ホ','バ','ビ','ブ','ベ','ボ','パ','ピ','プ','ペ','ポ'],'マ':['マ','ミ','ム','メ','モ'],'ヤ':['ヤ','ユ','ヨ'],'ラ':['ラ','リ','ル','レ','ロ'],'ワ':['ワ','ヲ','ン'] };
+const KANA_ROW_KEYS = ['ア','カ','サ','タ','ナ','ハ','マ','ヤ','ラ','ワ'];
+function toKata(s){ return (s||'').replace(/[\u3041-\u3096]/g,c=>String.fromCharCode(c.charCodeAt(0)+0x60)); }
+function kanaRowOf(c){ const f=toKata(c.kana).charAt(0); for(const r of KANA_ROW_KEYS){ if(KANA_ROWS[r].includes(f)) return r; } return null; }
+
+let selectedAge = '1';
+let selectedMonths = 2; // 0歳/1歳/2歳のときの月齢（2〜11ヶ月。お預かりは2ヶ月から）
+
+// ===== ステップ1: 年齢 =====
+function renderAgeRow() {
+  document.getElementById('ageRow').innerHTML = AGES.map(a =>
+    `<div class="age-big ${a.key===selectedAge?'active':''}" role="button" tabindex="0" onclick="selectAge('${a.key}')">${a.jp}<span class="en">${a.en}</span></div>`
+  ).join('');
+  renderMonthRow();
+  updateAcceptInfo();
+}
+// 月齢セレクター（0歳/1歳/2歳のみ表示。3歳以上は非表示）
+function renderMonthRow() {
+  const row = document.getElementById('monthRow');
+  if (selectedAge === '3') { row.style.display = 'none'; return; }
+  row.style.display = '';
+  const yr = selectedAge;
+  document.getElementById('monthLabel').textContent = `${yr}歳  — 何ヶ月ですか？`;
+  let html = '';
+  for (let m = 2; m <= 11; m++) {
+    html += `<div class="month-chip ${m===selectedMonths?'active':''}" role="button" tabindex="0" onclick="selectMonth(${m})">${m}ヶ月</div>`;
+  }
+  document.getElementById('monthChips').innerHTML = html;
+}
+function selectMonth(m) {
+  selectedMonths = m;
+  renderMonthRow();
+  updateAcceptInfo();
+}
+function selectAge(key) {
+  selectedAge = key;
+  selectedMonths = 2; // 年齢を変えたら月齢は2ヶ月にリセット（お預かりは2ヶ月から）
+  renderAgeRow();
+  buildStartOptions();
+  checkAvailability();
+}
+// 年齢＋月齢の表示用ラベル（例：0歳3ヶ月 / 3歳〜）
+function ageMonthLabel(age, months) {
+  if (age === '3') return '3歳〜';
+  const m = (months == null) ? 0 : months;
+  return `${age}歳${m}ヶ月`;
+}
+function updateAcceptInfo() {
+  const a = ACCEPT[selectedAge];
+  const ageJp = ageMonthLabel(selectedAge, selectedMonths);
+  document.getElementById('acceptInfo').innerHTML =
+    `${ageJp}のお預かり受付時間：<span class="hl">${a.open} 〜 ${a.close}</span> ／ 同時に <span class="hl">${a.cap}名</span>まで`;
+}
+
+// ===== ステップ2: 開始時刻の選択肢（受付時間内のみ） =====
+function buildStartOptions() {
+  const a = ACCEPT[selectedAge];
+  const sel = document.getElementById('wantStart');
+  const opts = SLOTS.filter(t => t >= a.open && t < a.close);
+  const prev = sel.value;
+  sel.innerHTML = opts.map(t => `<option ${t===prev?'selected':''}>${t}</option>`).join('');
+}
+
+// 指定スロット範囲が全て空いているか（受付時間内＆人数上限内）
+function rangeAvailable(age, sIdx, eIdx) {
+  const a = ACCEPT[age];
+  for (let i = sIdx; i < eIdx; i++) {
+    if (i < 0 || i >= N) return false;
+    if (SLOTS[i] < a.open || SLOTS[i] >= a.close) return false;  // 受付時間外
+    if (used[age][i] >= a.cap) return false;                      // 満員
+  }
+  return true;
+}
+
+// ===== ステップ3: 判定 =====
+function checkAvailability() {
+  const start = document.getElementById('wantStart').value;
+  const dur = parseInt(document.getElementById('wantDur').value);
+  const area = document.getElementById('resultArea');
+  if (!start) { area.innerHTML = ''; return; }
+  const a = ACCEPT[selectedAge];
+  const sIdx = slotIdx(start);
+  const slotsNeeded = dur / SLOT_MIN;
+  const eIdx = sIdx + slotsNeeded;
+  const endTime = minToTime(timeToMin(start) + dur);
+  const ageJp = AGES.find(x=>x.key===selectedAge).jp;
+
+  if (rangeAvailable(selectedAge, sIdx, eIdx)) {
+    // 予約可能
+    area.innerHTML = `<div class="result-ok">
+      <div class="result-headline">◎ お預かりできます</div>
+      <div class="result-detail">${ageJp} ・ ご希望の時間で空きがあります</div>
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;">
+        <div class="result-time">${start} 〜 ${endTime}</div>
+        <button class="book-btn" onclick="openReserve('${start}','${endTime}')">この時間で予約する →</button>
+      </div>
+    </div>`;
+  } else {
+    // 予約不可 → 同じ長さで入れる近い時間を探す
+    const alts = findAlternatives(selectedAge, dur, sIdx);
+    let altHtml;
+    if (alts.length) {
+      altHtml = `<div class="alt-title">近い時間で、以下が空いています：</div>
+        <div class="alt-chips">${alts.map(alt => {
+          const e = minToTime(timeToMin(alt)+dur);
+          return `<span class="alt-chip" role="button" tabindex="0" onclick="openReserve('${alt}','${e}')">${alt} 〜 ${e}</span>`;
+        }).join('')}</div>`;
+    } else {
+      altHtml = `<div class="alt-none">申し訳ありません。本日この長さで空いている時間がありません。長さを短くするか、別の日でご相談ください。</div>`;
+    }
+    area.innerHTML = `<div class="result-ng">
+      <div class="result-headline">この時間は満員です</div>
+      <div class="result-detail">${ageJp} ・ ${start} 〜 ${endTime} はお預かりできません</div>
+      ${altHtml}
+    </div>`;
+  }
+}
+
+// 同じ長さで入れる代替時間（最大4件）
+function findAlternatives(age, dur, aroundIdx) {
+  const slotsNeeded = dur / SLOT_MIN;
+  const candidates = [];
+  for (let s = 0; s + slotsNeeded <= N; s++) {
+    if (rangeAvailable(age, s, s + slotsNeeded)) candidates.push(s);
+  }
+  // aroundIdxに近い順
+  candidates.sort((x,y) => Math.abs(x-aroundIdx) - Math.abs(y-aroundIdx));
+  return candidates.slice(0,4).sort((x,y)=>x-y).map(i => SLOTS[i]);
+}
+
+// ===== 予約モーダル =====
+let pendingStart = '', pendingEnd = '';
+function openReserve(start, end) {
+  pendingStart = start; pendingEnd = end;
+  const ageJp = ageMonthLabel(selectedAge, selectedMonths);
+  const isBook = reserveMode === 'book';
+  // モーダルのモード別表示切替
+  document.getElementById('bookFields').style.display = isBook ? '' : 'none';
+  document.getElementById('nextFields').style.display = isBook ? 'none' : '';
+  if (isBook) {
+    document.getElementById('modalTitle').textContent = '予約のお名前';
+    document.getElementById('modalCtx').innerHTML = `${ageJp} ・ <span class="time">${start} 〜 ${end}</span> でお預かり`;
+    document.getElementById('mName').value = '';
+    const note = document.getElementById('newNote'); if (note) note.style.display = 'none';
+    resetNameSearch();
+  } else {
+    // 次回予約モード：表示中の日付＝次回予約日
+    const d = currentDate();
+    const dateLabel = `${d.getMonth()+1}月${d.getDate()}日（${WD_JP[d.getDay()]}）`;
+    document.getElementById('modalTitle').textContent = '次回予約の登録';
+    document.getElementById('modalCtx').innerHTML = `<span class="time">${dateLabel} ${start}〜${end}</span> ・ ${ageJp} の次回予約`;
+    nextCustId = null;
+    document.getElementById('mNextMenu2').value = '';
+    renderModalCustList();
+  }
+  document.getElementById('modalConfirmBtn').textContent = isBook ? 'この内容で予約' : 'この内容で次回予約を登録';
+  document.getElementById('modal').classList.add('show');
+}
+function closeModal(){ document.getElementById('modal').classList.remove('show'); }
+const WD_JP = ['日','月','火','水','木','金','土'];
+
+function confirmReserve() {
+  // ===== 次回予約モード =====
+  if (reserveMode === 'next') {
+    if (!nextCustId) { showToast('本日のお客様を選んでください'); return; }
+    const d = currentDate();
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const menu = document.getElementById('mNextMenu2').value.trim();
+    const recs = sfLoad();
+    const rec = recs.find(r => r.id === nextCustId);
+    if (!rec) { showToast('お客様が見つかりません'); return; }
+    // (1) 本日のお客様に次回予約を紐付け（お迎え通知に「次回予約もしています」と表示）
+    rec.nextReservation = { date: dateStr, time: pendingStart, menu };
+    // (2) 将来の予約コマとしても登録（管理ボードのその日に反映）。既存の同一お客様の将来予約は作り直し。
+    let arr = recs.filter(r => !(r.fromNextOf === rec.id));
+    arr.push({
+      id: 'fut_' + rec.id + '_' + Date.now(),
+      gardenId: normGarden(rec.gardenId), salon: rec.salon, name: rec.name, age: selectedAge,
+      start: pendingStart, end: pendingEnd, date: dateStr,
+      nextReservation: null, fromNextOf: rec.id, memo: menu ? `次回予約（${menu}）` : '次回予約'
+    });
+    sfSave(arr);
+    closeModal();
+    showToast(`✓ ${rec.name}さんの次回予約を登録しました（${d.getMonth()+1}/${d.getDate()} ${pendingStart}〜）`);
+    return;
+  }
+  // ===== 今回の予約モード =====
+  const input = document.getElementById('mName').value.trim();
+  if (!input) { showToast('お子様のお名前を入力してください'); return; }
+  // 登録済み客か判定。候補に一致すれば既存、なければ新規（カタカナ一時予約）
+  const reg = REGISTERED.find(r => r.name === input || r.kana === input || toKata(r.kana) === toKata(input));
+  let name, kana = '', provisional = false;
+  if (reg) {
+    name = reg.name; kana = reg.kana;
+  } else {
+    // 新規：カタカナで一時予約（カタカナでなければ注意）
+    if (!isKatakanaName(input)) { showToast('登録のないお客様は、カタカナでお名前をご入力ください'); return; }
+    name = input; kana = input; provisional = true;
+  }
+  const months = (selectedAge === '3') ? null : selectedMonths;
+  const booking = { name, age: selectedAge, months, start: pendingStart, end: pendingEnd, provisional };
+  myBookings[salon].push(booking);
+  // 使用数を反映
+  for (let i = slotIdx(pendingStart); i < slotIdx(pendingEnd); i++) if(i>=0) used[selectedAge][i]++;
+  // 共有ストレージへ書き込み → 予約管理システム・通知モデルに自動反映
+  const today = new Date(2026,4,23); today.setDate(today.getDate()+dayOffset);
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const saved = sfAdd({ gardenId: CURRENT_GARDEN, salon, name, kana, age: selectedAge, months, start: pendingStart, end: pendingEnd, date: dateStr, nextReservation: null, provisional, info: null });
+  closeModal();
+  renderMyBookings();
+  buildStartOptions();
+  checkAvailability();
+  showToast(saved
+    ? (provisional ? `✓ ${name}さんを一時予約しました。保育園の受付で正式情報が反映されます` : '✓ 予約しました。保育園に通知しました')
+    : '✓ 予約しました（連携保存は不可：単体表示）');
+}
+
+// ===== 自店予約一覧 =====
+function needsLunch(b){ const d=timeToMin(b.end)-timeToMin(b.start); return d>=180 && timeToMin(b.end)>timeToMin('11:00') && timeToMin(b.start)<timeToMin('14:00'); }
+function renderMyBookings() {
+  // 共有ストレージから本日・当サロンの予約を読む（保育園のインフォシート反映を拾うため）
+  const today = currentDate();
+  const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const arr = sfLoad()
+    .filter(r => normGarden(r.gardenId) === CURRENT_GARDEN && r.salon === salon && (!r.date || r.date === dateStr) && !r.fromNextOf)
+    .sort((a,b)=>a.start.localeCompare(b.start));
+  document.getElementById('mbCount').textContent = arr.length + ' 件';
+  const list = document.getElementById('mbList');
+  if (!arr.length) { list.innerHTML = '<div class="mb-empty">本日の予約はまだありません。</div>'; return; }
+  list.innerHTML = arr.map(b => {
+    const ageLabel = ageMonthLabel(b.age, b.months);
+    const lunch = needsLunch(b) ? '<span class="mb-lunch" title="昼食をお持ちください">🍙</span>' : '';
+    // 新規（仮）でまだ受付未登録ならバッジ。受付済みなら正式氏名を表示。
+    const displayName = (b.info && b.info.name) ? b.info.name : b.name;
+    const provBadge = (b.provisional && !(b.info && b.info.name)) ? '<span class="mb-prov">新規・受付待ち</span>' : '';
+    const meta = (b.info && b.info.name)
+      ? `隣の保育園でお預かり ・ ✓ 受付済み`
+      : (b.provisional ? '隣の保育園でお預かり ・ 来園時に受付（TimelySchool）' : '隣の保育園でお預かり');
+    return `<div class="mb-item">
+      <div class="mb-time">${b.start} 〜 ${b.end}</div>
+      <div class="mb-main"><div class="mb-name">${displayName}${lunch}${provBadge}</div><div class="mb-meta">${meta}</div></div>
+      <span class="mb-age">${ageLabel}</span>
+    </div>`;
+  }).join('');
+}
+
+// ===== 名前検索 =====
+function onNameInput() {
+  const q = document.getElementById('mName').value.trim();
+  const box = document.getElementById('nameSuggest');
+  const note = document.getElementById('newNote');
+  if (!q) { box.classList.remove('show'); box.innerHTML=''; if(note) note.style.display='none'; return; }
+  const qk = toKata(q);
+  const hits = REGISTERED.filter(c => c.name.includes(q) || toKata(c.kana).includes(qk) || c.kana.includes(qk)).slice(0,5);
+  if (!hits.length) {
+    box.classList.remove('show'); box.innerHTML='';
+    // 候補なし＝新規のお客様。カタカナで入力されていれば一時予約のご案内を出す
+    if (note) note.style.display = isKatakanaName(q) ? 'block' : 'none';
+    return;
+  }
+  if (note) note.style.display = 'none';
+  box.innerHTML = hits.map(suggestHtml).join('');
+  box.classList.add('show');
+}
+// 入力がカタカナ（姓 名）の体裁か
+function isKatakanaName(s) {
+  return /^[ァ-ヶー]+[\s　]+[ァ-ヶー]+$/.test(s) || /^[ァ-ヶー]{2,}$/.test(s);
+}
+function suggestHtml(c) {
+  const ageLabel = c.age==='3'?'3歳〜':c.age+'歳';
+  return `<div class="suggest-item" role="button" tabindex="0" onclick="pickCustomer('${c.name}','${c.age}')">
+    <div class="suggest-avatar">${c.name.charAt(0)}</div>
+    <div class="suggest-info"><div class="suggest-name">${c.name}</div><div class="suggest-kana">${c.kana}</div></div>
+    <span class="suggest-age">${ageLabel}</span></div>`;
+}
+function pickCustomer(name, age) {
+  document.getElementById('mName').value = name;
+  document.getElementById('nameSuggest').classList.remove('show');
+  document.getElementById('kanaResult').innerHTML = '';
+  document.querySelectorAll('#kanaIndex .kana-btn').forEach(b=>b.classList.remove('active'));
+  // 候補の年齢で検索条件も合わせるか確認…ここでは氏名のみ反映（年齢は手順1で選択済み）
+}
+function renderKanaIndex() {
+  const rows = new Set(REGISTERED.map(kanaRowOf).filter(Boolean));
+  document.getElementById('kanaIndex').innerHTML = KANA_ROW_KEYS.map(r => `<div class="kana-btn ${rows.has(r)?'':'is-empty'}" role="button" tabindex="0" onclick="filterByKana('${r}')">${r}</div>`).join('');
+}
+function filterByKana(row) {
+  document.querySelectorAll('#kanaIndex .kana-btn').forEach(b=>b.classList.toggle('active',b.textContent===row));
+  const hits = REGISTERED.filter(c=>kanaRowOf(c)===row);
+  document.getElementById('kanaResult').innerHTML = hits.length ? hits.map(suggestHtml).join('') : '<div style="font-family:var(--serif-jp); font-size:12px; color:var(--ink-soft); padding:6px 0;">この行に登録者はいません</div>';
+  document.getElementById('nameSuggest').classList.remove('show');
+}
+function resetNameSearch() {
+  document.getElementById('nameSuggest').classList.remove('show');
+  document.getElementById('nameSuggest').innerHTML = '';
+  document.getElementById('kanaResult').innerHTML = '';
+  renderKanaIndex();
+}
+
+// ===== 店舗切替 =====
+function switchSalon(s) {
+  salon = s;
+  const info = SALON_INFO[s];
+  document.getElementById('salonName').textContent = info.name;
+  document.getElementById('salonSub').textContent = info.sub;
+  document.getElementById('mbTitle').textContent = `${info.jp}経由の本日の予約`;
+  document.getElementById('swWood').classList.toggle('active', s==='woodstock');
+  document.getElementById('swJanis').classList.toggle('active', s==='janis');
+  const root = document.documentElement.style;
+  if (s === 'woodstock') { root.setProperty('--salon','var(--woodstock)'); root.setProperty('--salon-deep','var(--woodstock-deep)'); root.setProperty('--salon-soft','var(--woodstock-soft)'); }
+  else { root.setProperty('--salon','var(--janis)'); root.setProperty('--salon-deep','var(--janis-deep)'); root.setProperty('--salon-soft','var(--janis-soft)'); }
+  renderMyBookings();
+}
+
+function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2800); }
+let dayOffset = 0;
+const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DATE_BASE = new Date(2026,4,23); // 基準日（5/23）
+function currentDate() { const d = new Date(DATE_BASE); d.setDate(d.getDate()+dayOffset); return d; }
+function updateDateLabel() {
+  const base = currentDate();
+  document.getElementById('curDate').innerHTML = `${base.getMonth()+1}月${base.getDate()}日 <span class="wd">${WD[base.getDay()]}</span><span class="cal-caret">▾</span>`;
+}
+function changeDay(d){ dayOffset += d; updateDateLabel(); }
+
+// ===== 自作カレンダー =====
+let calViewYear, calViewMonth; // 表示中の年・月（0始まり）
+function toggleCalendar() {
+  const ov = document.getElementById('calOverlay');
+  if (ov.classList.contains('show')) { closeCalendar(); return; }
+  const cur = currentDate();
+  calViewYear = cur.getFullYear();
+  calViewMonth = cur.getMonth();
+  renderCalendar();
+  ov.classList.add('show');
+}
+function closeCalendar() { document.getElementById('calOverlay').classList.remove('show'); }
+function calShiftMonth(d) {
+  const nd = new Date(calViewYear, calViewMonth + d, 1);
+  calViewYear = nd.getFullYear();
+  calViewMonth = nd.getMonth();
+  renderCalendar();
+}
+function calGoToday() { dayOffset = 0; updateDateLabel(); closeCalendar(); }
+function renderCalendar() {
+  document.getElementById('calTitle').textContent = `${calViewYear}年 ${calViewMonth+1}月`;
+  const first = new Date(calViewYear, calViewMonth, 1);
+  const startDow = first.getDay();
+  const daysInMonth = new Date(calViewYear, calViewMonth+1, 0).getDate();
+  const sel = currentDate();
+  const selStr = `${sel.getFullYear()}-${sel.getMonth()}-${sel.getDate()}`;
+  const today = new Date(DATE_BASE);
+  const todayStr = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+  let html = '';
+  for (let i = 0; i < startDow; i++) html += '<div class="cal-day empty"></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(calViewYear, calViewMonth, d).getDay();
+    const key = `${calViewYear}-${calViewMonth}-${d}`;
+    const cls = ['cal-day'];
+    if (dow === 0) cls.push('sun');
+    if (dow === 6) cls.push('sat');
+    if (key === todayStr) cls.push('today');
+    if (key === selStr) cls.push('selected');
+    html += `<div class="${cls.join(' ')}" role="button" tabindex="0" onclick="calPickDay(${d})">${d}</div>`;
+  }
+  document.getElementById('calGrid').innerHTML = html;
+}
+function calPickDay(d) {
+  const sel = new Date(calViewYear, calViewMonth, d);
+  const base0 = new Date(DATE_BASE); base0.setHours(0,0,0,0);
+  dayOffset = Math.round((sel - base0) / (24*60*60*1000));
+  updateDateLabel();
+  closeCalendar();
+}
+
+// ===== モード切替（今回の予約 / 次回予約）。どちらも同じ検索UIを使う =====
+let reserveMode = 'book'; // 'book' = 今回 / 'next' = 次回
+function switchMode(mode) {
+  reserveMode = mode;
+  const isBook = mode === 'book';
+  document.getElementById('tabBook').classList.toggle('active', isBook);
+  document.getElementById('tabNext').classList.toggle('active', !isBook);
+  // 見出しとヒントを切替（UIの中身は同じ検索フォーム）
+  document.getElementById('finderEn').textContent = isBook ? 'Quick Finder' : 'Next Reservation';
+  document.getElementById('finderJp').textContent = isBook ? 'かんたん予約検索' : '次回予約の検索';
+  document.getElementById('nextHint').style.display = isBook ? 'none' : '';
+}
+
+// ===== 次回予約：モーダル内で本日のお客様を選ぶ =====
+let nextCustId = null; // 次回予約の紐付け先（本日の予約レコードid）
+function renderModalCustList() {
+  const recs = sfLoad().filter(r => normGarden(r.gardenId) === CURRENT_GARDEN && r.salon === salon && (!r.date || r.date === todayStr()) && !r.fromNextOf);
+  const el = document.getElementById('modalCustList');
+  if (!recs.length) {
+    el.innerHTML = '<div class="next-empty">本日のご予約がありません。先に「今回の予約」を入れてください。</div>';
+    return;
+  }
+  el.innerHTML = recs.map(r => {
+    const has = r.nextReservation ? '<span class="nc-has">次回予約あり</span>' : '';
+    return `<div class="modal-cust ${nextCustId===r.id?'active':''}" role="button" tabindex="0" onclick="pickNextCust('${r.id}')">
+      <span class="nc-name">${r.name}</span>${has}<span class="nc-time">本日 ${r.start}〜${r.end}</span>
+    </div>`;
+  }).join('');
+}
+function pickNextCust(id) {
+  nextCustId = id;
+  renderModalCustList();
+}
+// 本日（基準日）の文字列
+function todayStr() {
+  const d = new Date(DATE_BASE);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// 初期化
+const _gl = document.getElementById('gardenLabel'); if (_gl) _gl.textContent = gardenName(CURRENT_GARDEN);
+// ===== iPad / iOS Safari 対策 =====
+// iOS Safari は <div> や <span> の onclick を「クリック可能要素」として認識しないことがある。
+// 空の touchstart リスナーを付けることで、iOS が「タップ可能要素」と判定する。
+// （cursor: pointer + 空のtouchハンドラ で onclick の発火が安定）
+(function attachIosTouchFix(){
+  document.addEventListener('touchstart', function(){}, {passive: true});
+  // <div onclick> / <span onclick> の要素に role="button" を付与してアクセシビリティ＆iOS互換性を確保
+  document.querySelectorAll('[onclick]').forEach(el => {
+    const tag = el.tagName.toLowerCase();
+    if (tag !== 'button' && tag !== 'a' && !el.hasAttribute('role')) {
+      el.setAttribute('role', 'button');
+      el.setAttribute('tabindex', '0');
+    }
+  });
+})();
+
+seedSampleBookings(); // サンプル予約を共有ストレージに登録（次回予約タブ・管理ボード・通知に揃える）
+renderAgeRow();
+buildStartOptions();
+checkAvailability();
+renderMyBookings();
+updateDateLabel();
+// 保育園側でインフォシート登録などがあれば自店予約一覧に反映（別タブ連携＋ポーリング）
+window.addEventListener('storage', (e) => { if (e.key === SF_KEY) renderMyBookings(); });
+setInterval(renderMyBookings, 4000);
+</script>
+</body>
+</html>
