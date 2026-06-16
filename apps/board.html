@@ -76,6 +76,16 @@ body {
 }
 @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
 
+/* ===== 園切替（セグメント・iPadタップ前提） ===== */
+.garden-switch { display:flex; align-items:center; justify-content:center; padding:10px; background:var(--ivory); border-bottom:1px solid var(--line-soft); flex-shrink:0; }
+.garden-seg { display:inline-flex; background:var(--white); border:1px solid var(--line); border-radius:10px; overflow:hidden; box-shadow:0 1px 3px rgba(26,31,38,0.06); }
+.garden-seg .g-btn { appearance:none; border:none; background:transparent; cursor:pointer; font-family:var(--serif-jp); font-size:14px; color:var(--ink-soft); padding:8px 22px; min-height:44px; letter-spacing:0.04em; border-right:1px solid var(--line-soft); transition:all var(--transition); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; }
+.garden-seg .g-btn:last-child { border-right:none; }
+.garden-seg .g-btn:active { background:var(--tiffany-soft); }
+.garden-seg .g-btn.active { background:var(--tiffany); color:var(--white); font-weight:600; }
+.garden-seg .g-btn .en { font-family:var(--serif-en); font-style:italic; font-size:10px; letter-spacing:0.08em; opacity:0.65; }
+.garden-seg .g-btn.active .en { opacity:0.85; }
+
 /* ===== 日付バー ===== */
 .date-bar {
   display: flex; align-items: center; justify-content: center; gap: 14px;
@@ -216,6 +226,8 @@ body {
 .slot.half { border-left: 1px solid var(--line); }
 .slot:active { background: var(--tiffany-soft); }
 .slot.closed { background: repeating-linear-gradient(45deg, var(--ivory-deep), var(--ivory-deep) 4px, transparent 4px, transparent 8px); cursor: default; }
+.slot.free { background: rgba(155,123,168,0.07); }
+.slot.free:active { background: var(--tiffany-soft); }
 
 /* 予約バー（帯） */
 .booking-bar {
@@ -410,6 +422,9 @@ body {
   </div>
 </div>
 
+<!-- 園切替 -->
+<div class="garden-switch"><div class="garden-seg" id="gardenSeg"></div></div>
+
 <!-- 日付バー -->
 <div class="date-bar">
   <button onclick="changeDay(-1)">← 前日</button>
@@ -538,13 +553,14 @@ const SF_KEY = 'sf_bookings_v1';
 // 当面は月寒園のみ。将来サポラクリ園・白石園などを足すときはここに1件追加する。
 // 各園に連携サロン（zone）を紐づける。woodstock/janis は既存のサロン区分。
 const GARDENS = {
-  tsukisamu:  { name:'月寒園',       salons:['woodstock','janis'] },
-  // 将来の拡張例（今は無効）:
-  // saporakuri: { name:'サポラクリ園', salons:['woodstock','janis'] },
-  // shiraishi:  { name:'白石園',       salons:['buddybrown','janis_shiraishi'] },
+  tsukisamu: { name:'月寒園',                 en:'Tsukisamu',       salons:['woodstock','janis'] },
+  shiraishi: { name:'白石園',                 en:'Shiraishi',       salons:['woodstock','janis'] },
+  factory:   { name:'サッポロファクトリー園', en:'Sapporo Factory', salons:['woodstock','janis'] },
 };
-// 現在運用中の園（固定表示）。将来はここを切り替え可能にする。
-const CURRENT_GARDEN = 'tsukisamu';
+// 現在運用中の園。園切替UIで変更し、最後に選んだ園を localStorage に保存・復元する。
+const GARDEN_KEY = 'sf_board_garden_v1';
+let CURRENT_GARDEN = 'tsukisamu';
+try { const _g = localStorage.getItem(GARDEN_KEY); if (_g && GARDENS[_g]) CURRENT_GARDEN = _g; } catch(e) {}
 // gardenId が無い既存レコードは月寒園として扱う（補完）
 function normGarden(g) {
   // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
@@ -554,6 +570,33 @@ function normGarden(g) {
 function gardenName(g) {
   const id = normGarden(g);
   return (GARDENS[id] || GARDENS[CURRENT_GARDEN] || {}).name || '月寒園';
+}
+
+// 園切替セグメントUIを描画（GARDENSから動的生成）
+function renderGardenSwitch() {
+  const el = document.getElementById('gardenSeg');
+  if (!el) return;
+  el.innerHTML = Object.keys(GARDENS).map(id => {
+    const g = GARDENS[id];
+    const active = id === CURRENT_GARDEN ? ' active' : '';
+    return `<button type="button" class="g-btn${active}" onclick="switchGarden('${id}')">${g.name}${g.en ? `<span class="en">${g.en}</span>` : ''}</button>`;
+  }).join('');
+}
+// 園を切り替える（CURRENT_GARDEN変更→保存→ラベル/UI更新→当該園の予約で再読込）
+function switchGarden(id) {
+  if (!GARDENS[id] || id === CURRENT_GARDEN) return;
+  CURRENT_GARDEN = id;
+  try { localStorage.setItem(GARDEN_KEY, id); } catch(e) {}
+  const gl = document.getElementById('gardenLabel'); if (gl) gl.textContent = gardenName(CURRENT_GARDEN);
+  renderGardenSwitch();
+  reloadBookingsForGarden();
+}
+// 選択中の園の予約だけで bookings を組み直して再描画
+function reloadBookingsForGarden() {
+  bookings = SAMPLE_BOOKINGS.filter(b => normGarden(b.gardenId) === CURRENT_GARDEN).map(b => ({...b}));
+  renderBoard();
+  importSharedBookings();
+  syncFromTimelySchool();
 }
 
 function sfLoad() {
@@ -580,24 +623,34 @@ const ZONES = [
   { key:'temp', jp:'一時預かり', en:'Drop-in Care', lanes:3, cap:'各時間 6名まで' },
   { key:'woodstock', jp:'ウッドストック', en:'WOODSTOCK', lanes:3, cap:'美容室ご利用者' },
   { key:'janis', jp:'ジャニス', en:'JANIS', lanes:2, cap:'サロンご利用者' },
-  { key:'ext', jp:'延長保育', en:'Extension', lanes:3, cap:'15時〜 自園生徒' },
+  { key:'ext', jp:'延長保育', en:'Extension', lanes:3, cap:'自園生徒 ・ 朝7:00-8:30 / 夕16:30-20:00（薄い枠=無料）' },
 ];
 
-// 各区分の利用可能時間（延長保育は15時以降のみ）
+// 各区分の利用可能時間。延長保育(自園生徒)は「早朝7:00〜8:30」と「夕方〜夜16:30〜20:00」を開放。
 function isSlotOpen(zoneKey, slotIdx) {
   if (zoneKey === 'ext') {
-    return SLOTS[slotIdx] >= '15:00';
+    const t = SLOTS[slotIdx];
+    if (t >= '07:00' && t < '08:30') return true;   // 早朝枠（最終開始8:15＝8:30まで）
+    if (t >= '16:30' && t < '20:00') return true;   // 夕方〜夜枠（最終開始19:45＝20:00まで）
+    return false;
   }
   return true;
+}
+// 延長保育で「有料」になる時間か（早朝7:00〜8:00 / 夜19:00〜20:00）。それ以外の開放枠は無料。
+function isExtPaid(slot) {
+  const t = (typeof slot === 'number') ? SLOTS[slot] : slot;
+  if (t >= '07:00' && t < '08:00') return true;   // 早朝の有料帯
+  if (t >= '19:00' && t < '20:00') return true;   // 夜の有料帯
+  return false;
 }
 
 // サンプル予約: { zone, lane, name, age, start, end }
 const SAMPLE_BOOKINGS = [
-  { zone:'temp', lane:0, name:'西村 ゆい', age:'2', start:'10:30', end:'15:00', memo:'' },
-  { zone:'ext', lane:0, name:'大野 たろう', age:'3', start:'15:00', end:'18:00', memo:'' },
-  { zone:'ext', lane:1, name:'山口 ひかる', age:'3', start:'15:30', end:'17:00', memo:'' },
+  { zone:'temp', lane:0, gardenId:'tsukisamu', name:'西村 ゆい', age:'2', start:'10:30', end:'15:00', memo:'' },
+  { zone:'ext', lane:0, gardenId:'tsukisamu', name:'大野 たろう', age:'3', start:'16:30', end:'18:00', memo:'' },
+  { zone:'ext', lane:1, gardenId:'tsukisamu', name:'山口 ひかる', age:'3', start:'17:00', end:'19:00', memo:'' },
 ];
-let bookings = SAMPLE_BOOKINGS.map(b=>({...b}));
+let bookings = SAMPLE_BOOKINGS.filter(b => normGarden(b.gardenId) === CURRENT_GARDEN).map(b=>({...b}));
 
 const ZONE_LABEL = {
   temp:'通常の一時預かり', woodstock:'ウッドストック', janis:'ジャニス', ext:'延長保育'
@@ -696,6 +749,7 @@ function renderBoard() {
         if (isHour) cls += ' hour';
         else if (isHalf) cls += ' half';
         if (!open) cls += ' closed';
+        else if (zone.key === 'ext' && !isExtPaid(t)) cls += ' free';
         html += `<div class="${cls}" ${open?`onclick="onSlotTap('${zone.key}',${ln},${i})"`:''}></div>`;
       });
       // 予約バー
@@ -1363,7 +1417,7 @@ function importSharedBookings() {
   let added = false, updated = false;
   recs.forEach(r => {
     if (!r || !r.salon) return;
-    // 園で絞り込み（gardenId 無しは月寒園として扱う）。当面は月寒園のみ表示。
+    // 園で絞り込み（gardenId 無しは月寒園として扱う）。選択中の園のみ表示。
     if (normGarden(r.gardenId) !== CURRENT_GARDEN) return;
     const zone = r.salon; // woodstock / janis がそのまま zone に対応
     if (!ZONE_LANES[zone]) return;
@@ -1393,6 +1447,7 @@ function importSharedBookings() {
 
 // 初期化
 const _gl = document.getElementById('gardenLabel'); if (_gl) _gl.textContent = gardenName(CURRENT_GARDEN);
+renderGardenSwitch();
 updateDateLabel();
 renderBoard();
 importSharedBookings();
