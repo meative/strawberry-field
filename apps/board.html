@@ -242,9 +242,12 @@ body {
   flex: 1; display: flex; align-items: center; padding: 0 4px;
   cursor: grab; min-width: 0;
   font-family: var(--serif-jp); font-size: 12px; font-weight: 500;
+  /* 幅が足りない時は氏名を優先し、バッジ等を下段へ折り返す（氏名の切れを防ぐ） */
+  flex-wrap: wrap; align-content: center; row-gap: 2px;
 }
 .bar-body:active { cursor: grabbing; }
-.bar-name { overflow: hidden; text-overflow: ellipsis; }
+/* 氏名は伸びず必要時のみ縮む。1行目の幅を優先確保し、収まらないバッジは折り返す */
+.bar-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-handle {
   width: 10px; flex-shrink: 0; cursor: ew-resize;
   background: rgba(255,255,255,0.25);
@@ -270,6 +273,11 @@ body {
 .booking-bar.ext { background: var(--ext); }
 .booking-bar.is-prov { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.16) 0 8px, transparent 8px 16px); }
 .bar-prov { font-size: 10px; margin-left: 6px; background: #fff; color: #C9802E; padding: 1px 7px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
+/* 所属バッジ（幼稚舎）。bar-prov と同じ作法・gold 系で統一 */
+.affil-badge { font-size: 10px; margin-left: 6px; background: #fff; color: var(--gold-deep); padding: 1px 7px; border-radius: 8px; font-weight: 600; white-space: nowrap; flex-shrink: 0; font-family: var(--serif-jp); letter-spacing: 0.02em; }
+/* 入力モーダルの所属トグル */
+.affil-toggle { display: flex; align-items: center; gap: 8px; font-family: var(--serif-jp); font-size: 14px; color: var(--ink); cursor: pointer; padding: 4px 0; }
+.affil-toggle input { width: 18px; height: 18px; accent-color: var(--gold-deep); cursor: pointer; }
 
 /* 空き枠の人数表示（各時間スロットの上） */
 .cap-badge {
@@ -278,12 +286,13 @@ body {
 }
 
 /* ===== ボタン ===== */
+/* ヘッダー右に常設する予約追加ボタン（旧・右下フローティングから移設。バーと重ならない） */
 .fab {
-  position: fixed; bottom: 24px; right: 24px; z-index: 50;
-  background: var(--ink); color: var(--white); border: none;
-  padding: 16px 28px; border-radius: 40px; font-family: var(--serif-jp); font-size: 15px;
-  cursor: pointer; box-shadow: 0 4px 16px rgba(26,31,38,0.25); transition: all var(--transition);
-  display: flex; align-items: center; gap: 8px;
+  background: var(--tiffany); color: var(--white); border: none;
+  padding: 10px 20px; border-radius: 22px; min-height: 40px;
+  font-family: var(--serif-jp); font-size: 14px; letter-spacing: 0.04em;
+  cursor: pointer; box-shadow: 0 2px 8px rgba(10,186,181,0.35); transition: all var(--transition);
+  display: flex; align-items: center; gap: 6px; white-space: nowrap; flex-shrink: 0;
 }
 .fab:active { transform: scale(0.96); background: var(--tiffany-deep); }
 
@@ -419,6 +428,7 @@ body {
   </div>
   <div class="header-right">
     <div class="live-badge"><span class="live-dot"></span>サロンと同期中 ・ Live</div>
+    <button class="fab" onclick="openModal()">＋ 予約を追加</button>
   </div>
 </div>
 
@@ -460,8 +470,6 @@ body {
   <div class="board" id="board"></div>
 </div>
 
-<!-- 追加ボタン -->
-<button class="fab" onclick="openModal()">＋ 予約を追加</button>
 
 <!-- 通知 -->
 <div class="notify-pop" id="notifyPop">
@@ -507,6 +515,10 @@ body {
         <option value="janis">ジャニス（無料）</option>
         <option value="ext">延長保育（自園生徒）</option>
       </select>
+    </div>
+    <div class="field">
+      <label>所属 <span style="color:var(--gold-deep); font-style:italic; font-family:var(--serif-en); font-size:11px;">幼稚舎の子はチェック</span></label>
+      <label class="affil-toggle"><input type="checkbox" id="mYouchisha"> 幼稚舎所属</label>
     </div>
     <div class="field">
       <label>メモ <span style="color:var(--gold-deep); font-style:italic; font-family:var(--serif-en); font-size:11px;">任意（アレルギー・お迎え者など）</span></label>
@@ -556,6 +568,7 @@ const GARDENS = {
   tsukisamu: { name:'月寒園',                 en:'Tsukisamu',       salons:['woodstock','janis'] },
   shiraishi: { name:'白石園',                 en:'Shiraishi',       salons:['woodstock','janis'] },
   factory:   { name:'サッポロファクトリー園', en:'Sapporo Factory', salons:['woodstock','janis'] },
+  shiseikan: { name:'資生館園',               en:'Shiseikan',       salons:['woodstock','janis'] },
 };
 // 現在運用中の園。園切替UIで変更し、最後に選んだ園を localStorage に保存・復元する。
 const GARDEN_KEY = 'sf_board_garden_v1';
@@ -764,10 +777,11 @@ function renderBoard() {
         const lunch = needsLunch(b) ? '<span class="lunch-mark" title="昼食・軽食をお持ちください">🍙</span>' : '';
         const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
         const provMark = (b.provisional && !(b.info && b.info.name)) ? '<span class="bar-prov">新規・受付待ち</span>' : '';
+        const affilBadge = (b.affiliation === 'youchisha') ? '<span class="affil-badge">幼稚舎</span>' : '';
         html += `<div class="booking-bar ${zone.key} ${(b.provisional && !(b.info&&b.info.name))?'is-prov':''}" data-idx="${gidx}" style="left:${left}%; width:calc(${width}% - 4px); margin-left:2px;">
           <span class="bar-handle bar-handle-l" data-idx="${gidx}" data-edge="l"></span>
           <span class="bar-body" onclick="onBarTap(${gidx})">
-            <span class="age-chip">${ageLabel}</span>${lunch}<span class="bar-name">${escapeHtml(b.name)}</span>${provMark}${memo}
+            <span class="age-chip">${ageLabel}</span>${lunch}<span class="bar-name">${escapeHtml(b.name)}</span>${affilBadge}${provMark}${memo}
           </span>
           <span class="bar-handle bar-handle-r" data-idx="${gidx}" data-edge="r"></span>
         </div>`;
@@ -887,6 +901,7 @@ function onSlotTap(zoneKey, lane, slotIdx) {
   document.getElementById('mName').value = '';
   document.getElementById('mZone').value = zoneKey;
   document.getElementById('mMemo').value = '';
+  document.getElementById('mYouchisha').checked = false;
   document.getElementById('mDateField').style.display = 'none'; // 新規は現在のボード日付
   document.getElementById('mDate').value = boardDateStr();
   selectedMonths = null; renderMonthsActive();
@@ -909,6 +924,7 @@ function onBarTap(gidx) {
   document.getElementById('mName').value = b.name;
   document.getElementById('mZone').value = b.zone;
   document.getElementById('mMemo').value = b.memo || '';
+  document.getElementById('mYouchisha').checked = (b.affiliation === 'youchisha');
   document.getElementById('mDateField').style.display = ''; // 編集時は日付変更可
   document.getElementById('mDate').value = b.date || boardDateStr();
   selectedMonths = (b.months != null) ? b.months : null; renderMonthsActive();
@@ -1175,6 +1191,7 @@ function openModal() {
   document.getElementById('mName').value = '';
   document.getElementById('mZone').value = 'woodstock';
   document.getElementById('mMemo').value = '';
+  document.getElementById('mYouchisha').checked = false;
   setAge('1');
   resetNameSearch();
   buildStartSelect('10:00');
@@ -1199,6 +1216,7 @@ function saveBooking() {
   const age = getAge();
   const months = getMonths();
   const memo = document.getElementById('mMemo').value.trim();
+  const youchisha = document.getElementById('mYouchisha').checked;
   const start = document.getElementById('mStart').value;
   const dur = getDuration();
   const endMin = timeToMin(start) + dur;
@@ -1211,6 +1229,7 @@ function saveBooking() {
     const newDate = document.getElementById('mDate').value || prev.date || boardDateStr();
     const movedToOtherDay = (newDate !== (prev.date || boardDateStr()));
     const updated = { ...prev, name, zone, age, months, memo, start, end, date: newDate,
+      affiliation: youchisha ? 'youchisha' : (prev.gardenId || CURRENT_GARDEN),
       lane: findFreeLane(zone, start, end, editingIdx) };
     // 共有ストレージにも反映（sfId を持つ＝共有由来の予約のみ）
     sfWriteBack(updated);
@@ -1223,7 +1242,8 @@ function saveBooking() {
   } else {
     const lane = findFreeLane(zone, start, end, -1);
     if (lane < 0) { alert('この時間帯はこの区分の枠が満員です'); return; }
-    const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, memo, start, end, date: boardDateStr() };
+    const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, memo, start, end, date: boardDateStr(),
+      affiliation: youchisha ? 'youchisha' : CURRENT_GARDEN };
     // 延長保育(ext)以外は共有ストレージに保存し、TimelySchool予約画面・サロン側に表記連携する
     if (zone !== 'ext') {
       nb.sfId = sfWriteNew(nb);
@@ -1248,6 +1268,7 @@ function sfWriteNew(b) {
     name: b.name, kana: b.kana || '', age: b.age, months: b.months != null ? b.months : null,
     start: b.start, end: b.end, date: boardDateStr(),
     nextReservation: null, provisional: false, info: null, memo: b.memo || '',
+    affiliation: b.affiliation || CURRENT_GARDEN,
     fromBoard: true,
   });
   sfSave(arr);
@@ -1263,6 +1284,7 @@ function sfWriteBack(b) {
   rec.months = (b.months != null ? b.months : null);
   if (b.date) rec.date = b.date; // 予約日の変更を反映（TimelySchool・サロン・お迎え通知にも伝わる）
   rec.memo = b.memo || ''; rec.salon = b.zone; rec.gardenId = normGarden(b.gardenId);
+  if (b.affiliation !== undefined) rec.affiliation = b.affiliation;
   sfSave(arr);
 }
 
@@ -1438,7 +1460,7 @@ function importSharedBookings() {
     }
     const lane = findFreeLane(zone, r.start, r.end);
     bookings.push({ zone, lane, gardenId: normGarden(r.gardenId), name: (r.info&&r.info.name)?r.info.name:r.name, kana: r.kana, age: r.age, months: r.months,
-      start: r.start, end: r.end, date: r.date || boardDateStr(), memo: r.memo||'', sfId: r.id, provisional: r.provisional, info: r.info||null });
+      start: r.start, end: r.end, date: r.date || boardDateStr(), memo: r.memo||'', sfId: r.id, provisional: r.provisional, info: r.info||null, affiliation: r.affiliation });
     added = true;
   });
   if (added || updated) renderBoard();

@@ -6507,8 +6507,7 @@
         <option value="サッポロファクトリー園">サッポロファクトリー園</option>
         <option value="月寒園">月寒園</option>
         <option value="白石園">白石園</option>
-        <option value="資生館保育園">資生館保育園</option>
-        <option value="幼稚舎">幼稚舎</option>
+        <option value="資生館園">資生館園</option>
       </select>
     </div>
     
@@ -7625,7 +7624,16 @@
         </div>
       </div>
     </div>
-    
+
+    <div class="field" style="margin-top: 20px; text-align: left;">
+      <label class="field-label"><span class="en">Affiliation</span>所属</label>
+      <label style="display:flex; align-items:center; gap:8px; font-family:var(--serif-jp); font-size:15px; color:var(--ink); cursor:pointer; padding:4px 0;">
+        <input type="checkbox" id="resYouchisha" style="width:18px; height:18px; accent-color:var(--gold-deep); cursor:pointer;">
+        幼稚舎所属
+        <span style="color:var(--gold-deep); font-style:italic; font-family:var(--serif-en); font-size:11px;">幼稚舎の子はチェック</span>
+      </label>
+    </div>
+
     <div class="confirm-modal-actions" style="margin-top: 32px;">
       <button class="btn btn-ghost" onclick="closeReservationModal()">
         キャンセル
@@ -8003,18 +8011,20 @@ const STORAGE_KEY = 'timely_school_data_v1';
 // 予約管理ボード／サロン予約画面が書き込む共有ストレージのキー
 const SF_KEY = 'sf_bookings_v1';
 // 園マスター：予約管理側の gardenId と TimelySchool 側の branch 名を対応づける。
-// 将来サポラクリ園・白石園を足すときはここに1件追加する。
+// キー（gardenId）と表示名は board.html の GARDENS と完全一致させること（board が正）。
+// 将来園を足すときはここに1件追加する。
 const GARDEN_BRANCH = {
   tsukisamu: '月寒園',
-  // saporakuri: 'サポラクリ園',
-  // shiraishi:  '白石園',
+  shiraishi: '白石園',
+  factory:   'サッポロファクトリー園',
+  shiseikan: '資生館園',
 };
 // 園ごとの電話番号（領収書に表示）
 const BRANCH_TEL = {
   '月寒園':         '011-836-6868',
   '白石園':         '011-827-7721',
   'サッポロファクトリー園': '011-221-1500',
-  '資生館保育園':   '011-552-0015',
+  '資生館園':       '011-552-0015',
 };
 function getBranchTel(branchName) {
   return BRANCH_TEL[branchName] || '';
@@ -8022,6 +8032,14 @@ function getBranchTel(branchName) {
 function gardenIdToBranch(gid) {
   if (gid == null || gid === '') return '月寒園'; // gardenId 無しは月寒園として扱う（補完）
   return GARDEN_BRANCH[gid] || null; // 未知の園IDは対応なし（取り込まない）
+}
+// branch 名 → gardenId の逆引き（GARDEN_BRANCH から自動生成。定義のズレを防ぐ）。
+const BRANCH_GARDEN = Object.fromEntries(
+  Object.entries(GARDEN_BRANCH).map(([gid, name]) => [name, gid])
+);
+function branchToGardenId(branch) {
+  if (branch == null || branch === '') return 'tsukisamu'; // 空は月寒園(tsukisamu)に補完
+  return BRANCH_GARDEN[branch] || null; // 対応する園IDが無ければ null
 }
 function sfLoadShared() {
   try {
@@ -8046,10 +8064,12 @@ function importBoardReservations() {
       const cur = DATA.reservations.find(x => x.sfId === r.id);
       if (cur && (cur.reservationDate !== r.date || cur.reservationStart !== r.start ||
                   cur.reservationEnd !== r.end || cur.guestName !== r.name ||
+                  cur.affiliation !== r.affiliation ||
                   cur.guestMonths !== (r.months != null ? r.months : null))) {
         cur.reservationDate = r.date; cur.reservationStart = r.start;
         cur.reservationEnd = r.end; cur.guestName = r.name;
         cur.guestKana = r.kana || ''; cur.guestAge = r.age; cur.guestMonths = (r.months != null ? r.months : null);
+        if (r.affiliation !== undefined) cur.affiliation = r.affiliation;
         cur.updatedAt = new Date().toISOString();
         changed = true;
       }
@@ -8065,6 +8085,7 @@ function importBoardReservations() {
       sfId: r.id,                       // 共有レコードとの対応キー（重複防止）
       fromBoard: true,                  // 予約管理由来フラグ（バッジ表示用）
       salon: r.salon || null,           // サロン経由判定（woodstock/janis/null）
+      affiliation: r.affiliation || branchToGardenId(branch),  // 所属（幼稚舎判定用）
       guestName: r.name || '',          // 予約レコード自身に氏名を保持
       guestKana: r.kana || '',
       guestAge: r.age,
@@ -11148,7 +11169,8 @@ function addToReservation(customerId) {
   document.getElementById('reservationModalEyebrow').textContent = '◆ Make Reservation ◆';
   document.getElementById('reservationModalTitle').textContent = '予約日時の入力';
   document.getElementById('confirmReservationBtnLabel').textContent = '予約に追加';
-  
+  document.getElementById('resYouchisha').checked = false;  // 新規は通常所属
+
   // 顧客名と年齢を表示
   const age = (customer.birthY && customer.birthM && customer.birthD) 
     ? calcAge(customer.birthY, customer.birthM, customer.birthD) 
@@ -11412,7 +11434,8 @@ function confirmReservation() {
   
   if (!DATA.reservations) DATA.reservations = [];
   const branch = DATA.settings.branch;
-  
+  const youchisha = document.getElementById('resYouchisha').checked;
+
   if (_editingReservationOldDate) {
     // === 編集モード: 既存の予約を更新 ===
     const idx = DATA.reservations.findIndex(r => 
@@ -11437,6 +11460,7 @@ function confirmReservation() {
     DATA.reservations[idx].reservationDate = date;
     DATA.reservations[idx].reservationStart = startTime;
     DATA.reservations[idx].reservationEnd = endTime;
+    DATA.reservations[idx].affiliation = youchisha ? 'youchisha' : branchToGardenId(branch);
     DATA.reservations[idx].updatedAt = new Date().toISOString();
     
     if (!saveData(DATA)) return toast('保存に失敗しました', true);
@@ -11459,6 +11483,7 @@ function confirmReservation() {
       reservationDate: date,
       reservationStart: startTime,
       reservationEnd: endTime,
+      affiliation: youchisha ? 'youchisha' : branchToGardenId(branch),
       addedAt: new Date().toISOString()
     });
     
@@ -11760,7 +11785,8 @@ function editReservation(reservationKey) {
     document.getElementById('resEndH').value = eh;
     document.getElementById('resEndM').value = em;
   }
-  
+  document.getElementById('resYouchisha').checked = (reservation.affiliation === 'youchisha');
+
   // モーダル表示 + カレンダーも開く
   document.getElementById('reservationModal').style.display = 'flex';
   const pop = document.getElementById('calendarPopover');
