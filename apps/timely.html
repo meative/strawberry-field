@@ -8047,6 +8047,36 @@ function sfLoadShared() {
     return raw ? (JSON.parse(raw) || []) : [];
   } catch (e) { console.error('sfLoadShared error:', e); return []; }
 }
+// ===== 共有ストレージ（sf_bookings_v1）への書き込み：案A 受付→予約表 =====
+function sfSaveShared(arr) {
+  try { localStorage.setItem(SF_KEY, JSON.stringify(arr)); return true; }
+  catch (e) { console.error('sfSaveShared error:', e); return false; }
+}
+// 受付発レコードを共有に upsert（同 id があれば更新、無ければ追加）
+function sfUpsertShared(record) {
+  if (!record || !record.id) return false;
+  const arr = sfLoadShared();
+  const idx = arr.findIndex(r => r && r.id === record.id);
+  if (idx >= 0) arr[idx] = record; else arr.push(record);
+  return sfSaveShared(arr);
+}
+// 共有から id 指定で削除
+function sfRemoveShared(id) {
+  if (!id) return false;
+  const arr = sfLoadShared().filter(r => r && r.id !== id);
+  return sfSaveShared(arr);
+}
+// 生年月日から board 互換の {age:'0'..'3', months:0-11|null} を作る（board.html ageMonthsFromBirth と同等）
+function birthToAgeMonths(y, m, d) {
+  if (!y || !m || !d) return { age: '', months: null };
+  const today = new Date();
+  const birth = new Date(y, m - 1, d);
+  let months = (today.getFullYear()-birth.getFullYear())*12 + (today.getMonth()-birth.getMonth());
+  if (today.getDate() < birth.getDate()) months--;
+  if (months < 0) months = 0;
+  const age = Math.floor(months/12);
+  return { age: String(Math.min(age,3)), months: age >= 3 ? null : (months % 12) };
+}
 // 共有ストレージから「予約管理ボードで入れた予約（fromBoard）」を取り込み、
 // 現在の園（branch）の reservations に反映する。customerId は持たず、氏名等を予約レコードに直接保存。
 function importBoardReservations() {
@@ -10939,7 +10969,7 @@ function renderListCalendar() {
   const branch = DATA.settings.branch;
   const reservationDates = new Set(
     (DATA.reservations || [])
-      .filter(r => r.branch === branch && r.reservationDate)
+      .filter(r => r.branch === branch && r.reservationDate && r.reservationDate >= todayStr)
       .map(r => r.reservationDate)
   );
   
@@ -10963,8 +10993,15 @@ function renderListCalendar() {
     const dateStr = `${_listCalCurrentYear}-${String(_listCalCurrentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const isToday = (dateStr === todayStr);
     const isSelected = (dateStr === _resListSelectedDate);
+    const isPast = (dateStr < todayStr);
     const hasReservation = reservationDates.has(dateStr);
-    
+
+    // 本日より前は選択不可（過去の連動予約を表示しない）
+    if (isPast) {
+      cells += `<button type="button" class="cal-day is-other-month" disabled>${d}</button>`;
+      continue;
+    }
+
     const classes = ['cal-day'];
     if (isToday) classes.push('is-today');
     if (isSelected) classes.push('is-selected');
@@ -11462,9 +11499,23 @@ function confirmReservation() {
     DATA.reservations[idx].reservationEnd = endTime;
     DATA.reservations[idx].affiliation = youchisha ? 'youchisha' : branchToGardenId(branch);
     DATA.reservations[idx].updatedAt = new Date().toISOString();
-    
+
+    // 共有ストレージ（予約表）側も更新（案A：sfId保持の受付発予約のみ。既存レコードがある時だけ）
+    const _edSfId = DATA.reservations[idx].sfId;
+    if (_edSfId) {
+      const _edShared = sfLoadShared();
+      const _edRec = _edShared.find(r => r && r.id === _edSfId);
+      if (_edRec) {
+        _edRec.date = date;
+        _edRec.start = startTime;
+        _edRec.end = endTime;
+        _edRec.affiliation = DATA.reservations[idx].affiliation;
+        sfSaveShared(_edShared);
+      }
+    }
+
     if (!saveData(DATA)) return toast('保存に失敗しました', true);
-    
+
     toast('✓ 予約を変更しました');
   } else {
     // === 新規追加モード ===
@@ -11477,18 +11528,47 @@ function confirmReservation() {
       return toast('同じ日にすでに予約が追加されています', true);
     }
     
+    // 共有ストレージ（予約表）にも反映（案A：受付→board）
+    const _resCustomer = DATA.customers.find(c => c.id === _pendingReservationCustomerId);
+    const _resAffiliation = youchisha ? 'youchisha' : branchToGardenId(branch);
+    const _resSfId = 'tl_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+    const _resAM = _resCustomer
+      ? birthToAgeMonths(_resCustomer.birthY, _resCustomer.birthM, _resCustomer.birthD)
+      : { age: '', months: null };
+
     DATA.reservations.push({
       customerId: _pendingReservationCustomerId,
       branch: branch,
       reservationDate: date,
       reservationStart: startTime,
       reservationEnd: endTime,
-      affiliation: youchisha ? 'youchisha' : branchToGardenId(branch),
-      addedAt: new Date().toISOString()
+      affiliation: _resAffiliation,
+      addedAt: new Date().toISOString(),
+      sfId: _resSfId
     });
-    
+
+    // board が拾える形（salon必須・gardenId一致・日付一致）で共有に upsert
+    sfUpsertShared({
+      id: _resSfId,
+      gardenId: branchToGardenId(branch),
+      salon: 'temp',                 // 受付＝一時保育ゾーンへ
+      name: _resCustomer ? (_resCustomer.childName || '') : '',
+      kana: _resCustomer ? (_resCustomer.childKana || '') : '',
+      age: _resAM.age,
+      months: _resAM.months,
+      start: startTime,
+      end: endTime,
+      date: date,
+      nextReservation: null,
+      provisional: false,
+      info: null,
+      memo: '',
+      affiliation: _resAffiliation,
+      fromBoard: false               // ← timely 自身が二重取込しないための鍵
+    });
+
     if (!saveData(DATA)) return toast('保存に失敗しました', true);
-    
+
     toast('✓ 予約リストに追加しました');
   }
   
@@ -11529,6 +11609,12 @@ function removeFromReservation(reservationKey) {
           localStorage.setItem(SF_KEY, JSON.stringify(shared));
         } catch (e) { console.error('shared remove error:', e); }
       } else {
+        // 受付発の予約（sfId保持）は共有ストレージ（予約表）からも削除（案A）
+        (DATA.reservations || []).forEach(r => {
+          if (r.customerId === customerId && r.reservationDate === date && r.sfId) {
+            sfRemoveShared(r.sfId);
+          }
+        });
         DATA.reservations = (DATA.reservations || []).filter(r =>
           !(r.customerId === customerId && r.reservationDate === date)
         );
@@ -11616,7 +11702,7 @@ function renderReservationList() {
       el.innerHTML = '<div class="empty">↑ カレンダーから日付を選択してください</div>';
       return;
     }
-    reservations = reservations.filter(r => r.reservationDate === _resListSelectedDate);
+    reservations = reservations.filter(r => r.reservationDate === _resListSelectedDate && r.reservationDate >= todayStr);
     if (reservations.length === 0) {
       el.innerHTML = '<div class="empty">この日のご予約はありません</div>';
       return;

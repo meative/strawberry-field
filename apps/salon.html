@@ -282,7 +282,7 @@ button:active { opacity: 0.7; }
 
   <div class="date-bar">
     <button class="date-nav" onclick="changeDay(-1)">‹ 前日</button>
-    <button class="date-display" id="curDate" onclick="toggleCalendar()" title="タップで日付を選ぶ">5月23日 <span class="wd">Sat</span><span class="cal-caret">▾</span></button>
+    <button class="date-display" id="curDate" onclick="toggleCalendar()" title="タップで日付を選ぶ"><span class="cal-caret">▾</span></button>
     <button class="date-nav" onclick="changeDay(1)">翌日 ›</button>
   </div>
 
@@ -296,7 +296,7 @@ button:active { opacity: 0.7; }
       </div>
       <div class="cal-weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
       <div class="cal-grid" id="calGrid"></div>
-      <button class="cal-today" onclick="calGoToday()">本日（5/23）に戻る</button>
+      <button class="cal-today" id="calTodayBtn" onclick="calGoToday()">本日に戻る</button>
     </div>
   </div>
 
@@ -451,23 +451,7 @@ function sfAdd(rec) {
   sfSave(arr);
   return rec.id;
 }
-// サンプル予約を共有ストレージに種まき（初回のみ・重複防止）。これで次回予約タブ・管理ボード・通知に揃って出る。
-function seedSampleBookings() {
-  const today = new Date(2026,4,23); // 基準日
-  const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-  const arr = sfLoad();
-  let changed = false;
-  ['woodstock','janis'].forEach(sk => {
-    (SEED_BOOKINGS[sk] || []).forEach(b => {
-      const dup = arr.some(r => r.salon===sk && r.name===b.name && r.date===dateStr && r.start===b.start);
-      if (!dup) {
-        arr.push({ id:'seed_'+sk+'_'+b.name.replace(/\s/g,''), gardenId:CURRENT_GARDEN, salon:sk, name:b.name, age:b.age, start:b.start, end:b.end, date:dateStr, nextReservation:null });
-        changed = true;
-      }
-    });
-  });
-  if (changed) sfSave(arr);
-}
+// サンプル種まきは本番運用のため廃止（seedSampleBookings 削除済み。掃除は読込時の purge で実施）
 
 // ===== 設定 =====
 const START_HOUR = 8, END_HOUR = 18, SLOT_MIN = 30;
@@ -728,7 +712,7 @@ function confirmReserve() {
   // 使用数を反映
   for (let i = slotIdx(pendingStart); i < slotIdx(pendingEnd); i++) if(i>=0) used[selectedAge][i]++;
   // 共有ストレージへ書き込み → 予約管理システム・通知モデルに自動反映
-  const today = new Date(2026,4,23); today.setDate(today.getDate()+dayOffset);
+  const today = new Date(); today.setHours(0,0,0,0); today.setDate(today.getDate()+dayOffset);
   const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   const saved = sfAdd({ gardenId: CURRENT_GARDEN, salon, name, kana, age: selectedAge, months, start: pendingStart, end: pendingEnd, date: dateStr, nextReservation: null, provisional, info: null });
   closeModal();
@@ -840,7 +824,7 @@ function switchSalon(s) {
 function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2800); }
 let dayOffset = 0;
 const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const DATE_BASE = new Date(2026,4,23); // 基準日（5/23）
+const DATE_BASE = new Date(); DATE_BASE.setHours(0,0,0,0); // 実時刻の今日（深夜0時基準）
 function currentDate() { const d = new Date(DATE_BASE); d.setDate(d.getDate()+dayOffset); return d; }
 function updateDateLabel() {
   const base = currentDate();
@@ -869,6 +853,8 @@ function calShiftMonth(d) {
 function calGoToday() { dayOffset = 0; updateDateLabel(); closeCalendar(); }
 function renderCalendar() {
   document.getElementById('calTitle').textContent = `${calViewYear}年 ${calViewMonth+1}月`;
+  const _tb = document.getElementById('calTodayBtn');
+  if (_tb) _tb.textContent = `本日（${DATE_BASE.getMonth()+1}/${DATE_BASE.getDate()}）に戻る`;
   const first = new Date(calViewYear, calViewMonth, 1);
   const startDow = first.getDay();
   const daysInMonth = new Date(calViewYear, calViewMonth+1, 0).getDate();
@@ -955,7 +941,14 @@ const _gl = document.getElementById('gardenLabel'); if (_gl) _gl.textContent = g
   });
 })();
 
-seedSampleBookings(); // サンプル予約を共有ストレージに登録（次回予約タブ・管理ボード・通知に揃える）
+// サンプル種まきは本番運用のため無効化。既存の seed_* レコードを共有ストレージから掃除（冪等）。
+(function purgeSeedBookings(){
+  try {
+    const arr = sfLoad();
+    const cleaned = arr.filter(r => !(r && typeof r.id === 'string' && r.id.indexOf('seed_') === 0));
+    if (cleaned.length !== arr.length) sfSave(cleaned);
+  } catch (e) { console.error('purgeSeedBookings error:', e); }
+})();
 renderAgeRow();
 buildStartOptions();
 checkAvailability();

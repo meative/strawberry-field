@@ -755,22 +755,9 @@ function sfLoad() {
 function sfSave(arr) {
   try { localStorage.setItem(SF_KEY, JSON.stringify(arr)); return true; } catch(e) { return false; }
 }
-// 共有ストレージが空なら、通知モデル単体デモ用にサンプルを種まき（5/23分）
-function seedIfEmpty() {
-  const arr = sfLoad();
-  const todayRecs = arr.filter(r => !r.date || r.date === '2026-05-23');
-  if (todayRecs.length > 0) return; // 既に当日の予約がある（サロン画面が種まき済み等）
-  let changed = false;
-  ['woodstock','janis'].forEach(sk => {
-    (NOTIFY_SEED[sk]||[]).forEach(b => {
-      arr.push({ id:'seed_'+sk+'_'+b.name.replace(/\s/g,''), gardenId:CURRENT_GARDEN, salon:sk, name:b.name, age:b.age, start:b.start, end:b.end, date:'2026-05-23', nextReservation:null });
-      changed = true;
-    });
-  });
-  if (changed) sfSave(arr);
-}
+// サンプル種まきは本番運用のため廃止（seedIfEmpty 削除済み。掃除は起動時の purge で実施）
 // 共有ストレージの予約を children に取り込む（重複は sfId で防ぐ・本日分のみ）
-const TODAY_STR = '2026-05-23'; // 通知モデルの本日
+const TODAY_STR = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })(); // 実時刻の今日
 // 次回予約オブジェクトを表示用文字列に整形
 function fmtNextReservation(nr) {
   if (!nr) return null;
@@ -985,7 +972,7 @@ function switchSalon(s) {
 // ===== 予約の修正（来園前の予約：日にち・開始・長さ） =====
 let editChildIdx = null;
 let erDate = null; // 'YYYY-MM-DD'
-const ER_BASE = new Date(2026, 4, 23); // 基準日（本日）
+const ER_BASE = new Date(); ER_BASE.setHours(0,0,0,0); // 実時刻の今日（深夜0時基準）
 const ACCEPT_EDIT = { '0':{open:'09:00',close:'15:00'}, '1':{open:'08:00',close:'18:00'}, '2':{open:'08:00',close:'18:00'}, '3':{open:'09:00',close:'18:00'} };
 const EDIT_SLOTS = (() => { const a=[]; for(let h=8;h<18;h++){a.push(`${String(h).padStart(2,'0')}:00`);a.push(`${String(h).padStart(2,'0')}:30`);} return a; })();
 function tMin(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
@@ -2006,7 +1993,14 @@ updateDemoClock();
 setInterval(checkArrivals, 30000);
 
 // ===== 共有ストレージ連携：起動時に取り込み＋他タブの変更を監視 =====
-seedIfEmpty();
+// サンプル種まきは廃止。既存の seed_* レコードを共有ストレージから掃除（冪等）。
+(function purgeSeedBookings(){
+  try {
+    const arr = sfLoad();
+    const cleaned = arr.filter(r => !(r && typeof r.id === 'string' && r.id.indexOf('seed_') === 0));
+    if (cleaned.length !== arr.length) sfSave(cleaned);
+  } catch (e) { console.error('purgeSeedBookings error:', e); }
+})();
 importSharedBookings();
 // 別タブ（サロン予約画面）で予約が入ったら自動反映
 window.addEventListener('storage', (e) => {

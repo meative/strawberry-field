@@ -206,8 +206,8 @@ body {
 .zone-woodstock .zone-label .en { color: var(--gold-deep); }
 .zone-janis .zone-label { background: var(--janis-bg); border-left: 4px solid var(--janis); }
 .zone-janis .zone-label .en { color: var(--janis); }
-.zone-ext .zone-label { background: var(--ext-bg); border-left: 4px solid var(--ext); }
-.zone-ext .zone-label .en { color: var(--ext); }
+.zone-ext_am .zone-label, .zone-ext_pm .zone-label { background: var(--ext-bg); border-left: 4px solid var(--ext); }
+.zone-ext_am .zone-label .en, .zone-ext_pm .zone-label .en { color: var(--ext); }
 
 /* 予約行（レーン） */
 .lane { display: flex; position: relative; min-height: 46px; border-top: 1px solid var(--line-soft); }
@@ -270,7 +270,7 @@ body {
 .booking-bar.temp { background: var(--temp); }
 .booking-bar.woodstock { background: var(--woodstock); }
 .booking-bar.janis { background: var(--janis); }
-.booking-bar.ext { background: var(--ext); }
+.booking-bar.ext_am, .booking-bar.ext_pm { background: var(--ext); }
 .booking-bar.is-prov { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.16) 0 8px, transparent 8px 16px); }
 .bar-prov { font-size: 10px; margin-left: 6px; background: #fff; color: #C9802E; padding: 1px 7px; border-radius: 8px; font-weight: 600; white-space: nowrap; }
 /* 所属バッジ（幼稚舎）。bar-prov と同じ作法・gold 系で統一 */
@@ -438,7 +438,7 @@ body {
 <!-- 日付バー -->
 <div class="date-bar">
   <button onclick="changeDay(-1)">← 前日</button>
-  <button class="cur cur-btn" id="curDate" onclick="toggleCalendar()" title="タップで日付を選ぶ">5月19日 <span class="wd">Tue</span><span class="today-pill">本日</span><span class="cal-caret">▾</span></button>
+  <button class="cur cur-btn" id="curDate" onclick="toggleCalendar()" title="タップで日付を選ぶ"><span class="cal-caret">▾</span></button>
   <button onclick="changeDay(1)">翌日 →</button>
 </div>
 
@@ -452,7 +452,7 @@ body {
     </div>
     <div class="cal-weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
     <div class="cal-grid" id="calGrid"></div>
-    <button class="cal-today" onclick="calGoToday()">本日（5/23）に戻る</button>
+    <button class="cal-today" id="calTodayBtn" onclick="calGoToday()">本日に戻る</button>
   </div>
 </div>
 
@@ -461,7 +461,7 @@ body {
   <div class="legend-item"><span class="legend-sw" style="background:var(--temp)"></span>一時預かり</div>
   <div class="legend-item"><span class="legend-sw" style="background:var(--woodstock)"></span>ウッドストック</div>
   <div class="legend-item"><span class="legend-sw" style="background:var(--janis)"></span>ジャニス</div>
-  <div class="legend-item"><span class="legend-sw" style="background:var(--ext)"></span>延長保育</div>
+  <div class="legend-item"><span class="legend-sw" style="background:var(--ext)"></span>延長保育（早朝/夕）</div>
   <span class="legend-hint">空いている枠をタップ → 予約を追加</span>
 </div>
 
@@ -513,7 +513,8 @@ body {
         <option value="temp">通常の一時預かり（有料）</option>
         <option value="woodstock">ウッドストック（無料）</option>
         <option value="janis">ジャニス（無料）</option>
-        <option value="ext">延長保育（自園生徒）</option>
+        <option value="ext_am">早朝延長保育（自園生徒）</option>
+        <option value="ext_pm">延長保育（自園生徒）</option>
       </select>
     </div>
     <div class="field">
@@ -636,16 +637,19 @@ const ZONES = [
   { key:'temp', jp:'一時預かり', en:'Drop-in Care', lanes:3, cap:'各時間 6名まで' },
   { key:'woodstock', jp:'ウッドストック', en:'WOODSTOCK', lanes:3, cap:'美容室ご利用者' },
   { key:'janis', jp:'ジャニス', en:'JANIS', lanes:2, cap:'サロンご利用者' },
-  { key:'ext', jp:'延長保育', en:'Extension', lanes:3, cap:'自園生徒 ・ 朝7:00-8:30 / 夕16:30-20:00（薄い枠=無料）' },
+  { key:'ext_am', jp:'早朝延長保育', en:'Early Extension', lanes:3, cap:'自園生徒 ・ 朝7:00-8:30（薄い枠=無料）' },
+  { key:'ext_pm', jp:'延長保育', en:'Extension', lanes:3, cap:'自園生徒 ・ 夕16:30-20:00（薄い枠=無料）' },
 ];
 
 // 各区分の利用可能時間。延長保育(自園生徒)は「早朝7:00〜8:30」と「夕方〜夜16:30〜20:00」を開放。
 function isSlotOpen(zoneKey, slotIdx) {
-  if (zoneKey === 'ext') {
+  if (zoneKey === 'ext_am') {
     const t = SLOTS[slotIdx];
-    if (t >= '07:00' && t < '08:30') return true;   // 早朝枠（最終開始8:15＝8:30まで）
-    if (t >= '16:30' && t < '20:00') return true;   // 夕方〜夜枠（最終開始19:45＝20:00まで）
-    return false;
+    return (t >= '07:00' && t < '08:30');           // 早朝枠（最終開始8:15＝8:30まで）
+  }
+  if (zoneKey === 'ext_pm') {
+    const t = SLOTS[slotIdx];
+    return (t >= '16:30' && t < '20:00');           // 夕方〜夜枠（最終開始19:45＝20:00まで）
   }
   return true;
 }
@@ -658,34 +662,15 @@ function isExtPaid(slot) {
 }
 
 // サンプル予約: { zone, lane, name, age, start, end }
-const SAMPLE_BOOKINGS = [
-  { zone:'temp', lane:0, gardenId:'tsukisamu', name:'西村 ゆい', age:'2', start:'10:30', end:'15:00', memo:'' },
-  { zone:'ext', lane:0, gardenId:'tsukisamu', name:'大野 たろう', age:'3', start:'16:30', end:'18:00', memo:'' },
-  { zone:'ext', lane:1, gardenId:'tsukisamu', name:'山口 ひかる', age:'3', start:'17:00', end:'19:00', memo:'' },
-];
+const SAMPLE_BOOKINGS = []; // サンプル予約は本番運用のため削除（実データは sf_bookings_v1 から取得）
 let bookings = SAMPLE_BOOKINGS.filter(b => normGarden(b.gardenId) === CURRENT_GARDEN).map(b=>({...b}));
 
 const ZONE_LABEL = {
-  temp:'通常の一時預かり', woodstock:'ウッドストック', janis:'ジャニス', ext:'延長保育'
+  temp:'通常の一時預かり', woodstock:'ウッドストック', janis:'ジャニス', ext_am:'早朝延長保育', ext_pm:'延長保育'
 };
 
 // ===== 登録済み顧客名簿（本番では受付アプリの顧客データと連携） =====
-const REGISTERED = [
-  { name:'森 はると', kana:'モリ ハルト', age:'1' },
-  { name:'渡辺 みなと', kana:'ワタナベ ミナト', age:'0' },
-  { name:'岡田 あゆみ', kana:'オカダ アユミ', age:'2' },
-  { name:'西村 ゆい', kana:'ニシムラ ユイ', age:'1' },
-  { name:'藤井 れん', kana:'フジイ レン', age:'1' },
-  { name:'三浦 さくら', kana:'ミウラ サクラ', age:'2' },
-  { name:'横山 ひろと', kana:'ヨコヤマ ヒロト', age:'3' },
-  { name:'青山 ことね', kana:'アオヤマ コトネ', age:'0' },
-  { name:'佐藤 ゆうと', kana:'サトウ ユウト', age:'2' },
-  { name:'田村 みお', kana:'タムラ ミオ', age:'1' },
-  { name:'中川 はな', kana:'ナカガワ ハナ', age:'2' },
-  { name:'長谷川 そら', kana:'ハセガワ ソラ', age:'3' },
-  { name:'松田 りく', kana:'マツダ リク', age:'1' },
-  { name:'山下 あおい', kana:'ヤマシタ アオイ', age:'0' },
-];
+const REGISTERED = []; // サンプル顧客名簿は削除（本番は受付アプリの顧客データと連携）
 
 // カタカナ五十音 行マップ
 const KANA_ROWS = {
@@ -762,7 +747,7 @@ function renderBoard() {
         if (isHour) cls += ' hour';
         else if (isHalf) cls += ' half';
         if (!open) cls += ' closed';
-        else if (zone.key === 'ext' && !isExtPaid(t)) cls += ' free';
+        else if ((zone.key === 'ext_am' || zone.key === 'ext_pm') && !isExtPaid(t)) cls += ' free';
         html += `<div class="${cls}" ${open?`onclick="onSlotTap('${zone.key}',${ln},${i})"`:''}></div>`;
       });
       // 予約バー
@@ -1244,8 +1229,8 @@ function saveBooking() {
     if (lane < 0) { alert('この時間帯はこの区分の枠が満員です'); return; }
     const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, memo, start, end, date: boardDateStr(),
       affiliation: youchisha ? 'youchisha' : CURRENT_GARDEN };
-    // 延長保育(ext)以外は共有ストレージに保存し、TimelySchool予約画面・サロン側に表記連携する
-    if (zone !== 'ext') {
+    // 延長保育(ext_am/ext_pm)以外は共有ストレージに保存し、TimelySchool予約画面・サロン側に表記連携する
+    if (zone !== 'ext_am' && zone !== 'ext_pm') {
       nb.sfId = sfWriteNew(nb);
     }
     bookings.push(nb);
@@ -1328,7 +1313,7 @@ function showNotify(body, title) {
 // ===== 日付（プロトなので表示のみ） =====
 let dayOffset = 0;
 const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const BOARD_BASE = new Date(2026, 4, 23); // 基準日を3画面で統一（5/23）
+const BOARD_BASE = new Date(); BOARD_BASE.setHours(0,0,0,0); // 実時刻の今日（深夜0時基準・3画面統一）
 function boardDateStr() {
   const d = new Date(BOARD_BASE); d.setDate(d.getDate()+dayOffset);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -1376,6 +1361,8 @@ function datesWithBookings() {
 }
 function renderCalendar() {
   document.getElementById('calTitle').textContent = `${calViewYear}年 ${calViewMonth+1}月`;
+  const _tb = document.getElementById('calTodayBtn');
+  if (_tb) _tb.textContent = `本日（${BOARD_BASE.getMonth()+1}/${BOARD_BASE.getDate()}）に戻る`;
   const first = new Date(calViewYear, calViewMonth, 1);
   const startDow = first.getDay();
   const daysInMonth = new Date(calViewYear, calViewMonth+1, 0).getDate();
@@ -1410,7 +1397,7 @@ function calPickDay(d) {
 }
 // 表示中の日付の予約だけにして取り込み直す
 function reloadBoardForDate() {
-  // 初期サンプル（sfIdなし）は基準日(5/23)のみ表示。共有由来(sfId付き)は一旦全消しして当日分を入れ直す。
+  // サンプルは削除済み。共有由来(sfId付き)を一旦全消しして当日分を入れ直す。
   bookings = SAMPLE_BOOKINGS.map(b=>({...b}));
   if (dayOffset !== 0) bookings = []; // 基準日以外はサンプルを出さない
   importSharedBookings();
@@ -1418,7 +1405,7 @@ function reloadBoardForDate() {
 }
 
 // ===== 共有ストレージから予約を取り込む（サロン予約画面 → この管理ボード） =====
-const ZONE_LANES = { temp:3, woodstock:3, janis:2, ext:3 };
+const ZONE_LANES = { temp:3, woodstock:3, janis:2, ext_am:3, ext_pm:3 };
 // その zone/時間帯で空いているレーンを探す
 function findFreeLane(zone, start, end) {
   const sIdx = slotIndex(start), eIdx = (slotIndex(end) < 0 ? SLOTS.length : slotIndex(end));
