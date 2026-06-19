@@ -5517,6 +5517,49 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Noto+Sans+JP:wght@300;400;500;700&family=Noto+Serif+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+<!-- ===== Firebase / Firestore（共有予約データの本番ストレージ） ===== -->
+<!-- localStorage から Firestore へ移行（ミラーリング方式）。board/salon/notify と同じ
+     コレクション sf_bookings に接続し、4画面（受付・お会計 / サロン予約 / 予約管理ボード /
+     お迎え通知）を Firestore 経由で連携する。timely 自身の業務データ（timely_school_data_v1）は
+     対象外で、共有予約データ（sf_bookings）のみをミラー化する。
+     module スコープで初期化し、読み書き関数を window 経由で公開、onSnapshot で購読する。 -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+  import {
+    getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+  } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBbOBEVWgMIx03QVjc2wOwjZCDlyZM2Kzc",
+    authDomain: "strawberry-field-timely.firebaseapp.com",
+    projectId: "strawberry-field-timely",
+    storageBucket: "strawberry-field-timely.firebasestorage.app",
+    messagingSenderId: "327783600315",
+    appId: "1:327783600315:web:e630f23d4f10fc747b599e",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const COL = 'sf_bookings'; // board/salon/notify と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
+
+  // sfSaveShared から呼ぶ：arr を「あるべき全件」として Firestore に反映。
+  // deletedIds（写しから消えた id）は削除する。writeBatch で一括コミット。
+  window.fbReconcile = async (arr, deletedIds) => {
+    try {
+      const batch = writeBatch(db);
+      (arr || []).forEach(r => { if (r && r.id) batch.set(doc(db, COL, String(r.id)), r); });
+      (deletedIds || []).forEach(id => { if (id) batch.delete(doc(db, COL, String(id))); });
+      await batch.commit();
+    } catch (e) { console.error('[fbReconcile] write failed', e); }
+  };
+
+  // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す
+  onSnapshot(collection(db, COL), (snap) => {
+    const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
+  }, (e) => console.error('[onSnapshot] subscribe failed', e));
+</script>
 </head>
 <body>
 
@@ -8041,17 +8084,52 @@ function branchToGardenId(branch) {
   if (branch == null || branch === '') return 'tsukisamu'; // 空は月寒園(tsukisamu)に補完
   return BRANCH_GARDEN[branch] || null; // 対応する園IDが無ければ null
 }
+// ===== Firestore ミラー（メモリ上に保持した共有予約データの写し） =====
+// localStorage の代わりにこの配列を正本の写しとして扱う。Firestore の onSnapshot で
+// 更新され、sfLoadShared はここから同期的に読み出す（既存の同期コードと完全互換）。
+// ※ timely 自身の業務データ（timely_school_data_v1 / DATA / saveData）は対象外。
+let SF_MIRROR = [];
+// 初回スナップショット受信済みフラグ。起動直後の空ミラーで importBoardReservations の
+// 削除パスが誤作動するのを防ぐためのガード（ステップ④で参照）。
+window.__sfSnapshotReceived = false;
+
+// 旧 localStorage 版と同じく、毎回ディープコピーを返す（呼び出し側が中身を書き換えて
+// sfSaveShared に渡すため、写し本体を直接いじらせない）。同期関数のまま維持。
 function sfLoadShared() {
-  try {
-    const raw = localStorage.getItem(SF_KEY);
-    return raw ? (JSON.parse(raw) || []) : [];
-  } catch (e) { console.error('sfLoadShared error:', e); return []; }
+  try { return JSON.parse(JSON.stringify(SF_MIRROR)); }
+  catch (e) { console.error('sfLoadShared error:', e); return []; }
 }
-// ===== 共有ストレージ（sf_bookings_v1）への書き込み：案A 受付→予約表 =====
+// ===== 共有ストレージ（sf_bookings）への書き込み：案A 受付→予約表 =====
+// arr を「あるべき全件」として Firestore へ反映する。写し(SF_MIRROR)と比較して消えた id を
+// 削除対象に含め、楽観的に写しも即時更新する。実書き込みは window.fbReconcile（module側）へ委譲。
+// read→save は同期実行で途中に await が無いため、この区間に onSnapshot が割り込む競合は起きない。
 function sfSaveShared(arr) {
-  try { localStorage.setItem(SF_KEY, JSON.stringify(arr)); return true; }
-  catch (e) { console.error('sfSaveShared error:', e); return false; }
+  try {
+    const next = JSON.parse(JSON.stringify(arr || []));
+    const newIds = new Set(next.map(r => r && r.id).filter(Boolean).map(String));
+    const deletedIds = SF_MIRROR
+      .map(r => r && r.id)
+      .filter(id => id != null && !newIds.has(String(id)));
+    SF_MIRROR = next; // 楽観更新（次の sfLoadShared に即反映）
+    if (typeof window.fbReconcile === 'function') {
+      window.fbReconcile(next, deletedIds);
+    } else {
+      console.warn('[sfSaveShared] fbReconcile 未準備（起動直後）。メモリ写しのみ更新しました。');
+    }
+    return true;
+  } catch (e) { console.error('sfSaveShared error:', e); return false; }
 }
+
+// onSnapshot（module側）から呼ばれる：Firestore の全ドキュメントで写しを置換し、
+// 既存の importBoardReservations（マージ方式・案A）で DATA.reservations に取り込む。
+// timely の業務データ（DATA）は作り直さず、共有予約だけをマージする。
+window.sfApplySnapshot = function(arr) {
+  SF_MIRROR = Array.isArray(arr) ? arr : [];
+  window.__sfSnapshotReceived = true; // 初回受信フラグを立てる（ステップ④のガード解除）
+  if (typeof importBoardReservations === 'function') {
+    try { importBoardReservations(); } catch (e) { console.error(e); }
+  }
+};
 // 受付発レコードを共有に upsert（同 id があれば更新、無ければ追加）
 function sfUpsertShared(record) {
   if (!record || !record.id) return false;
@@ -8123,11 +8201,15 @@ function importBoardReservations() {
     });
     changed = true;
   });
-  // 共有ストレージ側で削除されたボード予約は、こちらの未紐付け予約からも消す
-  const sharedIds = new Set(shared.filter(r => r && r.fromBoard).map(r => r.id));
-  const before = DATA.reservations.length;
-  DATA.reservations = DATA.reservations.filter(x => !(x.fromBoard && x.sfId && !sharedIds.has(x.sfId)));
-  if (DATA.reservations.length !== before) changed = true;
+  // 共有ストレージ側で削除されたボード予約は、こちらの未紐付け予約からも消す。
+  // ただし初回スナップショット受信前（SF_MIRROR が空の起動直後）は、空ミラーで全 fromBoard
+  // 予約を誤削除・保存してしまうため、このパスをスキップする（ガード）。
+  if (window.__sfSnapshotReceived) {
+    const sharedIds = new Set(shared.filter(r => r && r.fromBoard).map(r => r.id));
+    const before = DATA.reservations.length;
+    DATA.reservations = DATA.reservations.filter(x => !(x.fromBoard && x.sfId && !sharedIds.has(x.sfId)));
+    if (DATA.reservations.length !== before) changed = true;
+  }
 
   if (changed) {
     saveData(DATA);
@@ -11604,10 +11686,8 @@ function removeFromReservation(reservationKey) {
         // こちらの予約リストから削除
         DATA.reservations = (DATA.reservations || []).filter(r => r.sfId !== sfId);
         // 共有ストレージ側からも削除（次回取り込みでの復活を防ぐ＝双方向で消える）
-        try {
-          const shared = sfLoadShared().filter(r => r.id !== sfId);
-          localStorage.setItem(SF_KEY, JSON.stringify(shared));
-        } catch (e) { console.error('shared remove error:', e); }
+        // sfRemoveShared 経由にすることで、ミラー化後は fbReconcile で Firestore からも確実に削除される
+        sfRemoveShared(sfId);
       } else {
         // 受付発の予約（sfId保持）は共有ストレージ（予約表）からも削除（案A）
         (DATA.reservations || []).forEach(r => {
