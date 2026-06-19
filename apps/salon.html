@@ -256,6 +256,47 @@ button:active { opacity: 0.7; }
 .proto-note { background: var(--tiffany-soft); padding: 8px 24px; font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); text-align: center; flex-shrink: 0; }
 .proto-note strong { color: var(--tiffany-deep); }
 </style>
+
+<!-- ===== Firebase / Firestore（共有予約データの本番ストレージ） ===== -->
+<!-- localStorage から Firestore へ移行（ミラーリング方式）。board.html と同じコレクション
+     sf_bookings に接続し、サロン予約画面と予約管理ボードを Firestore 経由で連携する。
+     module スコープで初期化し、読み書き関数を window 経由で公開、onSnapshot で購読する。 -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+  import {
+    getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+  } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBbOBEVWgMIx03QVjc2wOwjZCDlyZM2Kzc",
+    authDomain: "strawberry-field-timely.firebaseapp.com",
+    projectId: "strawberry-field-timely",
+    storageBucket: "strawberry-field-timely.firebasestorage.app",
+    messagingSenderId: "327783600315",
+    appId: "1:327783600315:web:e630f23d4f10fc747b599e",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const COL = 'sf_bookings'; // board.html と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
+
+  // sfSave から呼ぶ：arr を「あるべき全件」として Firestore に反映。
+  // deletedIds（写しから消えた id）は削除する。writeBatch で一括コミット。
+  window.fbReconcile = async (arr, deletedIds) => {
+    try {
+      const batch = writeBatch(db);
+      (arr || []).forEach(r => { if (r && r.id) batch.set(doc(db, COL, String(r.id)), r); });
+      (deletedIds || []).forEach(id => { if (id) batch.delete(doc(db, COL, String(id))); });
+      await batch.commit();
+    } catch (e) { console.error('[fbReconcile] write failed', e); }
+  };
+
+  // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す
+  onSnapshot(collection(db, COL), (snap) => {
+    const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
+  }, (e) => console.error('[onSnapshot] subscribe failed', e));
+</script>
 </head>
 <body>
 
@@ -436,14 +477,44 @@ function gardenName(g) {
   return (GARDENS[id] || GARDENS[CURRENT_GARDEN] || {}).name || '月寒園';
 }
 
+// ===== Firestore ミラー（メモリ上に保持した共有予約データの写し） =====
+// localStorage の代わりにこの配列を正本の写しとして扱う。Firestore の onSnapshot で
+// 更新され、sfLoad はここから同期的に読み出す（既存の同期コードと完全互換）。
+let SF_MIRROR = [];
+
+// 旧 localStorage 版と同じく、毎回ディープコピーを返す（呼び出し側が中身を書き換えて
+// sfSave に渡すため、写し本体を直接いじらせない）。同期関数のまま維持。
 function sfLoad() {
-  try { const raw = localStorage.getItem(SF_KEY); return raw ? JSON.parse(raw) : []; }
+  try { return JSON.parse(JSON.stringify(SF_MIRROR)); }
   catch(e) { return []; }
 }
+// arr を「あるべき全件」として Firestore へ反映する。
+// 写し(SF_MIRROR)と比較して消えた id を削除対象に含め、楽観的に写しも即時更新する。
+// 実書き込みは window.fbReconcile（module側）へ委譲。read→save は同期実行で
+// 途中に await が無いため、この区間に onSnapshot が割り込む競合は発生しない。
 function sfSave(arr) {
-  try { localStorage.setItem(SF_KEY, JSON.stringify(arr)); return true; }
-  catch(e) { return false; }
+  try {
+    const next = JSON.parse(JSON.stringify(arr || []));
+    const newIds = new Set(next.map(r => r && r.id).filter(Boolean).map(String));
+    const deletedIds = SF_MIRROR
+      .map(r => r && r.id)
+      .filter(id => id != null && !newIds.has(String(id)));
+    SF_MIRROR = next; // 楽観更新（次の sfLoad に即反映）
+    if (typeof window.fbReconcile === 'function') {
+      window.fbReconcile(next, deletedIds);
+    } else {
+      console.warn('[sfSave] fbReconcile 未準備（起動直後）。メモリ写しのみ更新しました。');
+    }
+    return true;
+  } catch(e) { return false; }
 }
+
+// onSnapshot（module側）から呼ばれる：Firestore の全ドキュメントで写しを丸ごと置換し、
+// 共有ストレージを読み直して再描画する（salon は renderMyBookings が再描画の入口）。
+window.sfApplySnapshot = function(arr) {
+  SF_MIRROR = Array.isArray(arr) ? arr : [];
+  if (typeof renderMyBookings === 'function') renderMyBookings();
+};
 function sfAdd(rec) {
   const arr = sfLoad();
   rec.id = 'bk_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
