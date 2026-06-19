@@ -417,6 +417,48 @@ body {
 }
 .proto-note strong { color: var(--tiffany-deep); }
 </style>
+
+<!-- ===== Firebase / Firestore（共有予約データの本番ストレージ） ===== -->
+<!-- localStorage から Firestore へ移行（ミラーリング方式）。
+     module スコープで初期化し、通常スクリプトの sfLoad/sfSave から呼べるよう
+     読み書き関数を window 経由で公開する。onSnapshot で sf_bookings を購読し、
+     変更のたび window.sfApplySnapshot に全ドキュメントを渡して再構築・再描画する。 -->
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+  import {
+    getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+  } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBbOBEVWgMIx03QVjc2wOwjZCDlyZM2Kzc",
+    authDomain: "strawberry-field-timely.firebaseapp.com",
+    projectId: "strawberry-field-timely",
+    storageBucket: "strawberry-field-timely.firebasestorage.app",
+    messagingSenderId: "327783600315",
+    appId: "1:327783600315:web:e630f23d4f10fc747b599e",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const COL = 'sf_bookings'; // 1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
+
+  // sfSave から呼ぶ：arr を「あるべき全件」として Firestore に反映。
+  // deletedIds（写しから消えた id）は削除する。writeBatch で一括コミット。
+  window.fbReconcile = async (arr, deletedIds) => {
+    try {
+      const batch = writeBatch(db);
+      (arr || []).forEach(r => { if (r && r.id) batch.set(doc(db, COL, String(r.id)), r); });
+      (deletedIds || []).forEach(id => { if (id) batch.delete(doc(db, COL, String(id))); });
+      await batch.commit();
+    } catch (e) { console.error('[fbReconcile] write failed', e); }
+  };
+
+  // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す（丸ごと置き換え）
+  onSnapshot(collection(db, COL), (snap) => {
+    const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
+  }, (e) => console.error('[onSnapshot] subscribe failed', e));
+</script>
 </head>
 <body>
 
@@ -613,14 +655,44 @@ function reloadBookingsForGarden() {
   syncFromTimelySchool();
 }
 
+// ===== Firestore ミラー（メモリ上に保持した共有予約データの写し） =====
+// localStorage の代わりにこの配列を正本の写しとして扱う。Firestore の onSnapshot で
+// 更新され、sfLoad はここから同期的に読み出す（既存の同期コードと完全互換）。
+let SF_MIRROR = [];
+
+// 旧 localStorage 版と同じく、毎回ディープコピーを返す（呼び出し側が中身を書き換えて
+// sfSave に渡すため、写し本体を直接いじらせない）。同期関数のまま維持。
 function sfLoad() {
-  try { const raw = localStorage.getItem(SF_KEY); return raw ? JSON.parse(raw) : []; }
+  try { return JSON.parse(JSON.stringify(SF_MIRROR)); }
   catch(e) { return []; }
 }
+// arr を「あるべき全件」として Firestore へ反映する。
+// 写し(SF_MIRROR)と比較して消えた id を削除対象に含め、楽観的に写しも即時更新する。
+// 実書き込みは window.fbReconcile（module側）へ委譲。read→save は同期実行で
+// 途中に await が無いため、この区間に onSnapshot が割り込む競合は発生しない。
 function sfSave(arr) {
-  try { localStorage.setItem(SF_KEY, JSON.stringify(arr)); return true; }
-  catch(e) { return false; }
+  try {
+    const next = JSON.parse(JSON.stringify(arr || []));
+    const newIds = new Set(next.map(r => r && r.id).filter(Boolean).map(String));
+    const deletedIds = SF_MIRROR
+      .map(r => r && r.id)
+      .filter(id => id != null && !newIds.has(String(id)));
+    SF_MIRROR = next; // 楽観更新（次の sfLoad に即反映）
+    if (typeof window.fbReconcile === 'function') {
+      window.fbReconcile(next, deletedIds);
+    } else {
+      console.warn('[sfSave] fbReconcile 未準備（起動直後）。メモリ写しのみ更新しました。');
+    }
+    return true;
+  } catch(e) { return false; }
 }
+
+// onSnapshot（module側）から呼ばれる：Firestore の全ドキュメントで写しを丸ごと置換し、
+// 既存の取り込み経路（importSharedBookings → renderBoard）で再構築・再描画する。
+window.sfApplySnapshot = function(arr) {
+  SF_MIRROR = Array.isArray(arr) ? arr : [];
+  if (typeof importSharedBookings === 'function') importSharedBookings();
+};
 
 // ===== 設定 =====
 const START_HOUR = 7, END_HOUR = 20;       // 7:00〜20:00（朝7〜8時、夕方18〜20時は保育園のみ）
@@ -1420,38 +1492,40 @@ function findFreeLane(zone, start, end) {
   }
   return lanes - 1; // 全部埋まっていたら最終レーンに重ねる
 }
+// 共有予約(sfId付き)を Firestore の写しから「丸ごと再構築」する（ミラー方式）。
+// 追加・更新だけでなく、写しから消えた共有予約は bookings からも消える（他端末での削除が反映される）。
+// 延長保育など sfId を持たないローカル専用予約は対象外として保持する。
 function importSharedBookings() {
-  const recs = sfLoad();
   const curDate = boardDateStr();
-  let added = false, updated = false;
+  // 共有予約部分のシグネチャ（再構築前後で比較し、変化時のみ再描画する）
+  const sig = (a) => a.filter(b => b.sfId != null)
+    .map(b => [b.sfId, b.name, b.start, b.end, b.zone, b.lane, b.provisional, b.months, JSON.stringify(b.info || null)].join('|'))
+    .sort().join('\n');
+  const before = sig(bookings);
+  const beforeIds = new Set(bookings.filter(b => b.sfId != null).map(b => String(b.sfId)));
+
+  // ローカル専用(sfIdなし＝延長保育など)は残し、共有由来は捨てて作り直す
+  bookings = bookings.filter(b => !b.sfId);
+
+  // 選択中の園・表示中の日付の共有レコードのみ。開始時刻順でレーン採番を決定的にする。
+  const recs = sfLoad()
+    .filter(r => r && r.salon && ZONE_LANES[r.salon]
+      && normGarden(r.gardenId) === CURRENT_GARDEN
+      && (!r.date || r.date === curDate))
+    .sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')));
   recs.forEach(r => {
-    if (!r || !r.salon) return;
-    // 園で絞り込み（gardenId 無しは月寒園として扱う）。選択中の園のみ表示。
-    if (normGarden(r.gardenId) !== CURRENT_GARDEN) return;
-    const zone = r.salon; // woodstock / janis がそのまま zone に対応
-    if (!ZONE_LANES[zone]) return;
-    // 表示中の日付の予約のみ（日付なしレコードは当日扱い）
-    if (r.date && r.date !== curDate) return;
-    // 取り込み済み？（sfId優先。sfIdなしは同名・同開始で照合）
-    const existing = bookings.find(b => (b.sfId && b.sfId === r.id) || (!b.sfId && b.zone===zone && b.name===r.name && b.start===r.start));
-    if (existing) {
-      // インフォシート登録・時間変更などの更新を反映
-      const newName = (r.info && r.info.name) ? r.info.name : r.name;
-      if (existing.name !== newName || existing.provisional !== r.provisional || JSON.stringify(existing.info||null) !== JSON.stringify(r.info||null) || existing.months !== r.months || existing.start !== r.start || existing.end !== r.end) {
-        existing.name = newName; existing.kana = r.kana; existing.months = r.months;
-        existing.provisional = r.provisional; existing.info = r.info || null;
-        existing.start = r.start; existing.end = r.end;
-        updated = true;
-      }
-      return;
-    }
-    const lane = findFreeLane(zone, r.start, r.end);
-    bookings.push({ zone, lane, gardenId: normGarden(r.gardenId), name: (r.info&&r.info.name)?r.info.name:r.name, kana: r.kana, age: r.age, months: r.months,
-      start: r.start, end: r.end, date: r.date || boardDateStr(), memo: r.memo||'', sfId: r.id, provisional: r.provisional, info: r.info||null, affiliation: r.affiliation });
-    added = true;
+    const zone = r.salon; // woodstock / janis / temp がそのまま zone に対応
+    const lane = findFreeLane(zone, r.start, r.end); // 既に積んだ分も考慮して採番
+    bookings.push({ zone, lane, gardenId: normGarden(r.gardenId),
+      name: (r.info && r.info.name) ? r.info.name : r.name, kana: r.kana, age: r.age, months: r.months,
+      start: r.start, end: r.end, date: r.date || curDate, memo: r.memo || '', sfId: r.id,
+      provisional: r.provisional, info: r.info || null, affiliation: r.affiliation });
   });
-  if (added || updated) renderBoard();
-  return added || updated;
+
+  // 変化があったときだけ再描画（4秒ポーリングでの無駄な再描画・ちらつきを防ぐ）
+  if (sig(bookings) !== before) renderBoard();
+  // 新たに増えた共有予約があるか（サロン新着ポップアップ判定用）
+  return bookings.some(b => b.sfId != null && !beforeIds.has(String(b.sfId)));
 }
 
 // 初期化
