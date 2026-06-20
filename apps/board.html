@@ -157,6 +157,12 @@ body {
 .cap-save { background: var(--tiffany); border: 1px solid var(--tiffany); color: var(--white); font-weight: 600; }
 .cap-save:active { opacity: 0.85; }
 
+/* 日別例外（Phase 2b）: 基本設定→日別エディタの導線と、例外削除ボタン。他は .cap-* を流用 */
+.cap-daily-link { display:block; width:100%; margin-top:14px; background:var(--ivory); border:1px dashed var(--line); border-radius:8px; padding:11px; font-family:var(--serif-jp); font-size:13px; color:var(--tiffany-deep); cursor:pointer; transition:all var(--transition); text-align:center; }
+.cap-daily-link:active { background:var(--tiffany-soft); border-color:var(--tiffany); }
+.cap-clear { background:var(--white); border:1px solid #D8A7A7; color:#B23E4C; }
+.cap-clear:active { background:#F5E3E5; }
+
 /* ===== 凡例 ===== */
 .legend-bar {
   display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
@@ -563,6 +569,27 @@ body {
       <button class="cap-cancel" onclick="closeCapSettings()">閉じる</button>
       <button class="cap-save" onclick="saveCapSettings()">保存</button>
     </div>
+    <button class="cap-daily-link" onclick="openCapDaily()">▸ 特定日の定員（日別例外）を設定</button>
+  </div>
+</div>
+
+<!-- 年齢別定員・日別例外エディタ（対象日＝ボード表示中の日付） -->
+<div class="cap-overlay" id="capDailyOverlay" onclick="closeCapDaily()">
+  <div class="cap-box" onclick="event.stopPropagation()">
+    <div class="cap-head">
+      <span class="cap-title">年齢別定員 ・ 日別設定</span>
+      <span class="cap-garden" id="capDailyLabel">月寒園</span>
+    </div>
+    <div class="cap-note">この日だけの上限を設定します。空欄＝基本設定を使用、0＝予約不可。変えたい年齢だけ入力してください。</div>
+    <div class="cap-row"><span class="cap-row-label">0歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput0" placeholder="基本"><span class="cap-unit">名</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput1" placeholder="基本"><span class="cap-unit">名</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput2" placeholder="基本"><span class="cap-unit">名</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput3" placeholder="基本"><span class="cap-unit">名</span></span></div>
+    <div class="cap-actions">
+      <button class="cap-cancel" onclick="closeCapDaily()">閉じる</button>
+      <button class="cap-clear" onclick="clearCapDaily()">例外を削除</button>
+      <button class="cap-save" onclick="saveCapDaily()">保存</button>
+    </div>
   </div>
 </div>
 
@@ -823,6 +850,60 @@ function saveCapSettings() {
   capSaveBase(base);                          // Firestore へ（onSnapshot で CAP_MIRROR 更新）
   closeCapSettings();
   if (typeof showNotify === 'function') showNotify(`${gardenName(CURRENT_GARDEN)} の年齢別定員を保存しました。`, '✓ 定員設定を保存');
+}
+
+// ===== 日別例外エディタ（Phase 2b。対象日＝ボード表示中の日付 boardDateStr()） =====
+let capDailyDate = null; // 編集中の対象日（開いた時点の boardDateStr を固定）
+function openCapDaily() {
+  capDailyDate = boardDateStr();
+  const day = capGetDaily(capDailyDate);              // 全園分の当日例外
+  const g = (day && day[CURRENT_GARDEN]) || {};
+  const baseG = (capGetBase()[CURRENT_GARDEN]) || {};
+  const lbl = document.getElementById('capDailyLabel');
+  if (lbl) {
+    const [y,m,d] = capDailyDate.split('-');
+    lbl.textContent = `${gardenName(CURRENT_GARDEN)} ・ ${Number(y)}年${Number(m)}月${Number(d)}日`;
+  }
+  CAP_AGES.forEach(a => {
+    const el = document.getElementById('capDailyInput' + a);
+    if (!el) return;
+    el.value = (g[a] != null) ? g[a] : '';            // 日別例外の現値（無ければ空欄）
+    el.placeholder = (baseG[a] != null) ? `基本 ${baseG[a]}` : '基本 無制限'; // 空欄時に効く基本値
+  });
+  closeCapSettings();                                  // 基本設定を閉じてから
+  document.getElementById('capDailyOverlay').classList.add('show');
+}
+function closeCapDaily() {
+  document.getElementById('capDailyOverlay').classList.remove('show');
+}
+// この日の CURRENT_GARDEN 例外だけ差し替えて保存（他園・他日は触らない）
+function saveCapDaily() {
+  if (!capDailyDate) return;
+  const day = capGetDaily(capDailyDate);               // 全園分を読む（他園を消さない）
+  const gObj = {};
+  CAP_AGES.forEach(a => {
+    const el = document.getElementById('capDailyInput' + a);
+    const raw = el ? el.value.trim() : '';
+    if (raw === '') return;                            // 空欄＝基本にフォールバック（キーを持たせない）
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n >= 0) gObj[a] = n;              // 0 も有効値
+  });
+  if (Object.keys(gObj).length > 0) day[CURRENT_GARDEN] = gObj;
+  else delete day[CURRENT_GARDEN];                     // この園の例外が空なら園キー削除
+  if (Object.keys(day).length > 0) capSaveDaily(capDailyDate, day); // 他園の例外が残るなら保存
+  else capDeleteDaily(capDailyDate);                   // ドキュメント全体が空なら削除
+  closeCapDaily();
+  if (typeof showNotify === 'function') showNotify(`${gardenName(CURRENT_GARDEN)} ${capDailyDate} の日別定員を保存しました。`, '✓ 日別定員を保存');
+}
+// この日の CURRENT_GARDEN 例外を削除（＝基本に戻す）
+function clearCapDaily() {
+  if (!capDailyDate) return;
+  const day = capGetDaily(capDailyDate);
+  delete day[CURRENT_GARDEN];
+  if (Object.keys(day).length > 0) capSaveDaily(capDailyDate, day);
+  else capDeleteDaily(capDailyDate);
+  closeCapDaily();
+  if (typeof showNotify === 'function') showNotify(`${gardenName(CURRENT_GARDEN)} ${capDailyDate} の日別例外を削除しました（基本設定に戻ります）。`, '✓ 日別例外を削除');
 }
 
 // ===== 設定 =====
