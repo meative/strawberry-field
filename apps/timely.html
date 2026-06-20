@@ -5529,6 +5529,7 @@
   import {
     getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+  import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
   const firebaseConfig = {
     apiKey: "AIzaSyBbOBEVWgMIx03QVjc2wOwjZCDlyZM2Kzc",
@@ -5541,6 +5542,7 @@
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+  const auth = getAuth(app);
   const COL = 'sf_bookings'; // board/salon/notify と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
 
   // sfSaveShared から呼ぶ：arr を「あるべき全件」として Firestore に反映。
@@ -5554,11 +5556,16 @@
     } catch (e) { console.error('[fbReconcile] write failed', e); }
   };
 
-  // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す
-  onSnapshot(collection(db, COL), (snap) => {
-    const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-    if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
-  }, (e) => console.error('[onSnapshot] subscribe failed', e));
+  // 匿名サインイン完了後に購読を開始する。
+  // ステップ3で Firestore ルールを「認証必須」に厳格化しても、サインイン済みの状態で
+  // 購読が始まるため permission-denied で落ちない。
+  signInAnonymously(auth).then(() => {
+    // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す
+    onSnapshot(collection(db, COL), (snap) => {
+      const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
+    }, (e) => console.error('[onSnapshot] subscribe failed', e));
+  }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
 </head>
 <body>
