@@ -163,6 +163,17 @@ body {
 .cap-clear { background:var(--white); border:1px solid #D8A7A7; color:#B23E4C; }
 .cap-clear:active { background:#F5E3E5; }
 
+/* ===== 年齢別 空き状況サマリー（Phase 3） ===== */
+.cap-summary { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 24px; background:var(--ivory); border-bottom:1px solid var(--line-soft); flex-shrink:0; }
+.cap-summary-title { font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); letter-spacing:0.04em; }
+.cap-chip { display:inline-flex; align-items:baseline; gap:6px; padding:4px 12px; border-radius:999px; font-family:var(--serif-jp); font-size:12px; border:1px solid var(--line); background:var(--white); }
+.cap-chip .age { color:var(--ink); font-weight:600; }
+.cap-chip .rem { color:var(--tiffany-deep); }
+.cap-chip.full { background:#F5E3E5; border-color:#D8A7A7; }
+.cap-chip.full .rem { color:#B23E4C; font-weight:600; }
+.cap-chip.unlimited { opacity:0.6; }
+.cap-chip.unlimited .rem { color:var(--ink-soft); }
+
 /* ===== 凡例 ===== */
 .legend-bar {
   display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
@@ -602,6 +613,9 @@ body {
   <span class="legend-hint">空いている枠をタップ → 予約を追加</span>
 </div>
 
+<!-- 年齢別 空き状況サマリー（Phase 3。renderCapSummary が描画） -->
+<div class="cap-summary" id="capSummary"></div>
+
 <!-- タイムテーブル -->
 <div class="board-wrap">
   <div class="board" id="board"></div>
@@ -906,6 +920,49 @@ function clearCapDaily() {
   if (typeof showNotify === 'function') showNotify(`${gardenName(CURRENT_GARDEN)} ${capDailyDate} の日別例外を削除しました（基本設定に戻ります）。`, '✓ 日別例外を削除');
 }
 
+// ===== 年齢別 空き状況サマリー（Phase 3） =====
+const COUNTED_ZONES = new Set(['temp','woodstock','janis']); // 一時預かりのみ。ext は対象外
+const CAP_AGE_LABEL = { '0':'0歳', '1':'1歳', '2':'2歳', '3':'3歳〜' };
+// 年齢正規化：0/1/2/3、3/4/5→'3'、不正値→null
+function normAge(a) {
+  if (a == null || a === '') return null;
+  const n = parseInt(a, 10);
+  if (isNaN(n) || n < 0) return null;
+  return String(Math.min(n, 3));
+}
+// その日・その園・その年齢区分の予約数（temp/woodstock/janis、仮予約も数える、ext・年齢不明除外）
+function countReservations(garden, age, date) {
+  const g = normGarden(garden); const a = String(age);
+  let c = 0;
+  sfLoad().forEach(r => {
+    if (!r || !COUNTED_ZONES.has(r.salon)) return;   // 種別ホワイトリスト
+    if (normGarden(r.gardenId) !== g) return;        // 園一致
+    if (r.date !== date) return;                     // 対象日厳密一致
+    if (normAge(r.age) !== a) return;                // 年齢区分一致（不明は除外）
+    c++;                                             // provisional も数える
+  });
+  return c;
+}
+// 年齢別の残数チップを描画（対象＝現在園 CURRENT_GARDEN・表示中の日付 boardDateStr()）
+function renderCapSummary() {
+  const el = document.getElementById('capSummary');
+  if (!el) return;
+  const date = boardDateStr();
+  let html = '<span class="cap-summary-title">年齢別 空き状況</span>';
+  CAP_AGES.forEach(a => {
+    const cap = capEffective(CURRENT_GARDEN, a, date);
+    let cls = 'cap-chip', rem;
+    if (cap == null) { cls += ' unlimited'; rem = '制限なし'; }
+    else {
+      const left = cap - countReservations(CURRENT_GARDEN, a, date);
+      if (left <= 0) { cls += ' full'; rem = '満員'; }
+      else rem = `残り${left}名`;
+    }
+    html += `<span class="${cls}"><span class="age">${CAP_AGE_LABEL[a]}</span><span class="rem">${rem}</span></span>`;
+  });
+  el.innerHTML = html;
+}
+
 // ===== 設定 =====
 const START_HOUR = 7, END_HOUR = 20;       // 7:00〜20:00（朝7〜8時、夕方18〜20時は保育園のみ）
 const SLOT_MIN = 15;                         // 15分刻み
@@ -1062,6 +1119,7 @@ function renderBoard() {
 
   board.innerHTML = html;
   attachDragHandlers();
+  renderCapSummary();
 }
 
 // HTMLエスケープ
