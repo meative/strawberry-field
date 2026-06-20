@@ -455,6 +455,19 @@ body {
     } catch (e) { console.error('[fbReconcile] write failed', e); }
   };
 
+  const CAP_COL = 'sf_capacity'; // 年齢別定員。doc "base"=基本設定、doc "YYYY-MM-DD"=日別例外
+
+  // 定員ドキュメントの書き込み（ドキュメント単位。sf_bookings の配列reconcileとは別の軽いAPI）
+  window.fbCapSet = async (docId, data) => {
+    try { await setDoc(doc(db, CAP_COL, String(docId)), data); }
+    catch (e) { console.error('[fbCapSet] write failed', e); }
+  };
+  // 定員ドキュメントの削除（日別例外の解除など）
+  window.fbCapDelete = async (docId) => {
+    try { await deleteDoc(doc(db, CAP_COL, String(docId))); }
+    catch (e) { console.error('[fbCapDelete] delete failed', e); }
+  };
+
   // 匿名サインイン完了後に購読を開始する。
   // ステップ3で Firestore ルールを「認証必須」に厳格化しても、サインイン済みの状態で
   // 購読が始まるため permission-denied で落ちない。
@@ -464,6 +477,12 @@ body {
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
       if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
     }, (e) => console.error('[onSnapshot] subscribe failed', e));
+    // 定員（sf_capacity）も購読：base + 日別例外をマップにして通常スクリプトへ渡す
+    onSnapshot(collection(db, CAP_COL), (snap) => {
+      const map = {};
+      snap.docs.forEach(d => { map[d.id] = d.data(); });
+      if (typeof window.capApplySnapshot === 'function') window.capApplySnapshot(map);
+    }, (e) => console.error('[onSnapshot capacity] subscribe failed', e));
   }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
 </head>
@@ -699,6 +718,34 @@ function sfSave(arr) {
 window.sfApplySnapshot = function(arr) {
   SF_MIRROR = Array.isArray(arr) ? arr : [];
   if (typeof importSharedBookings === 'function') importSharedBookings();
+};
+
+// ===== 年齢別定員（sf_capacity）ミラー =====
+//   CAP_MIRROR.base          = { gardenId: { '0':n,'1':n,'2':n,'3':n }, ... }  基本設定
+//   CAP_MIRROR['YYYY-MM-DD'] = { gardenId: { age:n } }  日別例外（書いた年齢だけ）
+let CAP_MIRROR = {};
+
+// 実効定員を解決：日別例外 → 基本設定 → 未設定(null=無制限) の順
+function capEffective(garden, age, date) {
+  const g = normGarden(garden); const a = String(age);
+  const daily = CAP_MIRROR[date] && CAP_MIRROR[date][g];
+  if (daily && daily[a] != null) return Number(daily[a]);
+  const base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  if (base && base[a] != null) return Number(base[a]);
+  return null; // 未設定＝無制限
+}
+// 編集UI用の読み出し（Phase 2 で使用）
+function capGetBase() { return JSON.parse(JSON.stringify(CAP_MIRROR.base || {})); }
+function capGetDaily(date) { return JSON.parse(JSON.stringify(CAP_MIRROR[date] || {})); }
+// 書き込み（module側 API へ委譲。Phase 2 で使用）
+function capSaveBase(baseObj) { if (window.fbCapSet) window.fbCapSet('base', baseObj || {}); }
+function capSaveDaily(date, dateObj) { if (window.fbCapSet) window.fbCapSet(date, dateObj || {}); }
+function capDeleteDaily(date) { if (window.fbCapDelete) window.fbCapDelete(date); }
+
+// onSnapshot（module側）から呼ばれる：定員マップを丸ごと置換し、ボード再描画（Phase 3の残数表示で使う）
+window.capApplySnapshot = function(map) {
+  CAP_MIRROR = (map && typeof map === 'object') ? map : {};
+  if (typeof renderBoard === 'function') renderBoard();
 };
 
 // ===== 設定 =====
