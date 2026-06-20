@@ -135,6 +135,28 @@ body {
 .cal-today { width: 100%; margin-top: 14px; background: var(--ivory); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); cursor: pointer; transition: all var(--transition); }
 .cal-today:active { background: var(--tiffany-soft); border-color: var(--tiffany); }
 
+/* ===== 保育園管理設定（年齢別定員） ===== */
+.cap-open-btn { appearance:none; border:1px solid var(--line); background:var(--white); color:var(--ink-soft); font-family:var(--serif-jp); font-size:13px; padding:8px 14px; min-height:44px; border-radius:8px; cursor:pointer; transition:all var(--transition); }
+.cap-open-btn:active { background:var(--tiffany-soft); border-color:var(--tiffany); }
+.cap-overlay { position: fixed; inset: 0; background: rgba(26,31,38,0.5); display: none; align-items: center; justify-content: center; z-index: 300; }
+.cap-overlay.show { display: flex; }
+.cap-box { background: var(--white); border-radius: 12px; padding: 22px 24px 18px; width: 360px; max-width: calc(100vw - 32px); box-shadow: 0 16px 50px rgba(0,0,0,0.32); animation: calPop 0.2s cubic-bezier(0.16,1,0.3,1); }
+.cap-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+.cap-title { font-family: var(--serif-jp); font-size: 17px; font-weight: 600; color: var(--ink); }
+.cap-garden { font-family: var(--serif-jp); font-size: 13px; color: var(--tiffany-deep); }
+.cap-note { font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); margin: 6px 0 14px; line-height: 1.6; }
+.cap-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.cap-row-label { font-family: var(--serif-jp); font-size: 14px; color: var(--ink); }
+.cap-input { width: 88px; text-align: center; font-family: var(--serif-jp); font-size: 15px; padding: 8px 6px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
+.cap-input:focus { outline: none; border-color: var(--tiffany); }
+.cap-unit { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-left: 6px; }
+.cap-actions { display: flex; gap: 10px; margin-top: 18px; }
+.cap-actions button { flex: 1; min-height: 46px; border-radius: 8px; font-family: var(--serif-jp); font-size: 14px; cursor: pointer; transition: all var(--transition); }
+.cap-cancel { background: var(--ivory); border: 1px solid var(--line); color: var(--ink-soft); }
+.cap-cancel:active { background: var(--line-soft); }
+.cap-save { background: var(--tiffany); border: 1px solid var(--tiffany); color: var(--white); font-weight: 600; }
+.cap-save:active { opacity: 0.85; }
+
 /* ===== 凡例 ===== */
 .legend-bar {
   display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
@@ -496,6 +518,7 @@ body {
   </div>
   <div class="header-right">
     <div class="live-badge"><span class="live-dot"></span>サロンと同期中 ・ Live</div>
+    <button class="cap-open-btn" onclick="openCapSettings()">⚙ 保育園管理設定</button>
     <button class="fab" onclick="openModal()">＋ 予約を追加</button>
   </div>
 </div>
@@ -521,6 +544,25 @@ body {
     <div class="cal-weekdays"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
     <div class="cal-grid" id="calGrid"></div>
     <button class="cal-today" id="calTodayBtn" onclick="calGoToday()">本日に戻る</button>
+  </div>
+</div>
+
+<!-- 保育園管理設定（年齢別定員・基本設定） -->
+<div class="cap-overlay" id="capOverlay" onclick="closeCapSettings()">
+  <div class="cap-box" onclick="event.stopPropagation()">
+    <div class="cap-head">
+      <span class="cap-title">年齢別定員 ・ 基本設定</span>
+      <span class="cap-garden" id="capGardenLabel">月寒園</span>
+    </div>
+    <div class="cap-note">1日あたりの上限人数を年齢区分ごとに設定します。空欄＝無制限、0＝予約不可。サロンの予約受付で満員判定に使われます。</div>
+    <div class="cap-row"><span class="cap-row-label">0歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput0" placeholder="無制限"><span class="cap-unit">名</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput1" placeholder="無制限"><span class="cap-unit">名</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput2" placeholder="無制限"><span class="cap-unit">名</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput3" placeholder="無制限"><span class="cap-unit">名</span></span></div>
+    <div class="cap-actions">
+      <button class="cap-cancel" onclick="closeCapSettings()">閉じる</button>
+      <button class="cap-save" onclick="saveCapSettings()">保存</button>
+    </div>
   </div>
 </div>
 
@@ -747,6 +789,41 @@ window.capApplySnapshot = function(map) {
   CAP_MIRROR = (map && typeof map === 'object') ? map : {};
   if (typeof renderBoard === 'function') renderBoard();
 };
+
+// ===== 保育園管理設定UI（年齢別定員・基本設定。Phase 2） =====
+const CAP_AGES = ['0','1','2','3']; // 年齢区分（capInput0〜3 / 年齢タブと一致）
+// 設定オーバーレイを開く：現在園(CURRENT_GARDEN)の基本設定を入力欄へ反映
+function openCapSettings() {
+  const base = capGetBase();                 // 全園の基本設定
+  const g = (base && base[CURRENT_GARDEN]) || {};
+  const gl = document.getElementById('capGardenLabel');
+  if (gl) gl.textContent = gardenName(CURRENT_GARDEN);
+  CAP_AGES.forEach(a => {
+    const el = document.getElementById('capInput' + a);
+    if (el) el.value = (g[a] != null) ? g[a] : ''; // 未設定は空欄(無制限)
+  });
+  document.getElementById('capOverlay').classList.add('show');
+}
+function closeCapSettings() {
+  document.getElementById('capOverlay').classList.remove('show');
+}
+// 入力値を集めて CURRENT_GARDEN 分だけ差し替えて保存（他園は触らない）
+function saveCapSettings() {
+  const base = capGetBase();                 // 全園を読む（他園の設定を消さない）
+  const gObj = {};
+  CAP_AGES.forEach(a => {
+    const el = document.getElementById('capInput' + a);
+    const raw = el ? el.value.trim() : '';
+    if (raw === '') return;                   // 空欄＝無制限（キーを持たせない）
+    const n = parseInt(raw, 10);
+    if (!isNaN(n) && n >= 0) gObj[a] = n;     // 0 も有効値（予約不可）
+  });
+  if (Object.keys(gObj).length > 0) base[CURRENT_GARDEN] = gObj;
+  else delete base[CURRENT_GARDEN];           // 全部空欄なら園ごと削除＝全年齢無制限
+  capSaveBase(base);                          // Firestore へ（onSnapshot で CAP_MIRROR 更新）
+  closeCapSettings();
+  if (typeof showNotify === 'function') showNotify(`${gardenName(CURRENT_GARDEN)} の年齢別定員を保存しました。`, '✓ 定員設定を保存');
+}
 
 // ===== 設定 =====
 const START_HOUR = 7, END_HOUR = 20;       // 7:00〜20:00（朝7〜8時、夕方18〜20時は保育園のみ）
