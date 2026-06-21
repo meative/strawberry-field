@@ -174,9 +174,11 @@ button:active { opacity: 0.7; }
   border-radius: 4px; padding: 18px 22px;
 }
 .result-ok { background: var(--tiffany-soft); border: 1px solid var(--tiffany); }
-.result-ng { background: var(--ivory-deep); border: 1px solid var(--line); }
+.result-ng { background: #F5E3E5; border: 1px solid #D8A7A7; }
 .result-headline { font-family: var(--serif-jp); font-size: 16px; font-weight: 500; margin-bottom: 6px; }
 .result-ok .result-headline { color: var(--tiffany-deep); }
+.result-ng .result-headline { color: var(--error); }   /* 満員＝ボルドー（board 満員チップ #B23E4C と統一） */
+.result-ng .result-detail { color: #9A5560; }           /* 詳細文もボルドー寄り */
 .result-detail { font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); margin-bottom: 14px; }
 .result-time {
   font-family: var(--serif-en); font-style: italic; font-size: 22px; color: var(--ink);
@@ -281,6 +283,7 @@ button:active { opacity: 0.7; }
   const db = getFirestore(app);
   const auth = getAuth(app);
   const COL = 'sf_bookings'; // board.html と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
+  const CAP_COL = 'sf_capacity'; // 年齢別定員（board と共通）。doc "base"=基本設定、doc "YYYY-MM-DD"=日別例外。salonは読み取り専用
 
   // sfSave から呼ぶ：arr を「あるべき全件」として Firestore に反映。
   // deletedIds（写しから消えた id）は削除する。writeBatch で一括コミット。
@@ -302,6 +305,12 @@ button:active { opacity: 0.7; }
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
       if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
     }, (e) => console.error('[onSnapshot] subscribe failed', e));
+    // 定員（sf_capacity）も購読：base + 日別例外をマップにして通常スクリプト側へ渡す（満員判定に使用）
+    onSnapshot(collection(db, CAP_COL), (snap) => {
+      const map = {};
+      snap.docs.forEach(d => { map[d.id] = d.data(); });
+      if (typeof window.capApplySnapshot === 'function') window.capApplySnapshot(map);
+    }, (e) => console.error('[onSnapshot capacity] subscribe failed', e));
   }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
 </head>
@@ -522,6 +531,44 @@ window.sfApplySnapshot = function(arr) {
   SF_MIRROR = Array.isArray(arr) ? arr : [];
   if (typeof renderMyBookings === 'function') renderMyBookings();
 };
+
+// ===== 年齢別定員（sf_capacity）ミラー・満員判定（board と同一ロジック。salon は読み取り専用） =====
+let CAP_MIRROR = {};
+const COUNTED_ZONES = new Set(['temp','woodstock','janis']); // 一時預かりのみ。ext は対象外
+// 年齢正規化：0/1/2/3、3/4/5→'3'、不正値→null
+function normAge(a) {
+  if (a == null || a === '') return null;
+  const n = parseInt(a, 10);
+  if (isNaN(n) || n < 0) return null;
+  return String(Math.min(n, 3));
+}
+// 実効定員を解決：日別例外 → 基本設定 → 未設定(null=無制限) の順
+function capEffective(garden, age, date) {
+  const g = normGarden(garden); const a = String(age);
+  const daily = CAP_MIRROR[date] && CAP_MIRROR[date][g];
+  if (daily && daily[a] != null) return Number(daily[a]);
+  const base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  if (base && base[a] != null) return Number(base[a]);
+  return null; // 未設定＝無制限
+}
+// その日・その園・その年齢区分の予約数（temp/woodstock/janis、仮予約も数える、ext・年齢不明除外）
+function countReservations(garden, age, date) {
+  const g = normGarden(garden); const a = String(age);
+  let c = 0;
+  sfLoad().forEach(r => {
+    if (!r || !COUNTED_ZONES.has(r.salon)) return;
+    if (normGarden(r.gardenId) !== g) return;
+    if (r.date !== date) return;
+    if (normAge(r.age) !== a) return;
+    c++;
+  });
+  return c;
+}
+// onSnapshot（module側）から呼ばれる：定員マップを丸ごと置換（salon は読み取り専用・再描画不要）
+window.capApplySnapshot = function(map) {
+  CAP_MIRROR = (map && typeof map === 'object') ? map : {};
+};
+
 function sfAdd(rec) {
   const arr = sfLoad();
   rec.id = 'bk_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
@@ -672,6 +719,19 @@ function checkAvailability() {
   const endTime = minToTime(timeToMin(start) + dur);
   const ageJp = AGES.find(x=>x.key===selectedAge).jp;
 
+  // 年齢別1日定員の満員チェック（confirmReserve のガードと同一ロジック）。満員なら時間帯判定の前に専用表示
+  // 日付は予約書き込みと同一式（new Date() + dayOffset）で算出し、判定日と予約日を一致させる
+  const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+  const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+  const _cap = capEffective(CURRENT_GARDEN, selectedAge, _capDate);
+  if (_cap != null && countReservations(CURRENT_GARDEN, selectedAge, _capDate) >= _cap) {
+    area.innerHTML = `<div class="result-ng">
+      <div class="result-headline">この日 ${ageJp} は満員です</div>
+      <div class="result-detail">申し訳ございません。${ageJp}のこの日のお預かりは満員でございます。別の日でご相談くださいませ。</div>
+    </div>`;
+    return;
+  }
+
   if (rangeAvailable(selectedAge, sIdx, eIdx)) {
     // 予約可能
     area.innerHTML = `<div class="result-ok">
@@ -783,6 +843,17 @@ function confirmReserve() {
     // 新規：カタカナで一時予約（カタカナでなければ注意）
     if (!isKatakanaName(input)) { showToast('登録のないお客様は、カタカナでお名前をご入力ください'); return; }
     name = input; kana = input; provisional = true;
+  }
+  // ===== 年齢別定員の満員チェック（満員なら予約不可でブロック。既存予約・時間帯空き判定には触らない） =====
+  // 予約日は下の dateStr と同一式（new Date() + dayOffset）で算出し、カウント日と予約日を一致させる
+  {
+    const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+    const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+    const _cap = capEffective(CURRENT_GARDEN, selectedAge, _capDate);
+    if (_cap != null && countReservations(CURRENT_GARDEN, selectedAge, _capDate) >= _cap) {
+      showToast(`申し訳ございません。${AGES.find(a => a.key === selectedAge).jp}のこの日のお預かりは満員でございます`);
+      return;
+    }
   }
   const months = (selectedAge === '3') ? null : selectedMonths;
   const booking = { name, age: selectedAge, months, start: pendingStart, end: pendingEnd, provisional };
