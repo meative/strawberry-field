@@ -17,6 +17,7 @@
   --error: #B23E4C; --success: #5A8A6A; --warning: #D89A3E; --white: #FFFFFF;
   --woodstock: #C9A961; --woodstock-deep: #A88A4A; --woodstock-soft: #FAF3DE;
   --janis: #5B8DB8; --janis-deep: #3F6E94; --janis-soft: #E4EEF5;
+  --buddybrown: #8A6D4B; --buddybrown-deep: #6F573A; --buddybrown-soft: #F2EBE0;
   --serif-en: 'Cormorant Garamond', serif; --serif-jp: 'Noto Serif JP', serif; --sans: 'Inter', sans-serif;
   --transition: 0.15s ease;
   --salon: var(--woodstock); --salon-deep: var(--woodstock-deep); --salon-soft: var(--woodstock-soft);
@@ -476,12 +477,13 @@ const SF_KEY = 'sf_bookings_v1';
 // 各園に連携サロン（zone）を紐づける。woodstock/janis は既存のサロン区分。
 const GARDENS = {
   tsukisamu:  { name:'月寒園',       salons:['woodstock','janis'] },
-  // 将来の拡張例（今は無効）:
-  // saporakuri: { name:'サポラクリ園', salons:['woodstock','janis'] },
-  // shiraishi:  { name:'白石園',       salons:['buddybrown','janis_shiraishi'] },
+  shiraishi:  { name:'白石園',       salons:['woodstock','janis'] }, // データ識別子は woodstock/janis 共通。表示名/色は GARDEN_SALON で出し分け
 };
-// 現在運用中の園（固定表示）。将来はここを切り替え可能にする。
-const CURRENT_GARDEN = 'tsukisamu';
+// 現在運用中の園：URL の ?garden= から決定（無指定/未知は tsukisamu）。データ識別子(salon)は園に依らず woodstock/janis。
+const CURRENT_GARDEN = (() => {
+  try { const g = new URLSearchParams(location.search).get('garden'); if (g && GARDENS[g]) return g; } catch (e) {}
+  return 'tsukisamu';
+})();
 // gardenId が無い既存レコードは月寒園として扱う（補完）
 function normGarden(g) {
   // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
@@ -611,11 +613,23 @@ seed('1','09:00','12:00'); seed('1','13:00','14:30');
 seed('2','11:00','13:00');
 seed('3','15:00','17:00');
 
-let salon = 'woodstock';
-const SALON_INFO = {
-  woodstock: { name:'WOODSTOCK', sub:'美容室 ・ 保育予約', jp:'ウッドストック' },
-  janis: { name:'JANIS', sub:'まつげサロン ・ 保育予約', jp:'ジャニス' },
+// 園×サロンの表示名・色（データ識別子は woodstock/janis 共通、見た目だけ園で出し分け）
+const GARDEN_SALON = {
+  tsukisamu: {
+    woodstock: { name:'WOODSTOCK', sub:'美容室 ・ 保育予約', jp:'ウッドストック', colorKey:'woodstock' },
+    janis:     { name:'JANIS',     sub:'まつげサロン ・ 保育予約', jp:'ジャニス', colorKey:'janis' },
+  },
+  shiraishi: {
+    woodstock: { name:'BUDDY BROWN', sub:'美容室 ・ 保育予約', jp:'バディブラウン', colorKey:'buddybrown' },
+    janis:     { name:'JANIS白石',   sub:'まつげサロン ・ 保育予約', jp:'JANIS白石',   colorKey:'janis' },
+  },
 };
+// この園の表示定義を取得（未知の園/サロンは月寒にフォールバック）
+function salonInfo(s) {
+  const g = GARDEN_SALON[CURRENT_GARDEN] || GARDEN_SALON.tsukisamu;
+  return g[s] || GARDEN_SALON.tsukisamu[s] || GARDEN_SALON.tsukisamu.woodstock;
+}
+let salon = (GARDENS[CURRENT_GARDEN] && GARDENS[CURRENT_GARDEN].salons[0]) || 'woodstock';
 const SEED_BOOKINGS = {
   woodstock: [ { name:'渡辺 みなと', age:'0', start:'10:00', end:'11:30' }, { name:'岡田 あゆみ', age:'1', start:'13:00', end:'14:30' } ],
   janis: [ { name:'三浦 さくら', age:'2', start:'11:00', end:'13:00' }, { name:'森 はると', age:'1', start:'12:00', end:'13:30' } ],
@@ -958,15 +972,20 @@ function resetNameSearch() {
 // ===== 店舗切替 =====
 function switchSalon(s) {
   salon = s;
-  const info = SALON_INFO[s];
+  const info = salonInfo(s);
   document.getElementById('salonName').textContent = info.name;
   document.getElementById('salonSub').textContent = info.sub;
   document.getElementById('mbTitle').textContent = `${info.jp}経由の本日の予約`;
+  // 切替ボタンのラベルも園に応じて出し分け（白石は バディブラウン / JANIS白石）
+  document.getElementById('swWood').textContent = salonInfo('woodstock').jp;
+  document.getElementById('swJanis').textContent = salonInfo('janis').jp;
   document.getElementById('swWood').classList.toggle('active', s==='woodstock');
   document.getElementById('swJanis').classList.toggle('active', s==='janis');
   const root = document.documentElement.style;
-  if (s === 'woodstock') { root.setProperty('--salon','var(--woodstock)'); root.setProperty('--salon-deep','var(--woodstock-deep)'); root.setProperty('--salon-soft','var(--woodstock-soft)'); }
-  else { root.setProperty('--salon','var(--janis)'); root.setProperty('--salon-deep','var(--janis-deep)'); root.setProperty('--salon-soft','var(--janis-soft)'); }
+  const ck = info.colorKey; // woodstock / janis / buddybrown
+  root.setProperty('--salon',      `var(--${ck})`);
+  root.setProperty('--salon-deep', `var(--${ck}-deep)`);
+  root.setProperty('--salon-soft', `var(--${ck}-soft)`);
   renderMyBookings();
 }
 
@@ -1103,6 +1122,7 @@ buildStartOptions();
 checkAvailability();
 renderMyBookings();
 updateDateLabel();
+switchSalon(salon); // 起動時に園に応じたブランド名・色・ボタンラベルを反映（白石起動対応）
 // 保育園側でインフォシート登録などがあれば自店予約一覧に反映（別タブ連携＋ポーリング）
 window.addEventListener('storage', (e) => { if (e.key === SF_KEY) renderMyBookings(); });
 setInterval(renderMyBookings, 4000);
