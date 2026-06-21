@@ -174,6 +174,23 @@ body {
 .cap-chip.unlimited { opacity:0.6; }
 .cap-chip.unlimited .rem { color:var(--ink-soft); }
 
+/* ===== 日別例外エディタ内カレンダー（capDailyOverlay 専用。既存 calOverlay とは別物） ===== */
+.cap-cal{margin:14px 0 18px;}
+.cap-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.cap-cal-title{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:18px;color:var(--ink);letter-spacing:.02em;}
+.cap-cal-nav{border:1px solid #E3E6EA;background:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;color:var(--ink);font-size:16px;line-height:1;}
+.cap-cal-nav:hover{border-color:var(--tiffany);color:var(--tiffany);}
+.cap-cal-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px;}
+.cap-cal-dow span{text-align:center;font-size:11px;color:#8A929B;font-family:'Noto Serif JP',serif;}
+.cap-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.cap-cal-cell{position:relative;aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;border:1px solid #ECEEF1;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;color:var(--ink);font-family:'Noto Serif JP',serif;}
+.cap-cal-cell:hover{border-color:var(--tiffany);}
+.cap-cal-cell.empty{border:none;background:transparent;cursor:default;}
+.cap-cal-cell.sel{background:var(--tiffany);color:#fff;border-color:var(--tiffany);}
+.cap-cal-cell.today{font-weight:700;}
+.cap-cal-cell.has::after{content:'';position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:var(--gold);}
+.cap-cal-cell.sel.has::after{background:#fff;}
+
 /* ===== 凡例 ===== */
 .legend-bar {
   display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
@@ -592,6 +609,15 @@ body {
       <span class="cap-garden" id="capDailyLabel">月寒園</span>
     </div>
     <div class="cap-note">この日だけの上限を設定します。空欄＝基本設定を使用、0＝予約不可。変えたい年齢だけ入力してください。</div>
+    <div id="capCal" class="cap-cal">
+      <div class="cap-cal-head">
+        <button type="button" class="cap-cal-nav" onclick="capCalMove(-1)">‹</button>
+        <span id="capCalTitle" class="cap-cal-title"></span>
+        <button type="button" class="cap-cal-nav" onclick="capCalMove(1)">›</button>
+      </div>
+      <div class="cap-cal-dow"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
+      <div id="capCalGrid" class="cap-cal-grid"></div>
+    </div>
     <div class="cap-row"><span class="cap-row-label">0歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput0" placeholder="基本"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput1" placeholder="基本"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput2" placeholder="基本"><span class="cap-unit">名</span></span></div>
@@ -829,6 +855,9 @@ function capDeleteDaily(date) { if (window.fbCapDelete) window.fbCapDelete(date)
 window.capApplySnapshot = function(map) {
   CAP_MIRROR = (map && typeof map === 'object') ? map : {};
   if (typeof renderBoard === 'function') renderBoard();
+  // 日別例外エディタを開いている間はカレンダーのドットも同期（リモート変更反映）
+  const _ov = document.getElementById('capDailyOverlay');
+  if (_ov && _ov.classList.contains('show') && typeof renderCapCalendar === 'function') renderCapCalendar();
 };
 
 // ===== 保育園管理設定UI（年齢別定員・基本設定。Phase 2） =====
@@ -867,9 +896,18 @@ function saveCapSettings() {
 }
 
 // ===== 日別例外エディタ（Phase 2b。対象日＝ボード表示中の日付 boardDateStr()） =====
-let capDailyDate = null; // 編集中の対象日（開いた時点の boardDateStr を固定）
+let capDailyDate = null; // 編集中の対象日（カレンダーで選択）
+let capCalYM = null;     // 日別エディタ内カレンダーの表示年月 { y, m(0-11) }。null なら選択日から補完
 function openCapDaily() {
   capDailyDate = boardDateStr();
+  capCalYM = null;                                     // 表示月を選択日から再補完させる
+  loadCapDailyInputs();
+  renderCapCalendar();
+  closeCapSettings();                                  // 基本設定を閉じてから
+  document.getElementById('capDailyOverlay').classList.add('show');
+}
+// capDailyLabel 設定 + capDailyInput0〜3 のロード（openCapDaily から中身そのまま切り出し。selectCapDate からも呼ぶ）
+function loadCapDailyInputs() {
   const day = capGetDaily(capDailyDate);              // 全園分の当日例外
   const g = (day && day[CURRENT_GARDEN]) || {};
   const baseG = (capGetBase()[CURRENT_GARDEN]) || {};
@@ -884,8 +922,6 @@ function openCapDaily() {
     el.value = (g[a] != null) ? g[a] : '';            // 日別例外の現値（無ければ空欄）
     el.placeholder = (baseG[a] != null) ? `基本 ${baseG[a]}` : '基本 無制限'; // 空欄時に効く基本値
   });
-  closeCapSettings();                                  // 基本設定を閉じてから
-  document.getElementById('capDailyOverlay').classList.add('show');
 }
 function closeCapDaily() {
   document.getElementById('capDailyOverlay').classList.remove('show');
@@ -908,6 +944,7 @@ function saveCapDaily() {
   else capDeleteDaily(capDailyDate);                   // ドキュメント全体が空なら削除
   closeCapDaily();
   if (typeof showNotify === 'function') showNotify(`${gardenName(CURRENT_GARDEN)} ${capDailyDate} の日別定員を保存しました。`, '✓ 日別定員を保存');
+  renderCapCalendar();
 }
 // この日の CURRENT_GARDEN 例外を削除（＝基本に戻す）
 function clearCapDaily() {
@@ -918,6 +955,54 @@ function clearCapDaily() {
   else capDeleteDaily(capDailyDate);
   closeCapDaily();
   if (typeof showNotify === 'function') showNotify(`${gardenName(CURRENT_GARDEN)} ${capDailyDate} の日別例外を削除しました（基本設定に戻ります）。`, '✓ 日別例外を削除');
+  renderCapCalendar();
+}
+
+// ===== 日別例外エディタ内カレンダー（capDailyOverlay 専用。capDailyDate を独立操作） =====
+// この日に例外があるか（any-garden：その日のドキュメントが非空ならドット点灯）
+function capHasDaily(ds) { return Object.keys(capGetDaily(ds)).length > 0; }
+// 表示月のグリッドを描画（sel=選択日 / today=実日付 / has=例外あり / empty=前埋め）
+function renderCapCalendar() {
+  if (!capCalYM) {                                   // 未設定なら選択日（無ければボード表示日）の年月から補完
+    const base = capDailyDate || boardDateStr();
+    const [by, bm] = base.split('-').map(Number);
+    capCalYM = { y: by, m: bm - 1 };
+  }
+  const y = capCalYM.y, m = capCalYM.m;
+  const title = document.getElementById('capCalTitle');
+  if (title) title.textContent = `${y}年 ${m + 1}月`;
+  const grid = document.getElementById('capCalGrid');
+  if (!grid) return;
+  const startDow = new Date(y, m, 1).getDay();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const _t = new Date(BOARD_BASE);                   // 実日付（today マーカー用）
+  const todayDs = `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;
+  let html = '';
+  for (let i = 0; i < startDow; i++) html += '<div class="cap-cal-cell empty"></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const ds = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    let cls = 'cap-cal-cell';
+    if (ds === capDailyDate) cls += ' sel';
+    if (ds === todayDs) cls += ' today';
+    if (capHasDaily(ds)) cls += ' has';
+    html += `<div class="${cls}" onclick="selectCapDate('${ds}')">${d}</div>`;
+  }
+  grid.innerHTML = html;
+}
+// 月送り（年跨ぎ処理込み）
+function capCalMove(delta) {
+  if (!capCalYM) renderCapCalendar();                // 念のため初期化
+  let y = capCalYM.y, m = capCalYM.m + delta;
+  while (m < 0) { m += 12; y--; }
+  while (m > 11) { m -= 12; y++; }
+  capCalYM = { y, m };
+  renderCapCalendar();
+}
+// 日を選択：対象日を切り替え→入力ロード→再描画（capCalYM=表示月は維持）
+function selectCapDate(ds) {
+  capDailyDate = ds;
+  loadCapDailyInputs();
+  renderCapCalendar();
 }
 
 // ===== 年齢別 空き状況サマリー（Phase 3） =====
