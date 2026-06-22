@@ -1094,6 +1094,24 @@ let bookings = SAMPLE_BOOKINGS.filter(b => normGarden(b.gardenId) === CURRENT_GA
 const ZONE_LABEL = {
   temp:'通常の一時預かり', woodstock:'ウッドストック', janis:'ジャニス', ext_am:'早朝延長保育', ext_pm:'延長保育'
 };
+// 白石園のときだけサロン区分を実店名に出し分け（en/jp とも統一表記・カタカナ化しない・色は無変更）。
+// 月寒/factory/shiseikan は辞書に載せず従来表示にフォールバック。
+const GARDEN_ZONE_NAME = {
+  shiraishi: {
+    woodstock: { en:'BUDDY BROWN', jp:'BUDDY BROWN' },
+    janis:     { en:'JANIS白石',   jp:'JANIS白石' },
+  },
+};
+function zoneEn(key) {
+  const o = GARDEN_ZONE_NAME[CURRENT_GARDEN];
+  if (o && o[key] && o[key].en) return o[key].en;
+  const z = ZONES.find(z => z.key === key); return z ? z.en : key;
+}
+function zoneJp(key) {
+  const o = GARDEN_ZONE_NAME[CURRENT_GARDEN];
+  if (o && o[key] && o[key].jp) return o[key].jp;
+  return ZONE_LABEL[key] || key;
+}
 
 // ===== 登録済み顧客名簿（本番では受付アプリの顧客データと連携） =====
 const REGISTERED = []; // サンプル顧客名簿は削除（本番は受付アプリの顧客データと連携）
@@ -1159,7 +1177,7 @@ function renderBoard() {
     for (let ln = 0; ln < zone.lanes; ln++) {
       html += '<div class="lane">';
       if (ln === 0) {
-        html += `<div class="zone-label"><span class="en">${zone.en}</span><span class="jp">${zone.jp}</span><span class="cap-info">${zone.cap}</span></div>`;
+        html += `<div class="zone-label"><span class="en">${zoneEn(zone.key)}</span><span class="jp">${zoneJp(zone.key)}</span><span class="cap-info">${zone.cap}</span></div>`;
       } else {
         html += `<div class="lane-head"></div>`;
       }
@@ -1309,7 +1327,7 @@ function onSlotTap(zoneKey, lane, slotIdx) {
   document.getElementById('mDelete').style.display = 'none';
   const ctx = document.getElementById('modalCtx');
   ctx.style.display = 'block';
-  ctx.innerHTML = `${ZONE_LABEL[zoneKey]} ・ ${SLOTS[slotIdx]} 〜`;
+  ctx.innerHTML = `${zoneJp(zoneKey)} ・ ${SLOTS[slotIdx]} 〜`;
   document.getElementById('mName').value = '';
   document.getElementById('mZone').value = zoneKey;
   document.getElementById('mMemo').value = '';
@@ -1662,7 +1680,7 @@ function saveBooking() {
     }
     bookings.push(nb);
     if (zone === 'woodstock' || zone === 'janis') {
-      showNotify(`${name} さん（${age==='3'?'3歳〜':age+'歳'}）<br>${start} 〜 ${end} ・ ${ZONE_LABEL[zone]}`);
+      showNotify(`${name} さん（${age==='3'?'3歳〜':age+'歳'}）<br>${start} 〜 ${end} ・ ${zoneJp(zone)}`);
     }
   }
   closeModal();
