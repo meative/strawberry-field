@@ -16,6 +16,7 @@
   --line: #DDD4C2; --line-soft: #EAE4D4;
   --error: #B23E4C; --success: #5A8A6A; --warning: #D89A3E; --white: #FFFFFF;
   --woodstock: #C9A961; --woodstock-deep: #A88A4A;
+  --buddybrown: #0ABAB5; --buddybrown-deep: #089A95; --buddybrown-soft: #E3F4F3;
   --janis: #5B8DB8; --janis-deep: #3F6E94;
   --soon: #5A8A6A; --soon-bg: #E6F0E9;
   --coming: #0ABAB5; --coming-bg: #E8F4F3;
@@ -371,6 +372,17 @@ body { font-family: var(--serif-jp); color: var(--ink); background: var(--ivory-
 .report-salon { font-family: var(--serif-en); font-style: italic; font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 4px; color: var(--white); }
 .report-salon.salon-woodstock { background: var(--woodstock); }
 .report-salon.salon-janis { background: var(--janis); }
+
+/* ===== 白石エリア（?garden=shiraishi）配色：woodstock枠を BUDDY BROWN(brown) に出し分け。
+   セレクタ先頭の body.garden-shiraishi により【白石モードの body のときだけ】効く＝
+   月寒(body 無印)には一切影響しない。janis枠は blue 継承。gold 汎用アクセントは据え置き。 ===== */
+body.garden-shiraishi .salon-switch button.active.wood { background: var(--buddybrown); border-color: var(--buddybrown); }
+body.garden-shiraishi .feed-salon-tag.salon-woodstock { background: var(--buddybrown); }
+body.garden-shiraishi .feed-item.salon-woodstock { border-left-color: var(--buddybrown); }
+body.garden-shiraishi .arr-salon.salon-woodstock { background: var(--buddybrown); }
+body.garden-shiraishi .arr-ask.ask-woodstock { color: var(--buddybrown-deep); border-color: var(--buddybrown); }
+body.garden-shiraishi .arr-ask.ask-woodstock:active { background: var(--buddybrown); color: var(--white); }
+body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybrown); }
 .report-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .report-btn { border: none; border-radius: 5px; padding: 10px 8px; font-family: var(--serif-jp); font-size: 12px; cursor: pointer; transition: all var(--transition); text-align: left; }
 .report-btn:active { transform: scale(0.97); }
@@ -780,12 +792,13 @@ const SF_KEY = 'sf_bookings_v1';
 // 各園に連携サロン（zone）を紐づける。woodstock/janis は既存のサロン区分。
 const GARDENS = {
   tsukisamu:  { name:'月寒園',       salons:['woodstock','janis'] },
-  // 将来の拡張例（今は無効）:
-  // saporakuri: { name:'サポラクリ園', salons:['woodstock','janis'] },
-  // shiraishi:  { name:'白石園',       salons:['buddybrown','janis_shiraishi'] },
+  shiraishi:  { name:'白石園',       salons:['woodstock','janis'] }, // データ識別子は woodstock/janis 共通。表示名/色は GARDEN_SALON で出し分け
 };
-// 現在運用中の園（固定表示）。将来はここを切り替え可能にする。
-const CURRENT_GARDEN = 'tsukisamu';
+// 現在運用中の園：URL の ?garden= から決定（無指定/未知は tsukisamu）。データ識別子(salon)は園に依らず woodstock/janis。
+const CURRENT_GARDEN = (() => {
+  try { const g = new URLSearchParams(location.search).get('garden'); if (g && GARDENS[g]) return g; } catch (e) {}
+  return 'tsukisamu';
+})();
 // gardenId が無い既存レコードは月寒園として扱う（補完）
 function normGarden(g) {
   // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
@@ -894,10 +907,23 @@ const STATUS_INFO = {
   cancelled:  { jp:'キャンセル', color:'#6B7280', bg:'#E5E7EB' },
   done:       { jp:'お迎え完了', color:'#5A8A6A', bg:'#E6F0E9' },
 };
-const SALON_JP = { woodstock:'WOODSTOCK', janis:'JANIS' };
-const SALON_NAME_JP = { woodstock:'ウッドストック', janis:'ジャニス' };
-const SALON_NAME_EN = { woodstock:'WOODSTOCK', janis:'JANIS' };
-let salon = 'woodstock';
+// 園×サロンの表示名・色（データ識別子は woodstock/janis 共通、見た目だけ園で出し分け）
+const GARDEN_SALON = {
+  tsukisamu: {
+    woodstock: { name:'WOODSTOCK', jp:'ウッドストック', colorKey:'woodstock' },
+    janis:     { name:'JANIS',     jp:'ジャニス',       colorKey:'janis' },
+  },
+  shiraishi: {
+    woodstock: { name:'BUDDY BROWN', jp:'バディブラウン', colorKey:'buddybrown' },
+    janis:     { name:'JANIS白石',   jp:'JANIS白石',     colorKey:'janis' },
+  },
+};
+const _GS = GARDEN_SALON[CURRENT_GARDEN] || GARDEN_SALON.tsukisamu;
+// 既存の使用側（12箇所）を無改修にするため、3マップを現在園の定義から生成
+const SALON_JP      = { woodstock: _GS.woodstock.name, janis: _GS.janis.name }; // バッジ表示名（白石: BUDDY BROWN / JANIS白石）
+const SALON_NAME_JP = { woodstock: _GS.woodstock.jp,   janis: _GS.janis.jp };   // 和名（白石: バディブラウン / JANIS白石）
+const SALON_NAME_EN = { woodstock: _GS.woodstock.name, janis: _GS.janis.name }; // 英字表記
+let salon = (GARDENS[CURRENT_GARDEN] && GARDENS[CURRENT_GARDEN].salons[0]) || 'woodstock';
 let soundOn = true;
 // デモ用の現在時刻オフセット（分）。テストで時間を進める用
 let demoMinOffset = 0;
@@ -2064,6 +2090,10 @@ function updateDemoClock() {
 
 // 初期化
 const _gl = document.getElementById('gardenLabel'); if (_gl) _gl.textContent = gardenName(CURRENT_GARDEN);
+document.body.classList.toggle('garden-shiraishi', CURRENT_GARDEN === 'shiraishi'); // 白石モードの配色出し分け（CSS body スコープ）を有効化
+// サロン切替ボタンのラベルを現在園のブランド名に（白石: BUDDY BROWN / JANIS白石）
+{ const _sw = document.getElementById('swWood'); if (_sw) _sw.textContent = SALON_JP.woodstock;
+  const _sj = document.getElementById('swJan');  if (_sj) _sj.textContent = SALON_JP.janis; }
 renderChildren();
 renderFeed(null);
 renderReportList();
