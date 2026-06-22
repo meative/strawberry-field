@@ -633,8 +633,8 @@ body {
 <!-- 凡例 -->
 <div class="legend-bar">
   <div class="legend-item"><span class="legend-sw" style="background:var(--temp)"></span>一時預かり</div>
-  <div class="legend-item"><span class="legend-sw" style="background:var(--woodstock)"></span>ウッドストック</div>
-  <div class="legend-item"><span class="legend-sw" style="background:var(--janis)"></span>ジャニス</div>
+  <div class="legend-item"><span class="legend-sw" style="background:var(--woodstock)"></span><span id="legendWood">ウッドストック</span></div>
+  <div class="legend-item"><span class="legend-sw" style="background:var(--janis)"></span><span id="legendJanis">ジャニス</span></div>
   <div class="legend-item"><span class="legend-sw" style="background:var(--ext)"></span>延長保育（早朝/夕）</div>
   <span class="legend-hint">空いている枠をタップ → 予約を追加</span>
 </div>
@@ -688,8 +688,8 @@ body {
       <label>区分</label>
       <select id="mZone">
         <option value="temp">通常の一時預かり（有料）</option>
-        <option value="woodstock">ウッドストック（無料）</option>
-        <option value="janis">ジャニス（無料）</option>
+        <option value="woodstock" id="optWood">ウッドストック（無料）</option>
+        <option value="janis" id="optJanis">ジャニス（無料）</option>
         <option value="ext_am">早朝延長保育（自園生徒）</option>
         <option value="ext_pm">延長保育（自園生徒）</option>
       </select>
@@ -780,6 +780,7 @@ function switchGarden(id) {
   try { localStorage.setItem(GARDEN_KEY, id); } catch(e) {}
   const gl = document.getElementById('gardenLabel'); if (gl) gl.textContent = gardenName(CURRENT_GARDEN);
   renderGardenSwitch();
+  updateZoneLabels();
   reloadBookingsForGarden();
 }
 // 選択中の園の予約だけで bookings を組み直して再描画
@@ -1111,6 +1112,13 @@ function zoneJp(key) {
   const o = GARDEN_ZONE_NAME[CURRENT_GARDEN];
   if (o && o[key] && o[key].jp) return o[key].jp;
   return ZONE_LABEL[key] || key;
+}
+// 凡例・予約モーダルのサロン区分ラベルを現在園に合わせて更新（白石は実店名 BUDDY BROWN / JANIS白石）。色は無変更。
+function updateZoneLabels() {
+  const lw = document.getElementById('legendWood');  if (lw) lw.textContent = zoneJp('woodstock');
+  const lj = document.getElementById('legendJanis'); if (lj) lj.textContent = zoneJp('janis');
+  const ow = document.getElementById('optWood');     if (ow) ow.textContent = `${zoneJp('woodstock')}（無料）`;
+  const oj = document.getElementById('optJanis');    if (oj) oj.textContent = `${zoneJp('janis')}（無料）`;
 }
 
 // ===== 登録済み顧客名簿（本番では受付アプリの顧客データと連携） =====
@@ -1904,6 +1912,7 @@ function importSharedBookings() {
 // 初期化
 const _gl = document.getElementById('gardenLabel'); if (_gl) _gl.textContent = gardenName(CURRENT_GARDEN);
 renderGardenSwitch();
+updateZoneLabels();
 updateDateLabel();
 renderBoard();
 importSharedBookings();
