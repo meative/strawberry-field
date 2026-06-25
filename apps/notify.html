@@ -527,7 +527,7 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
 
   <!-- ===== 保育園側 ===== -->
   <div class="pane pane-nursery">
-    <div class="pane-label"><span class="dot"></span><div><span class="t-en">Nursery Board</span> <span class="t-jp">保育園側（受信ボード）</span></div></div>
+    <div class="pane-label"><span class="dot"></span><div><span class="t-en">Nursery Board</span> <span class="t-jp"><span id="boardGardenLabel">月寒園</span>・保育園側（受信ボード）</span></div></div>
     <div class="board-clock">
       <div class="time" id="clock">--:--</div>
       <div class="date">受付に常時表示しておく通知ボード</div>
@@ -2090,6 +2090,7 @@ function updateDemoClock() {
 
 // 初期化
 const _gl = document.getElementById('gardenLabel'); if (_gl) _gl.textContent = gardenName(CURRENT_GARDEN);
+    const _bgl = document.getElementById('boardGardenLabel'); if (_bgl) _bgl.textContent = gardenName(CURRENT_GARDEN);
 document.body.classList.toggle('garden-shiraishi', CURRENT_GARDEN === 'shiraishi'); // 白石モードの配色出し分け（CSS body スコープ）を有効化
 // サロン切替ボタンのラベルを現在園のブランド名に（白石: BUDDY BROWN / JANIS白石）
 { const _sw = document.getElementById('swWood'); if (_sw) _sw.textContent = SALON_JP.woodstock;
