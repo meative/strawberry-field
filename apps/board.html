@@ -1115,10 +1115,15 @@ function zoneJp(key) {
 }
 // 凡例・予約モーダルのサロン区分ラベルを現在園に合わせて更新（白石は実店名 BUDDY BROWN / JANIS白石）。色は無変更。
 function updateZoneLabels() {
-  const lw = document.getElementById('legendWood');  if (lw) lw.textContent = zoneJp('woodstock');
-  const lj = document.getElementById('legendJanis'); if (lj) lj.textContent = zoneJp('janis');
-  const ow = document.getElementById('optWood');     if (ow) ow.textContent = `${zoneJp('woodstock')}（無料）`;
-  const oj = document.getElementById('optJanis');    if (oj) oj.textContent = `${zoneJp('janis')}（無料）`;
+  const noSalon = (CURRENT_GARDEN === 'factory' || CURRENT_GARDEN === 'shiseikan');
+  const lw = document.getElementById('legendWood');
+  if (lw) { lw.textContent = zoneJp('woodstock'); const it = lw.closest('.legend-item'); if (it) it.style.display = noSalon ? 'none' : ''; }
+  const lj = document.getElementById('legendJanis');
+  if (lj) { lj.textContent = zoneJp('janis'); const it = lj.closest('.legend-item'); if (it) it.style.display = noSalon ? 'none' : ''; }
+  const ow = document.getElementById('optWood');
+  if (ow) { ow.textContent = `${zoneJp('woodstock')}（無料）`; ow.hidden = noSalon; }
+  const oj = document.getElementById('optJanis');
+  if (oj) { oj.textContent = `${zoneJp('janis')}（無料）`; oj.hidden = noSalon; }
 }
 
 // ===== 登録済み顧客名簿（本番では受付アプリの顧客データと連携） =====
@@ -1181,6 +1186,7 @@ function renderBoard() {
 
   // 各区分
   ZONES.forEach(zone => {
+    if ((CURRENT_GARDEN === 'factory' || CURRENT_GARDEN === 'shiseikan') && (zone.key === 'woodstock' || zone.key === 'janis')) return;
     html += `<div class="zone zone-${zone.key}">`;
     for (let ln = 0; ln < zone.lanes; ln++) {
       html += '<div class="lane">';
