@@ -1679,7 +1679,7 @@ function renderReportList() {
   }
   el.innerHTML = all.map(c => {
     const ageLabel = c.age==='3'?'3歳〜':c.age+'歳';
-    const salonTag = c.salonKey==='woodstock' ? 'WOODSTOCK' : 'JANIS';
+    const salonTag = SALON_NAME_EN[c.salonKey] || c.salonKey;
     return `<div class="report-card">
       <div class="report-child">
         <span class="report-name">${c.name}</span>
@@ -1791,7 +1791,7 @@ function renderArrivalList() {
   }
   el.innerHTML = all.map(({c, salonKey, idx}) => {
     const st = STATUS_INFO[c.status] || STATUS_INFO.reserved;
-    const salonTag = salonKey==='woodstock' ? 'WOODSTOCK' : 'JANIS';
+    const salonTag = SALON_NAME_EN[salonKey] || salonKey;
     // アクションボタン（下段に横並び・幅を分け合う）
     let btns = '';
     if (c.status === 'cancelled') {
