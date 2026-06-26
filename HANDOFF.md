@@ -1,4 +1,4 @@
-# STRAWBERRY FIELD 引き継ぎ資料 v12 (2026-06-25 時点)
+# STRAWBERRY FIELD 引き継ぎ資料 v13 (2026-06-26 時点)
 
 次回の作業をスムーズに再開するための記録。チャットにアップロードするか、`~/Documents/strawberry-field/HANDOFF.md` を参照すれば続きから再開できる。
 
@@ -10,7 +10,7 @@
 - 全アプリに **Firebase 匿名認証 (signInAnonymously)** を追加済み。サインインで定員購読も signInAnonymously().then() 内に置いて動く。
 - **白石エリア対応が完全完了 (2026-06-24)**。salon / notify / board の3画面で BUDDY BROWN / JANIS白石 を実店名表示。実データ連動テストも実機で完了。
 - ホスティングは **GitHub Pages** (Netlify ではない)。`main` への push で自動反映。
-- **board(資生館/factory)対応を push 済み・本番反映**（`origin/main = 03349a7`）。**notify 園名表示は `dcfc241` でローカルコミット済み・push 待ち**。
+- **board / notify ともに push 済み・本番反映** (`origin/main = d8a71fc`)。**白石園 notify のサロン名 WOODSTOCK 誤表示バグ修正 `d8a71fc` を本番反映・実機確認済み (2026-06-26)**。
 - 残る大きな仕事は **ステップ3: Firestore セキュリティルール厳格化 (7/19 期限)** のみ。
 
 ---
@@ -104,7 +104,7 @@
 | Firebase | projectId `strawberry-field-timely` / コレクション `sf_bookings`・`sf_capacity` / 匿名認証ON |
 | 旧本番 (終了) | Netlify `strawberry-field-app.netlify.app` (クレジット切れ・放置可) |
 | 別プロジェクト | `github.com/meative/strawberry-tuition` → Pages `meative.github.io/strawberry-tuition/`。Firebase も別 `strawberry-tuition`。**混同しない** |
-| 最新コミット | `03349a7`（board, push済）/ `dcfc241`（notify, push待ち） |
+| 最新コミット | `d8a71fc` (notify, push済み・本番反映)  |
 | 開発 | Mac / Terminal.app / Claude Code (Opus 4.8) |
 | 4園 | 月寒(tsukisamu) / 白石(shiraishi) / サッポロファクトリー(factory) / 資生館(shiseikan)。白石ビルに 白石園・BUDDY BROWN・JANIS白石 が同居。月寒系サロン = WOODSTOCK / JANIS |
 
