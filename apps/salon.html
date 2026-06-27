@@ -597,10 +597,10 @@ const AGES = [
 // ===== 保育園が設定する「受け入れ条件」（年齢ごと） =====
 // open/close = 受付可能な時間帯, cap = 各30分スロットの人数上限
 const ACCEPT = {
-  '0': { open:'09:00', close:'15:00', cap:2 },
-  '1': { open:'08:00', close:'18:00', cap:3 },
-  '2': { open:'08:00', close:'18:00', cap:4 },
-  '3': { open:'09:00', close:'18:00', cap:2 },
+  '0': { open:'09:30', close:'16:00', closeEnd:'17:00', cap:2 },
+  '1': { open:'09:30', close:'16:00', closeEnd:'17:00', cap:3 },
+  '2': { open:'09:30', close:'16:00', closeEnd:'17:00', cap:4 },
+  '3': { open:'09:30', close:'16:00', closeEnd:'17:00', cap:2 },
 };
 
 // 既に入っている予約数（年齢 × 30分スロット）。保育園+両サロン合算
@@ -704,7 +704,7 @@ function updateAcceptInfo() {
 function buildStartOptions() {
   const a = ACCEPT[selectedAge];
   const sel = document.getElementById('wantStart');
-  const opts = SLOTS.filter(t => t >= a.open && t < a.close);
+  const opts = SLOTS.filter(t => t >= a.open && t <= a.close);
   const prev = sel.value;
   sel.innerHTML = opts.map(t => `<option ${t===prev?'selected':''}>${t}</option>`).join('');
 }
@@ -714,7 +714,7 @@ function rangeAvailable(age, sIdx, eIdx) {
   const a = ACCEPT[age];
   for (let i = sIdx; i < eIdx; i++) {
     if (i < 0 || i >= N) return false;
-    if (SLOTS[i] < a.open || SLOTS[i] >= a.close) return false;  // 受付時間外
+    if (SLOTS[i] < a.open || SLOTS[i] >= a.closeEnd) return false;  // 受付時間外（終了上限17:00）
     if (used[age][i] >= a.cap) return false;                      // 満員
   }
   return true;
