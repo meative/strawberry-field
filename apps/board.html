@@ -274,6 +274,15 @@ body {
   font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft);
 }
 .lane-track { flex: 1; position: relative; display: flex; }
+    /* 時間帯ブロックの可視化（パートC） */
+    .cap-block-lane { display: flex; align-items: stretch; min-height: 30px; border-bottom: 1px solid var(--line); background: var(--ivory); }
+    .cap-block-lane .lane-head { display: flex; align-items: center; padding-left: 12px; }
+    .cap-block-lane .lane-head .en { font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--tiffany); }
+    .cap-block-lane .lane-head .jp { font-family: var(--serif-jp); font-size: 11px; color: var(--line); margin-left: 6px; }
+    .cap-block-band { position: absolute; top: 3px; bottom: 3px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-family: var(--serif-jp); font-size: 11px; font-weight: 600; overflow: hidden; white-space: nowrap; box-sizing: border-box; }
+    .cap-block-band.block-full { background: rgba(214,90,90,0.16); border: 1px solid rgba(214,90,90,0.55); color: #b14a4a; }
+    .cap-block-band.block-limit { background: rgba(214,176,70,0.18); border: 1px solid rgba(214,176,70,0.6); color: #a4801f; }
+
 .slot {
   flex: 1; min-width: 26px; border-left: 1px dashed var(--line-soft);
   cursor: pointer; transition: background var(--transition);
@@ -593,6 +602,11 @@ body {
     <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput1" placeholder="無制限"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput2" placeholder="無制限"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput3" placeholder="無制限"><span class="cap-unit">名</span></span></div>
+    <div class="cap-blocks-section" style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line-soft);">
+      <div class="cap-blocks-head" style="font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); letter-spacing:0.04em; margin-bottom:8px;">時間帯ごとの制限</div>
+      <div id="capBlocksList"></div>
+      <button type="button" class="cap-block-add" onclick="capBlockAdd()" style="display:block; width:100%; margin-top:8px; background:var(--ivory); border:1px dashed var(--line); border-radius:8px; padding:9px; font-family:var(--serif-jp); font-size:13px; color:var(--tiffany-deep); cursor:pointer;">＋ ブロックを追加</button>
+    </div>
     <div class="cap-actions">
       <button class="cap-cancel" onclick="closeCapSettings()">閉じる</button>
       <button class="cap-save" onclick="saveCapSettings()">保存</button>
@@ -864,6 +878,56 @@ window.capApplySnapshot = function(map) {
 // ===== 保育園管理設定UI（年齢別定員・基本設定。Phase 2） =====
 const CAP_AGES = ['0','1','2','3']; // 年齢区分（capInput0〜3 / 年齢タブと一致）
 // 設定オーバーレイを開く：現在園(CURRENT_GARDEN)の基本設定を入力欄へ反映
+// ===== 時間帯ブロック（_blocks）UI =====
+// 09:30〜18:00 を30分刻みで生成
+function capBlockTimeOptions(selected) {
+  var opts = '';
+  for (var h = 9; h <= 18; h++) {
+    for (var m = 0; m < 60; m += 30) {
+      if (h === 9 && m === 0) continue;   // 09:30 始まり
+      if (h === 18 && m === 30) continue; // 18:00 まで
+      var t = (h < 10 ? '0' + h : '' + h) + ':' + (m === 0 ? '00' : '30');
+      var sel = (t === selected) ? ' selected' : '';
+      opts += '<option value="' + t + '"' + sel + '>' + t + '</option>';
+    }
+  }
+  return opts;
+}
+
+// 1行を capBlocksList に追加（valは既存値の復元用、省略時は空の新規行）
+function capBlockAdd(val) {
+  val = val || {};
+  var list = document.getElementById('capBlocksList');
+  if (!list) return;
+  var row = document.createElement('div');
+  row.className = 'cap-block-row';
+  row.style.cssText = 'display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px; padding:8px; background:var(--white); border:1px solid var(--line); border-radius:8px;';
+
+  var labels = ['0歳', '1歳', '2歳', '3歳〜'];
+  var ageBoxes = '';
+  for (var a = 0; a < 4; a++) {
+    // 新規は0歳をデフォルトチェック（既存値復元時は val.ages に従う）
+    var checked;
+    if (val.ages) { checked = (val.ages.indexOf(a) >= 0) ? ' checked' : ''; }
+    else { checked = (a === 0) ? ' checked' : ''; }
+    ageBoxes += '<label style="font-family:var(--serif-jp); font-size:12px; color:var(--ink); display:inline-flex; align-items:center; gap:2px;"><input type="checkbox" class="cb-age" value="' + a + '"' + checked + '>' + labels[a] + '</label>';
+  }
+
+  var selStyle = 'font-family:var(--serif-jp); font-size:13px; padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--white);';
+  var limitVal = (val.limit != null) ? val.limit : '';
+
+  row.innerHTML =
+    '<select class="cb-from" style="' + selStyle + '">' + capBlockTimeOptions(val.from || '11:00') + '</select>' +
+    '<span style="color:var(--ink-soft);">〜</span>' +
+    '<select class="cb-to" style="' + selStyle + '">' + capBlockTimeOptions(val.to || '12:00') + '</select>' +
+    '<span style="display:inline-flex; gap:8px; margin:0 4px;">' + ageBoxes + '</span>' +
+    '<span style="font-family:var(--serif-jp); font-size:12px; color:var(--ink-soft);">定員</span>' +
+    '<input type="number" min="0" class="cb-limit" value="' + limitVal + '" placeholder="0" style="width:48px; font-family:var(--serif-jp); font-size:13px; padding:4px 6px; border:1px solid var(--line); border-radius:6px;">' +
+    '<button type="button" class="cb-del" onclick="this.closest(\'.cap-block-row\').remove()" style="margin-left:auto; background:none; border:none; color:#B23E4C; font-size:18px; cursor:pointer; line-height:1; padding:0 4px;">×</button>';
+
+  list.appendChild(row);
+}
+
 function openCapSettings() {
   const base = capGetBase();                 // 全園の基本設定
   const g = (base && base[CURRENT_GARDEN]) || {};
@@ -873,6 +937,15 @@ function openCapSettings() {
     const el = document.getElementById('capInput' + a);
     if (el) el.value = (g[a] != null) ? g[a] : ''; // 未設定は空欄(無制限)
   });
+  // --- 時間帯ブロック（_blocks）を復元 ---
+  var _list = document.getElementById('capBlocksList');
+  if (_list) {
+    _list.innerHTML = '';
+    var _blocks = (g && g._blocks) ? g._blocks : [];
+    for (var _i = 0; _i < _blocks.length; _i++) {
+      capBlockAdd(_blocks[_i]);
+    }
+  }
   document.getElementById('capOverlay').classList.add('show');
 }
 function closeCapSettings() {
@@ -889,6 +962,46 @@ function saveCapSettings() {
     const n = parseInt(raw, 10);
     if (!isNaN(n) && n >= 0) gObj[a] = n;     // 0 も有効値（予約不可）
   });
+  // --- 時間帯ブロック（_blocks）を集める＋バリデーション ---
+  var blockRows = document.querySelectorAll('#capBlocksList .cap-block-row');
+  var blocks = [];
+  for (var bi = 0; bi < blockRows.length; bi++) {
+    var rowEl = blockRows[bi];
+    var no = bi + 1;
+    var fromEl = rowEl.querySelector('.cb-from');
+    var toEl = rowEl.querySelector('.cb-to');
+    var fromV = fromEl ? fromEl.value : '';
+    var toV = toEl ? toEl.value : '';
+    // 年齢
+    var ageEls = rowEl.querySelectorAll('.cb-age');
+    var ages = [];
+    for (var ai = 0; ai < ageEls.length; ai++) {
+      if (ageEls[ai].checked) ages.push(parseInt(ageEls[ai].value, 10));
+    }
+    // 定員
+    var limitEl = rowEl.querySelector('.cb-limit');
+    var limitRaw = limitEl ? limitEl.value.trim() : '';
+
+    // --- バリデーション（最初の1件で中止） ---
+    if (ages.length === 0) {
+      alert('時間帯制限の' + no + '行目：対象の年齢を1つ以上選んでください。');
+      return;
+    }
+    if (fromV >= toV) {
+      alert('時間帯制限の' + no + '行目：終了時刻は開始時刻より後にしてください。');
+      return;
+    }
+    // 定員空欄は0扱い（完全ブロック）。空欄でも保存でき、既定で完全ブロックになる。
+    var limitN = (limitRaw === '') ? 0 : parseInt(limitRaw, 10);
+    if (isNaN(limitN) || limitN < 0) {
+      alert('時間帯制限の' + no + '行目：定員は0以上の数値を入力してください。');
+      return;
+    }
+    ages.sort(function(a, b){ return a - b; });
+    blocks.push({ from: fromV, to: toV, ages: ages, limit: limitN });
+  }
+  if (blocks.length > 0) gObj._blocks = blocks;
+
   if (Object.keys(gObj).length > 0) base[CURRENT_GARDEN] = gObj;
   else delete base[CURRENT_GARDEN];           // 全部空欄なら園ごと削除＝全年齢無制限
   capSaveBase(base);                          // Firestore へ（onSnapshot で CAP_MIRROR 更新）
@@ -1166,6 +1279,38 @@ function needsLunch(b) {
 }
 
 // ===== ボード描画 =====
+// 時間帯ブロックの帯を1行ぶん生成（パートC）
+//   CAP_MIRROR.base[garden]._blocks を読み、各ブロックを left%/width% で配置。
+//   limit=0 → 赤系（block-full）、limit>=1 → 黄系（block-limit）。
+//   _blocks が無ければ空文字を返す（行ごと出さない）。
+function renderCapBlockBand() {
+  var base = CAP_MIRROR.base && CAP_MIRROR.base[normGarden(CURRENT_GARDEN)];
+  if (!base || !Array.isArray(base._blocks) || base._blocks.length === 0) return '';
+  var N = SLOTS.length;
+  var bands = '';
+  base._blocks.forEach(function(b) {
+    if (!b) return;
+    var si = slotIndex(b.from), ei = slotIndex(b.to);
+    if (si < 0) return;
+    var endIdx = (ei < 0) ? N : ei;
+    if (endIdx <= si) return;
+    var left = (si / N) * 100;
+    var width = ((endIdx - si) / N) * 100;
+    var lim = Number(b.limit);
+    var isFull = isNaN(lim) ? true : (lim <= 0);
+    var cls = isFull ? 'block-full' : 'block-limit';
+    var ages = Array.isArray(b.ages) ? b.ages.slice().sort(function(x,y){return x-y;}).join('・') : '';
+    var label = ages ? (ages + '歳') : '';
+    if (!isFull) label += ' 定員' + lim;
+    bands += '<div class="cap-block-band ' + cls + '" style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;" title="' + escapeHtml(b.from + '〜' + b.to + ' / ' + label) + '">' + escapeHtml(label) + '</div>';
+  });
+  if (!bands) return '';
+  return '<div class="cap-block-lane">'
+       + '<div class="lane-head"><span class="en">Blocked</span><span class="jp">制限時間帯</span></div>'
+       + '<div class="lane-track">' + bands + '</div>'
+       + '</div>';
+}
+
 function renderBoard() {
   const board = document.getElementById('board');
   let html = '';
@@ -1183,6 +1328,9 @@ function renderBoard() {
     }
   });
   html += '</div></div>';
+
+  // 時間帯ブロックの帯（パートC：time-header の直後に1行）
+  html += renderCapBlockBand();
 
   // 各区分
   ZONES.forEach(zone => {
