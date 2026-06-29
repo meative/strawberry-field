@@ -709,6 +709,25 @@ function buildStartOptions() {
   sel.innerHTML = opts.map(t => `<option ${t===prev?'selected':''}>${t}</option>`).join('');
 }
 
+// 時間帯ごとの受け入れ制限：base[garden]._blocks を読む
+//   slotTime がその age 向けに制限されていれば、該当 block の limit 最小値を返す。なければ null
+//   age は rangeAvailable から文字列で渡るため Number() で正規化（_blocks.ages は数値配列）
+function blockedAt(garden, age, slotTime) {
+  const base = CAP_MIRROR.base && CAP_MIRROR.base[normGarden(garden)];
+  if (!base || !Array.isArray(base._blocks)) return null;
+  const a = Number(age);
+  let lim = null;
+  base._blocks.forEach(b => {
+    if (!b || !Array.isArray(b.ages)) return;
+    if (slotTime < b.from || slotTime >= b.to) return;
+    if (b.ages.map(Number).indexOf(a) === -1) return;
+    const L = Number(b.limit);
+    const v = isNaN(L) ? 0 : L;
+    if (lim === null || v < lim) lim = v;
+  });
+  return lim;
+}
+
 // 指定スロット範囲が全て空いているか（受付時間内＆人数上限内）
 function rangeAvailable(age, sIdx, eIdx) {
   const a = ACCEPT[age];
@@ -716,6 +735,8 @@ function rangeAvailable(age, sIdx, eIdx) {
     if (i < 0 || i >= N) return false;
     if (SLOTS[i] < a.open || SLOTS[i] >= a.closeEnd) return false;  // 受付時間外（終了上限17:00）
     if (used[age][i] >= a.cap) return false;                      // 満員
+    var __bl = blockedAt(CURRENT_GARDEN, age, SLOTS[i]);
+    if (__bl != null && used[age][i] >= __bl) return false;   // 時間帯ごとの受け入れ制限
   }
   return true;
 }
