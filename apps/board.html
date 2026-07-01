@@ -491,9 +491,7 @@ body {
       cursor:pointer; background:var(--tiffany,#0ABAB5); color:#fff;
       border:1px solid var(--tiffany,#0ABAB5); user-select:none;
       -webkit-user-select:none; transition:opacity .12s ease; }
-    .kinder-chip.off { background:transparent; color:var(--mut,#8a8a8a);
-      border-color:var(--line,#d9d6cf); text-decoration:line-through;
-      opacity:.55; }
+    .kinder-chip.off { background:transparent; color:var(--tiffany,#0ABAB5); border-color:var(--tiffany,#0ABAB5); text-decoration:none; opacity:1; } /* SF-KINDER-CHIP-OFF-STYLE-V3-20260701 : outlined & readable (no strikethrough) */
     .kinder-empty { font-size:11px; color:var(--mut,#8a8a8a);
       font-style:italic; }
     /* ===== end SF-KINDER-BOARD-STEP23-20260630 CSS ===== */
@@ -1390,6 +1388,16 @@ function kinderIsHere(garden, zoneKey, name) {
 
 // ext_am / ext_pm のゾーン先頭に挿入するチップ行HTMLを返す。
 // 名前はescapeHtmlで表示。onclickにはロスター内indexを渡す(属性エスケープ回避)。
+/* SF-KINDER-BOOK-TOGGLE-STEP2-20260701 : bookKinder のトグルと完全に同一の判定 (name + zone + 当日 + youchisha) */
+function kinderHasBooking(garden, zoneKey, name) {
+  var cur = boardDateStr();
+  for (var i = 0; i < bookings.length; i++) {
+    var b = bookings[i];
+    if (b && b.affiliation === 'youchisha' && b.zone === zoneKey
+        && b.name === name && (!b.date || b.date === cur)) return true;
+  }
+  return false;
+}
 function renderKinderChips(zoneKey) {
   var roster = window.KINDER_ROSTER || [];
   var label = (zoneKey === 'ext_am') ? '早朝' : '延長';
@@ -1402,9 +1410,10 @@ function renderKinderChips(zoneKey) {
     if (!r.linkPark) continue;
     if (normGarden(r.linkPark) !== CURRENT_GARDEN) continue;
     any = true;
-    var here = kinderIsHere(CURRENT_GARDEN, zoneKey, r.name);
+    /* SF-KINDER-BOOK-TOGGLE-STEP2-20260701 : grey reflects booking presence (Method3: booked=solid), not attendance */
+    var here = kinderHasBooking(CURRENT_GARDEN, zoneKey, r.name);
     var cls = here ? 'kinder-chip' : 'kinder-chip off';
-    h += '<span class="' + cls + '" onclick="toggleKinder(\'' + zoneKey + '\',' + i + ')">'
+    h += '<span class="' + cls + '" onclick="bookKinder(\'' + zoneKey + '\',' + i + ')">'
        + escapeHtml(r.name) + '</span>';
   }
   if (!any) {
@@ -1443,7 +1452,43 @@ function toggleKinder(zoneKey, idx) {
     console.error('[kinder] save failed', e);
   }
 }
-window.toggleKinder = toggleKinder; // onclickから呼べるように公開
+window.toggleKinder = toggleKinder;
+/* SF-KINDER-BOOK-STEP1-20260701 : 幼稚舎チップ→予約モーダル。openModalに相乗りし名前/所属/区分/時刻を事前セット。共有条件は変更しない(段階1) */
+function bookKinder(zoneKey, idx) {
+  /* SF-KINDER-BOOK-PLANC-20260701 : create booking directly without opening modal. name from roster, time fixed to zone. */
+  var r = (window.KINDER_ROSTER || [])[idx];
+  if (!r || !r.name) return;
+  /* SF-KINDER-BOOK-TOGGLE-STEP2-20260701 : 同じ子が同じ帯に当日予約済みなら削除してトグルOFF (満員判定より前) */
+  var _curDate = boardDateStr();
+  for (var _k = 0; _k < bookings.length; _k++) {
+    var _b = bookings[_k];
+    if (_b && _b.affiliation === 'youchisha' && _b.zone === zoneKey
+        && _b.name === r.name && (!_b.date || _b.date === _curDate)) {
+      /* SF-KINDER-SHARE-STEP3-V5-20260702 : also remove from shared storage (same as deleteBooking) */
+      if (_b.sfId) {
+        var _arr = sfLoad().filter(function(r){ return r.id !== _b.sfId; });
+        sfSave(_arr);
+      }
+      bookings.splice(_k, 1); renderBoard(); return;
+    }
+  }
+  var start = (zoneKey === 'ext_am') ? '07:00' : '16:30';
+  var dur   = (zoneKey === 'ext_am') ? 90 : 60;   /* 早朝7:00-8:30(90分) / 延長16:30-17:30(60分) */  /* SF-KINDER-EXT-PICKUP-V4-20260701 */
+  var end   = minToTime(timeToMin(start) + dur);
+  var lane = findFreeLane(zoneKey, start, end, -1);
+  if (lane < 0) { alert('この時間帯は満員です'); return; }
+  var nb = { zone: zoneKey, lane: lane, gardenId: CURRENT_GARDEN,
+             name: r.name, age: '3', months: null, memo: '',
+             start: start, end: end, date: boardDateStr(),
+             affiliation: 'youchisha' };
+  /* SF-KINDER-SHARE-STEP3-V5-20260702 : share ON — write to sf storage before push */
+  nb.sfId = sfWriteNew(nb);
+  /* 段階1: 共有しない(sfWriteNewは呼ばない)。ローカルのみで動作確認。段階3で共有対応。 */
+  bookings.push(nb);
+  renderBoard();
+}
+window.bookKinder = bookKinder;
+ // onclickから呼べるように公開
 /* ===== end SF-KINDER-BOARD-STEP23-20260630 下部 ===== */
 
 function renderBoard() {

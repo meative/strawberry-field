@@ -8172,6 +8172,8 @@ function importBoardReservations() {
   shared.forEach(r => {
     if (!r || !r.fromBoard) return;                 // ボード由来の予約のみ対象
     if (gardenIdToBranch(r.gardenId) !== branch) return; // 現在の園のものだけ
+    /* SF-KINDER-TIMELY-HIDE-STEP4-V6-20260702 : 幼稚舎児の早朝/延長は TimelySchool に出さない */
+    if (r.affiliation === 'youchisha' && (r.salon === 'ext_am' || r.salon === 'ext_pm')) return;
     // 既に取り込み済みか（sfId で重複防止）
     const exists = DATA.reservations.some(x => x.sfId === r.id);
     if (exists) {
