@@ -481,7 +481,23 @@ body {
   color: var(--ink-soft); flex-shrink: 0; text-align: center;
 }
 .proto-note strong { color: var(--tiffany-deep); }
-</style>
+
+    /* ===== SF-KINDER-BOARD-STEP23-20260630: 幼稚舎チップ CSS ===== */
+    .kinder-row { display:flex; flex-wrap:wrap; gap:6px; padding:8px 12px;
+      align-items:center; border-top:1px dashed var(--line,#e5e2dc); }
+    .kinder-row .kinder-head { font-size:11px; color:var(--gold,#C9A961);
+      font-style:italic; margin-right:4px; white-space:nowrap; }
+    .kinder-chip { font-size:12px; padding:4px 10px; border-radius:14px;
+      cursor:pointer; background:var(--tiffany,#0ABAB5); color:#fff;
+      border:1px solid var(--tiffany,#0ABAB5); user-select:none;
+      -webkit-user-select:none; transition:opacity .12s ease; }
+    .kinder-chip.off { background:transparent; color:var(--mut,#8a8a8a);
+      border-color:var(--line,#d9d6cf); text-decoration:line-through;
+      opacity:.55; }
+    .kinder-empty { font-size:11px; color:var(--mut,#8a8a8a);
+      font-style:italic; }
+    /* ===== end SF-KINDER-BOARD-STEP23-20260630 CSS ===== */
+    </style>
 
 <!-- ===== Firebase / Firestore（共有予約データの本番ストレージ） ===== -->
 <!-- localStorage から Firestore へ移行（ミラーリング方式）。
@@ -506,6 +522,54 @@ body {
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+
+  /* ===== SF-KINDER-BOARD-STEP1-20260630: 幼稚舎データ層 (表示なし・読むだけ) ===== */
+  // 園ごとのデフォルト出欠の向き (true=全員いる始まり, false=全員いない始まり)
+  const KINDER_DEFAULT = { tsukisamu:false, factory:true, shiraishi:true, shiseikan:true };
+
+  // 月謝アプリ(strawberry-tuition)の公開ミラーを読むための2つ目アプリ (名前付き)
+  const tuitionConfig = { apiKey: "AIzaSyBhiSQohbOfKawNukWiMOV1Isk08qSqJPc", projectId: "strawberry-tuition" };
+  const tuitionApp = initializeApp(tuitionConfig, 'tuition');
+  const tuitionDb  = getFirestore(tuitionApp);
+
+  let KINDER_ROSTER = [];     // [{name, linkPark}, ...] 幼稚舎名簿(公開ミラー由来)
+  let kinderAttendance = {};  // 今日の出欠 { tsukisamu:{am:{},pm:{}}, factory:{...}, ... }
+
+  // 今日の日付ID (YYYY-MM-DD, ローカル時刻)
+  const kinderTodayId = (function(){ const d = new Date(); const z = function(n){ return String(n).padStart(2,'0'); }; return d.getFullYear() + '-' + z(d.getMonth()+1) + '-' + z(d.getDate()); })();
+
+  // 名簿購読: strawberry-tuition / kindergarten_public/roster (ルールで未認証読み取り可)
+  onSnapshot(doc(tuitionDb, 'kindergarten_public', 'roster'), function(snap){
+    const data = snap.exists() ? snap.data() : null;
+    KINDER_ROSTER = (data && Array.isArray(data.pupils)) ? data.pupils : [];
+    window.KINDER_ROSTER = KINDER_ROSTER;
+    console.log('[kinder] roster loaded:', KINDER_ROSTER.length, 'name(s)');
+  }, function(e){ console.error('[kinder] roster subscribe failed', e); });
+
+  // 出欠購読: strawberry-field-timely / sf_kinder_attendance/{今日} (board既存の認証で読める)
+  onSnapshot(doc(db, 'sf_kinder_attendance', kinderTodayId), function(snap){
+    kinderAttendance = snap.exists() ? (snap.data() || {}) : {};
+    window.kinderAttendance = kinderAttendance;
+    console.log('[kinder] attendance loaded for', kinderTodayId, kinderAttendance);
+  }, function(e){ console.error('[kinder] attendance subscribe failed', e); });
+  /* ===== end SF-KINDER-BOARD-STEP1 ===== */
+
+  /* ===== SF-KINDER-BOARD-STEP23-20260630: 幼稚舎チップ(モジュール側 公開＋保存) ===== */
+  // 下部スクリプト(renderBoard)から使えるよう window 公開(既存の
+  // window.KINDER_ROSTER / window.kinderAttendance に合わせる)
+  if (typeof KINDER_DEFAULT !== 'undefined') window.KINDER_DEFAULT = KINDER_DEFAULT;
+  if (typeof kinderTodayId  !== 'undefined') window.kinderTodayId  = kinderTodayId;
+  // 出欠保存(差分merge)。setDoc/doc/db はモジュール側でしか参照できないため
+  // ここに置き、下部からは window.kinderSave() で呼ぶ。
+  window.kinderSave = function(garden, slot, name, value) {
+    var payload = {};
+    payload[garden] = {};
+    payload[garden][slot] = {};
+    payload[garden][slot][name] = value;
+    return setDoc(doc(db, 'sf_kinder_attendance', kinderTodayId), payload, { merge: true });
+  };
+  /* ===== end SF-KINDER-BOARD-STEP23-20260630 モジュール側 ===== */
+
   const auth = getAuth(app);
   const COL = 'sf_bookings'; // 1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
 
@@ -1311,6 +1375,77 @@ function renderCapBlockBand() {
        + '</div>';
 }
 
+/* ===== SF-KINDER-BOARD-STEP23-20260630: 幼稚舎チップ(下部・表示ロジック) ===== */
+// 今日その子が「利用あり」か。明示記録があればそれに従い、無ければ園デフォルト。
+function kinderIsHere(garden, zoneKey, name) {
+  var slot = (zoneKey === 'ext_am') ? 'am' : 'pm';
+  var att = window.kinderAttendance || {};
+  var def = window.KINDER_DEFAULT || {};
+  var g = att[garden];
+  if (g && g[slot] && Object.prototype.hasOwnProperty.call(g[slot], name)) {
+    return g[slot][name] === true;
+  }
+  return def[garden] === true;
+}
+
+// ext_am / ext_pm のゾーン先頭に挿入するチップ行HTMLを返す。
+// 名前はescapeHtmlで表示。onclickにはロスター内indexを渡す(属性エスケープ回避)。
+function renderKinderChips(zoneKey) {
+  var roster = window.KINDER_ROSTER || [];
+  var label = (zoneKey === 'ext_am') ? '早朝' : '延長';
+  var h = '<div class="kinder-row"><span class="kinder-head">自園生徒(幼稚舎)・' + label + '</span>';
+  var any = false;
+  for (var i = 0; i < roster.length; i++) {
+    var r = roster[i];
+    if (!r || !r.name) continue;
+    /* SF-KINDER-LINKPARK-FILTER-20260701 */
+    if (!r.linkPark) continue;
+    if (normGarden(r.linkPark) !== CURRENT_GARDEN) continue;
+    any = true;
+    var here = kinderIsHere(CURRENT_GARDEN, zoneKey, r.name);
+    var cls = here ? 'kinder-chip' : 'kinder-chip off';
+    h += '<span class="' + cls + '" onclick="toggleKinder(\'' + zoneKey + '\',' + i + ')">'
+       + escapeHtml(r.name) + '</span>';
+  }
+  if (!any) {
+    h += '<span class="kinder-empty">連携園の登録なし</span>';
+  }
+  h += '</div>';
+  return h;
+}
+
+// チップタップ: 当日の出欠をトグル → ローカル即時反映 → renderBoard →
+// Firestore保存(モジュール側 window.kinderSave 経由, 差分merge)
+function toggleKinder(zoneKey, idx) {
+  var roster = window.KINDER_ROSTER || [];
+  var r = roster[idx];
+  if (!r || !r.name) return;
+  var name = r.name;
+  var garden = CURRENT_GARDEN;
+  var slot = (zoneKey === 'ext_am') ? 'am' : 'pm';
+  var current = kinderIsHere(garden, zoneKey, name);
+  var next = !current;
+  // ローカル即時反映(window.kinderAttendance を直接更新)
+  var att = window.kinderAttendance || (window.kinderAttendance = {});
+  if (!att[garden]) att[garden] = {};
+  if (!att[garden][slot]) att[garden][slot] = {};
+  att[garden][slot][name] = next;
+  if (typeof renderBoard === 'function') renderBoard();
+  // 保存
+  try {
+    if (typeof window.kinderSave === 'function') {
+      window.kinderSave(garden, slot, name, next)
+        .catch(function(e){ console.error('[kinder] save failed', e); });
+    } else {
+      console.error('[kinder] window.kinderSave 未定義(保存スキップ)');
+    }
+  } catch (e) {
+    console.error('[kinder] save failed', e);
+  }
+}
+window.toggleKinder = toggleKinder; // onclickから呼べるように公開
+/* ===== end SF-KINDER-BOARD-STEP23-20260630 下部 ===== */
+
 function renderBoard() {
   const board = document.getElementById('board');
   let html = '';
@@ -1336,6 +1471,8 @@ function renderBoard() {
   ZONES.forEach(zone => {
     if ((CURRENT_GARDEN === 'factory' || CURRENT_GARDEN === 'shiseikan') && (zone.key === 'woodstock' || zone.key === 'janis')) return;
     html += `<div class="zone zone-${zone.key}">`;
+    /* SF-KINDER-BOARD-STEP23-20260630: 幼稚舎チップ(ext_am/ext_pmのみ) */
+    if (zone.key === 'ext_am' || zone.key === 'ext_pm') html += renderKinderChips(zone.key);
     for (let ln = 0; ln < zone.lanes; ln++) {
       html += '<div class="lane">';
       if (ln === 0) {
