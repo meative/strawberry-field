@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=2.0, minimum-scale=0.5, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>STRAWBERRY FIELD ・ 予約管理ボード</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -613,11 +613,32 @@ body {
   }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
 
-<style id="sp-css">
-/* SF-BOARD-SP-V3-20260705: ピンチズーム許可+園固定 */
+<style id="sp-mobile-css">
+/* ===== SF-BOARD-SP-V2-20260705 ===== */
+/* 園別ファイルのため、切替UIは全画面幅で非表示(固定の徹底) */
 .garden-switch, .garden-seg{display:none !important}
 @media (max-width: 640px){
+  .app-header{flex-wrap:wrap;gap:8px;padding:10px 12px}
+  .header-brand{font-size:16px}
+  .header-right{width:100%;display:flex;gap:8px;flex-wrap:wrap}
+  .header-right .btn, .cap-open-btn{min-height:44px;font-size:13px;padding:8px 12px;flex:1}
+  .date-bar{gap:8px;padding:10px 8px}
+  .date-nav{min-height:46px;min-width:60px;font-size:13px}
+  .date-display{font-size:18px}
+  .legend-bar{flex-wrap:wrap;gap:8px 14px;padding:8px 12px;font-size:12px}
+  .legend-hint{width:100%;font-size:11px}
+  .age-tabs{flex-wrap:wrap;gap:8px}
+  .age-chip{min-height:40px;font-size:13px}
+  .kinder-row{flex-wrap:wrap;gap:8px;padding:8px 10px}
+  .kinder-chip{min-height:44px;font-size:14px;padding:8px 14px}
+  .kinder-head{font-size:12px;width:100%}
+  .board-wrap{-webkit-overflow-scrolling:touch}
+  .bar-name{font-size:12px}
+  .modal{width:94vw;max-width:94vw;padding:16px 12px;max-height:88vh;overflow-y:auto}
   input, select, textarea{font-size:16px}
+  .kana-btn{min-height:44px;min-width:44px}
+  .cal-day{min-height:42px}
+  .fab{width:56px;height:56px;right:14px;bottom:14px}
 }
 </style>
 </head>
@@ -834,7 +855,7 @@ const GARDENS = {
 };
 // 現在運用中の園。園切替UIで変更し、最後に選んだ園を localStorage に保存・復元する。
 const GARDEN_KEY = 'sf_board_garden_v1';
-let CURRENT_GARDEN = 'shiseikan'; /* SF-BOARD-SP-V3-20260705: 園固定(資生館) */
+let CURRENT_GARDEN = 'shiseikan'; /* SF-BOARD-SP-V2-20260705: 園固定(資生館) */
 const SF_SP_LOCKED_GARDEN = 'shiseikan';
 // gardenId が無い既存レコードは月寒園として扱う（補完）
 function normGarden(g) {
@@ -859,7 +880,7 @@ function renderGardenSwitch() {
 }
 // 園を切り替える（CURRENT_GARDEN変更→保存→ラベル/UI更新→当該園の予約で再読込）
 function switchGarden(id) {
-  if (id !== SF_SP_LOCKED_GARDEN) return; /* SP版: 園固定 */
+  if (id !== SF_SP_LOCKED_GARDEN) return; /* SP版: 園固定のため切替不可 */
   if (!GARDENS[id] || id === CURRENT_GARDEN) return;
   CURRENT_GARDEN = id;
   try { localStorage.setItem(GARDEN_KEY, id); } catch(e) {}
