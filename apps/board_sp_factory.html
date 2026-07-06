@@ -664,6 +664,8 @@ body {
 <div class="garden-switch"><div class="garden-seg" id="gardenSeg"></div></div>
 
 <!-- 日付バー -->
+<!-- SF-GSW-20260706 : スマホ版 園切替ボタン -->
+<div class="sf-gsw-row"><button type="button" class="sf-gsw-btn" onclick="sfGswToggle()"><span class="sf-gsw-ico">⌂</span><span id="sfGswCurName">園</span><span class="sf-gsw-caret">▾</span></button></div>
 <div class="date-bar">
   <button onclick="changeDay(-1)">← 前日</button>
   <button class="cur cur-btn" id="curDate" onclick="toggleCalendar()" title="タップで日付を選ぶ"><span class="cal-caret">▾</span></button>
@@ -2302,6 +2304,102 @@ window.addEventListener('storage', (e) => {
   if (e.key === TS_KEY) { syncFromTimelySchool(); }
 });
 setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); // フォールバック
+</script>
+<style>/* SF-GSW-20260706 : スマホ版 園切替(確認ダイアログ付き) */
+.sf-gsw-row{display:flex;justify-content:center;padding:8px 12px 0;}
+.sf-gsw-btn{appearance:none;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--gold,#C9A961);background:var(--white,#ffffff);color:var(--ink,#1A1F26);font-family:var(--serif-jp,serif);font-size:14px;padding:9px 20px;min-height:44px;border-radius:22px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.06);}
+.sf-gsw-btn .sf-gsw-ico{color:var(--gold-deep,#a8872f);font-size:15px;}
+.sf-gsw-btn .sf-gsw-caret{color:var(--ink-soft,#6b7280);font-size:12px;}
+/* SF-GSW-POS-20260706 : popup shown below the switch button (top area) */
+.sf-gsw-overlay,.sf-gsw-confirm-overlay{position:fixed;inset:0;background:rgba(26,31,38,0.5);display:none;align-items:flex-start;justify-content:center;z-index:400;padding-top:130px;}
+.sf-gsw-overlay.open,.sf-gsw-confirm-overlay.open{display:flex;}
+.sf-gsw-menu{background:var(--white,#ffffff);border-radius:12px;padding:18px 18px 14px;width:340px;max-width:calc(100vw - 32px);box-shadow:0 16px 50px rgba(0,0,0,0.32);}
+.sf-gsw-menu-head{font-family:var(--serif-jp,serif);font-size:16px;font-weight:600;color:var(--ink,#1A1F26);margin-bottom:12px;text-align:center;}
+.sf-gsw-item{display:flex;align-items:center;gap:10px;width:100%;appearance:none;border:1px solid var(--line,#e5e2da);background:var(--white,#ffffff);color:var(--ink,#1A1F26);font-family:var(--serif-jp,serif);font-size:15px;padding:12px 14px;min-height:48px;border-radius:8px;margin-bottom:8px;cursor:pointer;text-align:left;}
+.sf-gsw-item:active{background:var(--tiffany-soft,#E4F4F2);}
+.sf-gsw-item.cur{background:var(--ivory,#faf8f2);color:var(--ink-soft,#6b7280);cursor:default;}
+.sf-gsw-item .sf-gsw-check{width:18px;flex:0 0 18px;color:var(--tiffany,#0ABAB5);font-weight:700;}
+.sf-gsw-item .sf-gsw-item-name{flex:1;}
+.sf-gsw-item .sf-gsw-here{font-size:11px;color:var(--tiffany-deep,#0a8f8a);}
+.sf-gsw-cancel{width:100%;appearance:none;border:1px solid var(--line,#e5e2da);background:var(--ivory,#faf8f2);color:var(--ink-soft,#6b7280);font-family:var(--serif-jp,serif);font-size:14px;padding:11px;min-height:44px;border-radius:8px;cursor:pointer;margin-top:4px;}
+.sf-gsw-confirm{background:var(--white,#ffffff);border-radius:12px;padding:22px 24px 18px;width:340px;max-width:calc(100vw - 32px);box-shadow:0 16px 50px rgba(0,0,0,0.32);}
+.sf-gsw-confirm-title{font-family:var(--serif-jp,serif);font-size:16px;font-weight:600;color:var(--ink,#1A1F26);line-height:1.5;}
+.sf-gsw-confirm-note{font-family:var(--serif-jp,serif);font-size:12px;color:var(--ink-soft,#6b7280);margin-top:8px;}
+.sf-gsw-confirm-actions{display:flex;gap:10px;margin-top:18px;}
+.sf-gsw-confirm-actions button{flex:1;appearance:none;font-family:var(--serif-jp,serif);font-size:14px;padding:11px;min-height:46px;border-radius:8px;cursor:pointer;}
+.sf-gsw-confirm-no{border:1px solid var(--line,#e5e2da);background:var(--ivory,#faf8f2);color:var(--ink-soft,#6b7280);}
+.sf-gsw-confirm-yes{border:1px solid var(--tiffany,#0ABAB5);background:var(--tiffany,#0ABAB5);color:var(--white,#ffffff);font-weight:600;}
+</style>
+<!-- SF-GSW-20260706 : 園切替メニュー -->
+<div class="sf-gsw-overlay" id="sfGswOverlay" onclick="sfGswClose()">
+  <div class="sf-gsw-menu" onclick="event.stopPropagation()">
+    <div class="sf-gsw-menu-head">園を切り替え</div>
+    <div id="sfGswList"></div>
+    <button type="button" class="sf-gsw-cancel" onclick="sfGswClose()">閉じる</button>
+  </div>
+</div>
+<!-- SF-GSW-20260706 : 切替確認ダイアログ -->
+<div class="sf-gsw-confirm-overlay" id="sfGswConfirmOverlay" onclick="sfGswConfirmClose()">
+  <div class="sf-gsw-confirm" onclick="event.stopPropagation()">
+    <div class="sf-gsw-confirm-title" id="sfGswConfirmTitle">切り替えますか？</div>
+    <div class="sf-gsw-confirm-note">現在の園の画面から移動します。</div>
+    <div class="sf-gsw-confirm-actions">
+      <button type="button" class="sf-gsw-confirm-no" onclick="sfGswConfirmClose()">いいえ</button>
+      <button type="button" class="sf-gsw-confirm-yes" id="sfGswConfirmYes">はい、切り替える</button>
+    </div>
+  </div>
+</div>
+<script>
+/* SF-GSW-20260706 : 園切替ロジック（別園ごとの固定URLへ移動する方式） */
+(function(){
+  var CUR = 'factory';
+  var GARDENS = [
+    {id:'tsukisamu', name:'月寒園'},
+    {id:'shiraishi', name:'白石園'},
+    {id:'factory',   name:'サッポロファクトリー園'},
+    {id:'shiseikan', name:'資生館園'}
+  ];
+  var pending = null;
+  function nameOf(id){ for(var i=0;i<GARDENS.length;i++){ if(GARDENS[i].id===id){ return GARDENS[i].name; } } return ''; }
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function build(){
+    var lbl = document.getElementById('sfGswCurName'); if(lbl){ lbl.textContent = nameOf(CUR) || '園'; }
+    var list = document.getElementById('sfGswList'); if(!list){ return; }
+    var html = '';
+    for(var i=0;i<GARDENS.length;i++){
+      var g = GARDENS[i];
+      var isCur = (g.id===CUR);
+      html += '<button type="button" class="sf-gsw-item'+(isCur?' cur':'')+'"'
+            + (isCur?' disabled':' data-id="'+esc(g.id)+'"')+'>'
+            +   '<span class="sf-gsw-check">'+(isCur?'✓':'')+'</span>'
+            +   '<span class="sf-gsw-item-name">'+esc(g.name)+'</span>'
+            +   (isCur?'<span class="sf-gsw-here">表示中</span>':'')
+            + '</button>';
+    }
+    list.innerHTML = html;
+    var btns = list.querySelectorAll('button[data-id]');
+    for(var j=0;j<btns.length;j++){
+      btns[j].addEventListener('click', function(){ sfGswAsk(this.getAttribute('data-id')); });
+    }
+  }
+  window.sfGswToggle = function(){ var o=document.getElementById('sfGswOverlay'); if(o){ o.classList.add('open'); } };
+  window.sfGswClose  = function(){ var o=document.getElementById('sfGswOverlay'); if(o){ o.classList.remove('open'); } };
+  window.sfGswAsk = function(id){
+    pending = id;
+    var t = document.getElementById('sfGswConfirmTitle');
+    if(t){ t.textContent = nameOf(id) + 'に切り替えますか？'; }
+    sfGswClose();
+    var c = document.getElementById('sfGswConfirmOverlay'); if(c){ c.classList.add('open'); }
+  };
+  window.sfGswConfirmClose = function(){ var c=document.getElementById('sfGswConfirmOverlay'); if(c){ c.classList.remove('open'); } pending=null; };
+  function bindYes(){
+    var yes = document.getElementById('sfGswConfirmYes');
+    if(yes){ yes.addEventListener('click', function(){ if(pending){ window.location.href = 'board_sp_'+pending+'.html'; } }); }
+  }
+  function init(){ build(); bindYes(); }
+  if(document.readyState!=='loading'){ init(); }
+  else { document.addEventListener('DOMContentLoaded', init); }
+})();
 </script>
 </body>
 </html>
