@@ -2,7 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=1560, user-scalable=yes">
+<!-- SF-BOARD-SP-FITA-20260705 : 全体一望(盤面実幅1502px + 余白1560px)・ピンチ拡大有効 -->
 <title>STRAWBERRY FIELD ・ 予約管理ボード</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -642,6 +643,8 @@ body {
   .fab{width:56px;height:56px;right:14px;bottom:14px}
 }
 </style>
+<style>/* SF-BOARD-SP-FITA-20260705 : 単一園固定のため園切替UIは常時非表示(取り違え防止) */
+.garden-switch, .garden-seg { display: none !important; }</style>
 </head>
 <body>
 
