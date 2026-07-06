@@ -140,7 +140,7 @@ body {
 .cap-open-btn:active { background:var(--tiffany-soft); border-color:var(--tiffany); }
 .cap-overlay { position: fixed; inset: 0; background: rgba(26,31,38,0.5); display: none; align-items: center; justify-content: center; z-index: 300; }
 .cap-overlay.show { display: flex; }
-.cap-box { background: var(--white); border-radius: 12px; padding: 22px 24px 18px; width: 360px; max-width: calc(100vw - 32px); box-shadow: 0 16px 50px rgba(0,0,0,0.32); animation: calPop 0.2s cubic-bezier(0.16,1,0.3,1); }
+.cap-box { background: var(--white); border-radius: 12px; padding: 22px 24px 18px; width: 360px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px); overflow-y: auto; box-shadow: 0 16px 50px rgba(0,0,0,0.32); animation: calPop 0.2s cubic-bezier(0.16,1,0.3,1); } /* SF-CAP-UNIFY-20260706 : 縦スクロール可 */
 .cap-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
 .cap-title { font-family: var(--serif-jp); font-size: 17px; font-weight: 600; color: var(--ink); }
 .cap-garden { font-family: var(--serif-jp); font-size: 13px; color: var(--tiffany-deep); }
@@ -639,6 +639,9 @@ body {
 </div>
 
 <!-- 自作カレンダー（月表示） -->
+<!-- SF-CAPDIFF-20260706 : 特定日設定バッジの表示枠（内容は renderCapSummary が入れる） -->
+<div class="cap-day-badge" id="capDayBadge" style="text-align:center; margin:2px 0 6px;"></div>
+
 <div class="cal-overlay" id="calOverlay" onclick="closeCalendar()">
   <div class="cal-box" onclick="event.stopPropagation()">
     <div class="cal-head">
@@ -664,16 +667,13 @@ body {
     <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput1" placeholder="無制限"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput2" placeholder="無制限"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput3" placeholder="無制限"><span class="cap-unit">名</span></span></div>
-    <div class="cap-blocks-section" style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line-soft);">
-      <div class="cap-blocks-head" style="font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); letter-spacing:0.04em; margin-bottom:8px;">時間帯ごとの制限</div>
-      <div id="capBlocksList"></div>
-      <button type="button" class="cap-block-add" onclick="capBlockAdd()" style="display:block; width:100%; margin-top:8px; background:var(--ivory); border:1px dashed var(--line); border-radius:8px; padding:9px; font-family:var(--serif-jp); font-size:13px; color:var(--tiffany-deep); cursor:pointer;">＋ 制限を追加</button>
-    </div>
+    <!-- SF-CAP-UNIFY-20260706 : 時間帯制限は「特定日の定員（日別例外）」画面へ一本化 -->
+    <div class="cap-blocks-note" style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line-soft); font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); line-height:1.7;">時間帯ごとの制限は、下の「特定日の定員（日別例外）」からカレンダーで日を選んで設定します。</div>
     <div class="cap-actions">
       <button class="cap-cancel" onclick="closeCapSettings()">閉じる</button>
       <button class="cap-save" onclick="saveCapSettings()">保存</button>
     </div>
-    <button class="cap-daily-link" onclick="openCapDaily()">▸ 特定日の定員（日別例外）を設定</button>
+    <button class="cap-daily-link" onclick="openCapDaily()">▸ 特定日の設定（定員・時間帯制限）を開く</button>
   </div>
 </div>
 
@@ -698,6 +698,11 @@ body {
     <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput1" placeholder="基本"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput2" placeholder="基本"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput3" placeholder="基本"><span class="cap-unit">名</span></span></div>
+    <div class="cap-blocks-section" id="capDailyBlocksSection" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft);">
+      <div class="cap-blocks-head" style="font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); letter-spacing:0.04em; margin-bottom:8px;">この日だけの時間帯制限</div>
+      <div id="capDailyBlocksList"></div>
+      <button type="button" class="cap-block-add" onclick="capBlockAdd({}, 'capDailyBlocksList')" style="display:block; width:100%; margin-top:8px; background:var(--ivory); border:1px dashed var(--line); border-radius:8px; padding:9px; font-family:var(--serif-jp); font-size:13px; color:var(--tiffany-deep); cursor:pointer;">＋ この日の制限を追加</button>
+    </div>
     <div class="cap-actions">
       <button class="cap-cancel" onclick="closeCapDaily()">閉じる</button>
       <button class="cap-clear" onclick="clearCapDaily()">例外を削除</button>
@@ -957,9 +962,9 @@ function capBlockTimeOptions(selected) {
 }
 
 // 1行を capBlocksList に追加（valは既存値の復元用、省略時は空の新規行）
-function capBlockAdd(val) {
+function capBlockAdd(val, listId) {
   val = val || {};
-  var list = document.getElementById('capBlocksList');
+  var list = document.getElementById(listId || 'capBlocksList');
   if (!list) return;
   var row = document.createElement('div');
   row.className = 'cap-block-row';
@@ -990,6 +995,14 @@ function capBlockAdd(val) {
   list.appendChild(row);
 }
 
+/* SF-CAPDIRTY-20260706 : 基本設定の年齢入力が開いた時点から変わっていたら「変更（未保存）」を表示 */
+function capMarkDirty(a) {
+  var el = document.getElementById('capInput' + a);
+  var mk = document.getElementById('capDirty' + a);
+  if (!el || !mk) return;
+  var orig = (el.dataset.orig != null) ? el.dataset.orig : '';
+  mk.style.display = (String(el.value) !== String(orig)) ? '' : 'none';
+}
 function openCapSettings() {
   const base = capGetBase();                 // 全園の基本設定
   const g = (base && base[CURRENT_GARDEN]) || {};
@@ -997,13 +1010,32 @@ function openCapSettings() {
   if (gl) gl.textContent = gardenName(CURRENT_GARDEN);
   CAP_AGES.forEach(a => {
     const el = document.getElementById('capInput' + a);
-    if (el) el.value = (g[a] != null) ? g[a] : ''; // 未設定は空欄(無制限)
+    if (!el) return;
+    el.value = (g[a] != null) ? g[a] : ''; // 未設定は空欄(無制限)
+    /* SF-CAPDIRTY-20260706 : 開いた時点の値を基準に、変更（未保存）マーカーを用意 */
+    el.dataset.orig = el.value;
+    var _mkWrap = el.parentElement;
+    var _mk = document.getElementById('capDirty' + a);
+    if (!_mk && _mkWrap) {
+      _mk = document.createElement('span');
+      _mk.id = 'capDirty' + a;
+      _mk.className = 'cap-dirty';
+      _mk.textContent = '変更（未保存）';
+      _mk.style.cssText = 'margin-left:8px; font-family:var(--serif-jp); font-size:10px; font-weight:600; color:var(--gold-deep,#A88A4A);';
+      _mkWrap.appendChild(_mk);
+    }
+    if (_mk) _mk.style.display = 'none';
+    el.oninput = function(){ capMarkDirty(a); };
   });
   // --- 時間帯ブロック（_blocks）を復元 ---
   var _list = document.getElementById('capBlocksList');
   if (_list) {
     _list.innerHTML = '';
-    var _blocks = (g && g._blocks) ? g._blocks : [];
+    /* SF-CAPBLK-DAILY-20260706 : 時間帯制限は「表示中の日」から復元 */
+    var _cbDs = boardDateStr();
+    var _cbDay = capGetDaily(_cbDs);
+    var _cbDg = (_cbDay && _cbDay[CURRENT_GARDEN]) || {};
+    var _blocks = (_cbDg && _cbDg._blocks) ? _cbDg._blocks : [];
     for (var _i = 0; _i < _blocks.length; _i++) {
       capBlockAdd(_blocks[_i]);
     }
@@ -1062,11 +1094,20 @@ function saveCapSettings() {
     ages.sort(function(a, b){ return a - b; });
     blocks.push({ from: fromV, to: toV, ages: ages, limit: limitN });
   }
-  if (blocks.length > 0) gObj._blocks = blocks;
+  /* SF-CAPBLK-DAILY-20260706 : 時間帯制限は base に入れない（日別へ回す） */
 
   if (Object.keys(gObj).length > 0) base[CURRENT_GARDEN] = gObj;
   else delete base[CURRENT_GARDEN];           // 全部空欄なら園ごと削除＝全年齢無制限
-  capSaveBase(base);                          // Firestore へ（onSnapshot で CAP_MIRROR 更新）
+  capSaveBase(base);
+  /* SF-CAPBLK-DAILY-20260706 : 時間帯制限は「表示中の日」だけに保存（年齢別例外は保持） */
+  var _cbDs = boardDateStr();
+  var _cbDay = capGetDaily(_cbDs);
+  var _cbDg = (_cbDay && _cbDay[CURRENT_GARDEN]) || {};
+  if (blocks.length > 0) _cbDg._blocks = blocks; /* SF-CAP-UNIFY-20260706 : base側からは時間帯制限を消さない（入口は日別画面へ一本化） */
+  if (Object.keys(_cbDg).length > 0) _cbDay[CURRENT_GARDEN] = _cbDg;
+  else delete _cbDay[CURRENT_GARDEN];
+  if (Object.keys(_cbDay).length > 0) capSaveDaily(_cbDs, _cbDay);
+  else capDeleteDaily(_cbDs);                          // Firestore へ（onSnapshot で CAP_MIRROR 更新）
   closeCapSettings();
   if (typeof showNotify === 'function') showNotify(`${gardenName(CURRENT_GARDEN)} の年齢別定員を保存しました。`, '✓ 定員設定を保存');
 }
@@ -1078,6 +1119,7 @@ function openCapDaily() {
   capDailyDate = boardDateStr();
   capCalYM = null;                                     // 表示月を選択日から再補完させる
   loadCapDailyInputs();
+  restoreCapDailyBlocks();
   renderCapCalendar();
   closeCapSettings();                                  // 基本設定を閉じてから
   document.getElementById('capDailyOverlay').classList.add('show');
@@ -1103,6 +1145,16 @@ function closeCapDaily() {
   document.getElementById('capDailyOverlay').classList.remove('show');
 }
 // この日の CURRENT_GARDEN 例外だけ差し替えて保存（他園・他日は触らない）
+/* SF-DAYBLOCK-20260706 : 日別の時間帯制限(_blocks)を復元 */
+function restoreCapDailyBlocks(){
+  var _dlist = document.getElementById('capDailyBlocksList');
+  if (!_dlist) return;
+  _dlist.innerHTML = '';
+  var _day = capGetDaily(capDailyDate);
+  var _g = (_day && _day[CURRENT_GARDEN]) || {};
+  var _blocks = (_g && _g._blocks) ? _g._blocks : [];
+  for (var _i = 0; _i < _blocks.length; _i++) { capBlockAdd(_blocks[_i], 'capDailyBlocksList'); }
+}
 function saveCapDaily() {
   if (!capDailyDate) return;
   const day = capGetDaily(capDailyDate);               // 全園分を読む（他園を消さない）
@@ -1114,6 +1166,24 @@ function saveCapDaily() {
     const n = parseInt(raw, 10);
     if (!isNaN(n) && n >= 0) gObj[a] = n;              // 0 も有効値
   });
+  /* SF-DAYBLOCK-20260706 : この日の時間帯制限(_blocks)を集める＋バリデーション */
+  var _dRows = document.querySelectorAll('#capDailyBlocksList .cap-block-row');
+  var _dBlocks = [];
+  for (var _bi = 0; _bi < _dRows.length; _bi++) {
+    var _row = _dRows[_bi]; var _no = _bi + 1;
+    var _fromEl = _row.querySelector('.cb-from'); var _toEl = _row.querySelector('.cb-to');
+    var _fromV = _fromEl ? _fromEl.value : ''; var _toV = _toEl ? _toEl.value : '';
+    var _ageEls = _row.querySelectorAll('.cb-age'); var _ages = [];
+    for (var _ai = 0; _ai < _ageEls.length; _ai++) { if (_ageEls[_ai].checked) _ages.push(parseInt(_ageEls[_ai].value, 10)); }
+    var _limitEl = _row.querySelector('.cb-limit'); var _limitRaw = _limitEl ? _limitEl.value.trim() : '';
+    if (_ages.length === 0) { alert('この日の時間帯制限の' + _no + '行目：対象の年齢を1つ以上選んでください。'); return; }
+    if (_fromV >= _toV) { alert('この日の時間帯制限の' + _no + '行目：終了時刻は開始時刻より後にしてください。'); return; }
+    var _limitN = (_limitRaw === '') ? 0 : parseInt(_limitRaw, 10);
+    if (isNaN(_limitN) || _limitN < 0) { alert('この日の時間帯制限の' + _no + '行目：定員は0以上の数値を入力してください。'); return; }
+    _ages.sort(function(a, b){ return a - b; });
+    _dBlocks.push({ from: _fromV, to: _toV, ages: _ages, limit: _limitN });
+  }
+  if (_dBlocks.length > 0) gObj._blocks = _dBlocks;
   if (Object.keys(gObj).length > 0) day[CURRENT_GARDEN] = gObj;
   else delete day[CURRENT_GARDEN];                     // この園の例外が空なら園キー削除
   if (Object.keys(day).length > 0) capSaveDaily(capDailyDate, day); // 他園の例外が残るなら保存
@@ -1178,6 +1248,7 @@ function capCalMove(delta) {
 function selectCapDate(ds) {
   capDailyDate = ds;
   loadCapDailyInputs();
+  restoreCapDailyBlocks();
   renderCapCalendar();
 }
 
@@ -1209,6 +1280,12 @@ function renderCapSummary() {
   const el = document.getElementById('capSummary');
   if (!el) return;
   const date = boardDateStr();
+  /* SF-CAPDIFF-20260706 : 当日・現在園の日別設定（差分・バッジ用） */
+  var _capDayG = (CAP_MIRROR[date] && CAP_MIRROR[date][normGarden(CURRENT_GARDEN)]) || {};
+  var _capBadgeEl = document.getElementById('capDayBadge');
+  if (_capBadgeEl) _capBadgeEl.innerHTML = (Object.keys(_capDayG).length > 0)
+    ? '<span style="display:inline-block; font-family:var(--serif-jp); font-size:11px; font-weight:600; color:#fff; background:var(--gold,#C9A961); padding:3px 12px; border-radius:12px; letter-spacing:0.03em;">この日は特定日設定あり</span>'
+    : '';
   let html = '<span class="cap-summary-title">年齢別 空き状況</span>';
   CAP_AGES.forEach(a => {
     const cap = capEffective(CURRENT_GARDEN, a, date);
@@ -1219,7 +1296,17 @@ function renderCapSummary() {
       if (left <= 0) { cls += ' full'; rem = '満員'; }
       else rem = `残り${left}名`;
     }
-    html += `<span class="${cls}"><span class="age">${CAP_AGE_LABEL[a]}</span><span class="rem">${rem}</span></span>`;
+    /* SF-CAPDIFF-20260706 : 基本との差分（この日だけ定員を変えているか） */
+    var _bR = (CAP_MIRROR.base && CAP_MIRROR.base[normGarden(CURRENT_GARDEN)]) ? CAP_MIRROR.base[normGarden(CURRENT_GARDEN)][a] : undefined;
+    var _dR = _capDayG[a];
+    var _chg = (_dR != null) && ((_bR == null) || Number(_dR) !== Number(_bR));
+    var _diff = '';
+    if (_chg) {
+      var _from = (_bR == null) ? '無制限' : (_bR + '名');
+      _diff = '<span style="margin-left:6px; font-family:var(--serif-jp); font-size:10px; font-weight:600; color:var(--gold-deep,#A88A4A);">基本 ' + _from + ' → ' + _dR + '名</span>';
+    }
+    var _cs = _chg ? ' style="border:1.5px solid var(--gold,#C9A961);"' : '';
+    html += '<span class="' + cls + '"' + _cs + '><span class="age">' + CAP_AGE_LABEL[a] + '</span><span class="rem">' + rem + '</span>' + _diff + '</span>';
   });
   el.innerHTML = html;
 }
@@ -1345,12 +1432,24 @@ function needsLunch(b) {
 //   CAP_MIRROR.base[garden]._blocks を読み、各ブロックを left%/width% で配置。
 //   limit=0 → 赤系（block-full）、limit>=1 → 黄系（block-limit）。
 //   _blocks が無ければ空文字を返す（行ごと出さない）。
+/* SF-DAYBLOCK-BAND-20260706 : 盤面の帯に「基本(毎日)＋その日の日別」を描く。日別は◆で区別 */
 function renderCapBlockBand() {
-  var base = CAP_MIRROR.base && CAP_MIRROR.base[normGarden(CURRENT_GARDEN)];
-  if (!base || !Array.isArray(base._blocks) || base._blocks.length === 0) return '';
+  var g = normGarden(CURRENT_GARDEN);
+  var base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  /* SF-CAPBLK-DAILY-20260706 : 基本(毎日)の時間帯ブロックは描画しない（日別のみ） */
+  var baseBlocks = [];
+  var _ds = (typeof boardDateStr === 'function') ? boardDateStr() : null;
+  var dayG = (_ds && CAP_MIRROR[_ds]) ? CAP_MIRROR[_ds][g] : null;
+  var dayBlocks = (dayG && Array.isArray(dayG._blocks)) ? dayG._blocks : [];
+  var merged = [];
+  var _k;
+  for (_k = 0; _k < baseBlocks.length; _k++) merged.push({ b: baseBlocks[_k], daily: false });
+  for (_k = 0; _k < dayBlocks.length; _k++) merged.push({ b: dayBlocks[_k], daily: true });
+  if (merged.length === 0) return '';
   var N = SLOTS.length;
   var bands = '';
-  base._blocks.forEach(function(b) {
+  merged.forEach(function(item) {
+    var b = item.b;
     if (!b) return;
     var si = slotIndex(b.from), ei = slotIndex(b.to);
     if (si < 0) return;
@@ -1361,10 +1460,13 @@ function renderCapBlockBand() {
     var lim = Number(b.limit);
     var isFull = isNaN(lim) ? true : (lim <= 0);
     var cls = isFull ? 'block-full' : 'block-limit';
+    if (item.daily) cls += ' block-daily';
     var ages = Array.isArray(b.ages) ? b.ages.slice().sort(function(x,y){return x-y;}).join('・') : '';
     var label = ages ? (ages + '歳') : '';
     if (!isFull) label += ' 定員' + lim;
-    bands += '<div class="cap-block-band ' + cls + '" style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;" title="' + escapeHtml(b.from + '〜' + b.to + ' / ' + label) + '">' + escapeHtml(label) + '</div>';
+    if (item.daily) label = '◆' + label;
+    var tip = (item.daily ? 'この日限定 ' : '') + b.from + '〜' + b.to + ' / ' + label;
+    bands += '<div class="cap-block-band ' + cls + '" style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;" title="' + escapeHtml(tip) + '">' + escapeHtml(label) + '</div>';
   });
   if (!bands) return '';
   return '<div class="cap-block-lane">'

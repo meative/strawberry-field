@@ -713,18 +713,28 @@ function buildStartOptions() {
 //   slotTime がその age 向けに制限されていれば、該当 block の limit 最小値を返す。なければ null
 //   age は rangeAvailable から文字列で渡るため Number() で正規化（_blocks.ages は数値配列）
 function blockedAt(garden, age, slotTime) {
-  const base = CAP_MIRROR.base && CAP_MIRROR.base[normGarden(garden)];
-  if (!base || !Array.isArray(base._blocks)) return null;
+  /* SF-SALON-DAYBLOCK-20260706 : 基本(毎日)＋その予約日の日別、両方の _blocks を見る（厳しい方が勝つ） */
+  const g = normGarden(garden);
   const a = Number(age);
+  // 予約日：checkAvailability/confirmReserve の判定日と同一式（new Date()+dayOffset）
+  const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+  const _ds = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
   let lim = null;
-  base._blocks.forEach(b => {
-    if (!b || !Array.isArray(b.ages)) return;
-    if (slotTime < b.from || slotTime >= b.to) return;
-    if (b.ages.map(Number).indexOf(a) === -1) return;
-    const L = Number(b.limit);
-    const v = isNaN(L) ? 0 : L;
-    if (lim === null || v < lim) lim = v;
-  });
+  const _scan = (blocks) => {
+    if (!Array.isArray(blocks)) return;
+    blocks.forEach(b => {
+      if (!b || !Array.isArray(b.ages)) return;
+      if (slotTime < b.from || slotTime >= b.to) return;
+      if (b.ages.map(Number).indexOf(a) === -1) return;
+      const L = Number(b.limit);
+      const v = isNaN(L) ? 0 : L;
+      if (lim === null || v < lim) lim = v;
+    });
+  };
+  const base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  if (base) _scan(base._blocks);            // 基本(毎日)の制限（現状は空でも将来のため残す）
+  const day = CAP_MIRROR[_ds] && CAP_MIRROR[_ds][g];
+  if (day) _scan(day._blocks);              // その予約日だけの制限
   return lim;
 }
 
