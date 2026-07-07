@@ -698,16 +698,13 @@ body {
     <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput1" placeholder="無制限"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput2" placeholder="無制限"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput3" placeholder="無制限"><span class="cap-unit">名</span></span></div>
-    <div class="cap-blocks-section" style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line-soft);">
-      <div class="cap-blocks-head" style="font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); letter-spacing:0.04em; margin-bottom:8px;">時間帯ごとの制限</div>
-      <div id="capBlocksList"></div>
-      <button type="button" class="cap-block-add" onclick="capBlockAdd()" style="display:block; width:100%; margin-top:8px; background:var(--ivory); border:1px dashed var(--line); border-radius:8px; padding:9px; font-family:var(--serif-jp); font-size:13px; color:var(--tiffany-deep); cursor:pointer;">＋ 制限を追加</button>
-    </div>
+    <!-- SF-CAP-UNIFY-20260706 : 時間帯制限は「特定日の定員（日別例外）」画面へ一本化 -->
+    <div class="cap-blocks-note" style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line-soft); font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); line-height:1.7;">時間帯ごとの制限は、下の「特定日の定員（日別例外）」からカレンダーで日を選んで設定します。</div>
     <div class="cap-actions">
       <button class="cap-cancel" onclick="closeCapSettings()">閉じる</button>
       <button class="cap-save" onclick="saveCapSettings()">保存</button>
     </div>
-    <button class="cap-daily-link" onclick="openCapDaily()">▸ 特定日の定員（日別例外）を設定</button>
+    <button class="cap-daily-link" onclick="openCapDaily()">▸ 特定日の設定（定員・時間帯制限）を開く</button>
   </div>
 </div>
 
@@ -732,6 +729,11 @@ body {
     <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput1" placeholder="基本"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput2" placeholder="基本"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput3" placeholder="基本"><span class="cap-unit">名</span></span></div>
+    <div class="cap-blocks-section" id="capDailyBlocksSection" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft);">
+      <div class="cap-blocks-head" style="font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); letter-spacing:0.04em; margin-bottom:8px;">この日だけの時間帯制限</div>
+      <div id="capDailyBlocksList"></div>
+      <button type="button" class="cap-block-add" onclick="capBlockAdd({}, 'capDailyBlocksList')" style="display:block; width:100%; margin-top:8px; background:var(--ivory); border:1px dashed var(--line); border-radius:8px; padding:9px; font-family:var(--serif-jp); font-size:13px; color:var(--tiffany-deep); cursor:pointer;">＋ この日の制限を追加</button>
+    </div>
     <div class="cap-actions">
       <button class="cap-cancel" onclick="closeCapDaily()">閉じる</button>
       <button class="cap-clear" onclick="clearCapDaily()">例外を削除</button>
@@ -992,9 +994,9 @@ function capBlockTimeOptions(selected) {
 }
 
 // 1行を capBlocksList に追加（valは既存値の復元用、省略時は空の新規行）
-function capBlockAdd(val) {
+function capBlockAdd(val, listId) {
   val = val || {};
-  var list = document.getElementById('capBlocksList');
+  var list = document.getElementById(listId || 'capBlocksList');
   if (!list) return;
   var row = document.createElement('div');
   row.className = 'cap-block-row';
@@ -1113,6 +1115,7 @@ function openCapDaily() {
   capDailyDate = boardDateStr();
   capCalYM = null;                                     // 表示月を選択日から再補完させる
   loadCapDailyInputs();
+  restoreCapDailyBlocks();
   renderCapCalendar();
   closeCapSettings();                                  // 基本設定を閉じてから
   document.getElementById('capDailyOverlay').classList.add('show');
@@ -1137,6 +1140,16 @@ function loadCapDailyInputs() {
 function closeCapDaily() {
   document.getElementById('capDailyOverlay').classList.remove('show');
 }
+/* SF-DAYBLOCK-20260706 : 日別の時間帯制限(_blocks)を復元 */
+function restoreCapDailyBlocks(){
+  var _dlist = document.getElementById('capDailyBlocksList');
+  if (!_dlist) return;
+  _dlist.innerHTML = '';
+  var _day = capGetDaily(capDailyDate);
+  var _g = (_day && _day[CURRENT_GARDEN]) || {};
+  var _blocks = (_g && _g._blocks) ? _g._blocks : [];
+  for (var _i = 0; _i < _blocks.length; _i++) { capBlockAdd(_blocks[_i], 'capDailyBlocksList'); }
+}
 // この日の CURRENT_GARDEN 例外だけ差し替えて保存（他園・他日は触らない）
 function saveCapDaily() {
   if (!capDailyDate) return;
@@ -1149,6 +1162,24 @@ function saveCapDaily() {
     const n = parseInt(raw, 10);
     if (!isNaN(n) && n >= 0) gObj[a] = n;              // 0 も有効値
   });
+  /* SF-DAYBLOCK-20260706 : この日の時間帯制限(_blocks)を集める＋バリデーション */
+  var _dRows = document.querySelectorAll('#capDailyBlocksList .cap-block-row');
+  var _dBlocks = [];
+  for (var _bi = 0; _bi < _dRows.length; _bi++) {
+    var _row = _dRows[_bi]; var _no = _bi + 1;
+    var _fromEl = _row.querySelector('.cb-from'); var _toEl = _row.querySelector('.cb-to');
+    var _fromV = _fromEl ? _fromEl.value : ''; var _toV = _toEl ? _toEl.value : '';
+    var _ageEls = _row.querySelectorAll('.cb-age'); var _ages = [];
+    for (var _ai = 0; _ai < _ageEls.length; _ai++) { if (_ageEls[_ai].checked) _ages.push(parseInt(_ageEls[_ai].value, 10)); }
+    var _limitEl = _row.querySelector('.cb-limit'); var _limitRaw = _limitEl ? _limitEl.value.trim() : '';
+    if (_ages.length === 0) { alert('この日の時間帯制限の' + _no + '行目：対象の年齢を1つ以上選んでください。'); return; }
+    if (_fromV >= _toV) { alert('この日の時間帯制限の' + _no + '行目：終了時刻は開始時刻より後にしてください。'); return; }
+    var _limitN = (_limitRaw === '') ? 0 : parseInt(_limitRaw, 10);
+    if (isNaN(_limitN) || _limitN < 0) { alert('この日の時間帯制限の' + _no + '行目：定員は0以上の数値を入力してください。'); return; }
+    _ages.sort(function(a, b){ return a - b; });
+    _dBlocks.push({ from: _fromV, to: _toV, ages: _ages, limit: _limitN });
+  }
+  if (_dBlocks.length > 0) gObj._blocks = _dBlocks;
   if (Object.keys(gObj).length > 0) day[CURRENT_GARDEN] = gObj;
   else delete day[CURRENT_GARDEN];                     // この園の例外が空なら園キー削除
   if (Object.keys(day).length > 0) capSaveDaily(capDailyDate, day); // 他園の例外が残るなら保存
@@ -1213,6 +1244,7 @@ function capCalMove(delta) {
 function selectCapDate(ds) {
   capDailyDate = ds;
   loadCapDailyInputs();
+  restoreCapDailyBlocks();
   renderCapCalendar();
 }
 
@@ -1381,11 +1413,22 @@ function needsLunch(b) {
 //   limit=0 → 赤系（block-full）、limit>=1 → 黄系（block-limit）。
 //   _blocks が無ければ空文字を返す（行ごと出さない）。
 function renderCapBlockBand() {
-  var base = CAP_MIRROR.base && CAP_MIRROR.base[normGarden(CURRENT_GARDEN)];
-  if (!base || !Array.isArray(base._blocks) || base._blocks.length === 0) return '';
+  var g = normGarden(CURRENT_GARDEN);
+  var base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  /* SF-CAPBLK-DAILY-20260706 : 基本(毎日)の時間帯ブロックは描画しない（日別のみ） */
+  var baseBlocks = [];
+  var _ds = (typeof boardDateStr === 'function') ? boardDateStr() : null;
+  var dayG = (_ds && CAP_MIRROR[_ds]) ? CAP_MIRROR[_ds][g] : null;
+  var dayBlocks = (dayG && Array.isArray(dayG._blocks)) ? dayG._blocks : [];
+  var merged = [];
+  var _k;
+  for (_k = 0; _k < baseBlocks.length; _k++) merged.push({ b: baseBlocks[_k], daily: false });
+  for (_k = 0; _k < dayBlocks.length; _k++) merged.push({ b: dayBlocks[_k], daily: true });
+  if (merged.length === 0) return '';
   var N = SLOTS.length;
   var bands = '';
-  base._blocks.forEach(function(b) {
+  merged.forEach(function(item) {
+    var b = item.b;
     if (!b) return;
     var si = slotIndex(b.from), ei = slotIndex(b.to);
     if (si < 0) return;
@@ -1396,10 +1439,13 @@ function renderCapBlockBand() {
     var lim = Number(b.limit);
     var isFull = isNaN(lim) ? true : (lim <= 0);
     var cls = isFull ? 'block-full' : 'block-limit';
+    if (item.daily) cls += ' block-daily';
     var ages = Array.isArray(b.ages) ? b.ages.slice().sort(function(x,y){return x-y;}).join('・') : '';
     var label = ages ? (ages + '歳') : '';
     if (!isFull) label += ' 定員' + lim;
-    bands += '<div class="cap-block-band ' + cls + '" style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;" title="' + escapeHtml(b.from + '〜' + b.to + ' / ' + label) + '">' + escapeHtml(label) + '</div>';
+    if (item.daily) label = '◆' + label;
+    var tip = (item.daily ? 'この日限定 ' : '') + b.from + '〜' + b.to + ' / ' + label;
+    bands += '<div class="cap-block-band ' + cls + '" style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;" title="' + escapeHtml(tip) + '">' + escapeHtml(label) + '</div>';
   });
   if (!bands) return '';
   return '<div class="cap-block-lane">'
@@ -2018,7 +2064,61 @@ function resetNameSearch() {
 }
 function closeModal() { document.getElementById('modal').classList.remove('show'); }
 
-function saveBooking() {
+/* SF-BOARD-CAPWARN-20260707 : その年齢・時間帯が満員(salonならブロック)かを判定 */
+/* SF-CAPWARN-UI-20260707 : アプリUIの確認ダイアログ（Promiseでtrue/falseを返す） */
+function sfCapConfirm(msg) {
+  return new Promise(function(resolve) {
+    var ov = document.getElementById('capwarnOverlay');
+    var m = document.getElementById('capwarnMsg');
+    var ok = document.getElementById('capwarnOk');
+    var cancel = document.getElementById('capwarnCancel');
+    if (!ov || !ok || !cancel) { resolve(window.confirm(msg + '\nそれでも予約を追加しますか？')); return; }
+    if (m) m.textContent = msg;
+    function done(v) {
+      ov.classList.remove('show');
+      ok.onclick = null; cancel.onclick = null; ov.onclick = null;
+      resolve(v);
+    }
+    ok.onclick = function() { done(true); };
+    cancel.onclick = function() { done(false); };
+    ov.onclick = function(e) { if (e.target === ov) done(false); };
+    ov.classList.add('show');
+  });
+}
+function sfCapFull(age, start, end, date) {
+  var g = normGarden(CURRENT_GARDEN);
+  var a = Number(age);
+  /* (a) その日の年齢別定員に達しているか */
+  var cap = capEffective(CURRENT_GARDEN, a, date);
+  if (cap != null && countReservations(CURRENT_GARDEN, a, date) >= cap) return true;
+  /* (b) 予約の時間帯と重なる時間帯制限(_blocks: 基本＋その日)で、対象年齢が上限以上 */
+  var sMin = timeToMin(start), eMin = timeToMin(end);
+  var blocks = [];
+  var base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  if (base && Array.isArray(base._blocks)) blocks = blocks.concat(base._blocks);
+  var day = CAP_MIRROR[date] && CAP_MIRROR[date][g];
+  if (day && Array.isArray(day._blocks)) blocks = blocks.concat(day._blocks);
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i];
+    if (!b || !Array.isArray(b.ages) || b.ages.map(Number).indexOf(a) === -1) continue;
+    var bs = timeToMin(b.from), be = timeToMin(b.to);
+    if (eMin <= bs || sMin >= be) continue; /* 時間が重ならない */
+    var lim = Number(b.limit); if (isNaN(lim)) lim = 0;
+    var used = 0;
+    for (var j = 0; j < bookings.length; j++) {
+      var x = bookings[j];
+      if (!x || Number(x.age) !== a) continue;
+      if ((x.date || boardDateStr()) !== date) continue;
+      if (normGarden(x.gardenId) !== g) continue;
+      var xs = timeToMin(x.start), xe = timeToMin(x.end || minToTime(END_HOUR*60));
+      if (xe <= bs || xs >= be) continue; /* この制限帯と重ならない予約は数えない */
+      used++;
+    }
+    if (used >= lim) return true;
+  }
+  return false;
+}
+async function saveBooking() {
   const name = document.getElementById('mName').value.trim();
   if (!name) { alert('お子様氏名を入力してください'); return; }
   const zone = document.getElementById('mZone').value;
@@ -2051,6 +2151,12 @@ function saveBooking() {
   } else {
     const lane = findFreeLane(zone, start, end, -1);
     if (lane < 0) { alert('この時間帯はこの区分の枠が満員です'); return; }
+    /* SF-CAPWARN-UI-20260707 : 満員/受け入れ制限中なら確認（アプリUIのダイアログ） */
+    if (typeof sfCapFull === 'function' && sfCapFull(age, start, end, boardDateStr())) {
+      var _cwLbl = (age === '3' ? '3歳〜' : age + '歳');
+      var _cwMsg = _cwLbl + ' の ' + start + ' 〜 ' + end + ' は満員（受け入れ制限）です。';
+      if (!(await sfCapConfirm(_cwMsg))) return;
+    }
     const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, memo, start, end, date: boardDateStr(),
       affiliation: youchisha ? 'youchisha' : CURRENT_GARDEN };
     // 延長保育(ext_am/ext_pm)以外は共有ストレージに保存し、TimelySchool予約画面・サロン側に表記連携する
@@ -2401,5 +2507,32 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
   else { document.addEventListener('DOMContentLoaded', init); }
 })();
 </script>
+<style>
+/* SF-CAPWARN-UI-20260707 : 満員確認ダイアログ */
+.capwarn-overlay{position:fixed;inset:0;background:rgba(26,31,38,0.5);display:none;align-items:center;justify-content:center;z-index:500;}
+.capwarn-overlay.show{display:flex;}
+.capwarn-box{background:var(--white,#fff);border-radius:14px;padding:26px 26px 20px;width:360px;max-width:calc(100vw - 32px);box-shadow:0 16px 50px rgba(0,0,0,0.32);animation:calPop 0.2s cubic-bezier(0.16,1,0.3,1);text-align:center;}
+.capwarn-icon{font-size:30px;line-height:1;}
+.capwarn-title{font-family:var(--serif-jp,serif);font-size:16px;font-weight:600;color:var(--ink,#1A1F26);margin:10px 0 12px;}
+.capwarn-msg{font-family:var(--serif-jp,serif);font-size:13px;line-height:1.7;color:var(--ink-soft,#5b6470);margin-bottom:4px;}
+.capwarn-sub{font-family:var(--serif-jp,serif);font-size:12px;color:var(--ink-soft,#5b6470);margin-bottom:22px;}
+.capwarn-actions{display:flex;gap:12px;}
+.capwarn-actions button{flex:1;border:none;border-radius:10px;padding:13px 10px;font-family:var(--serif-jp,serif);font-size:14px;cursor:pointer;transition:transform .08s;}
+.capwarn-actions button:active{transform:scale(0.98);}
+.capwarn-cancel{background:var(--ivory,#F5F1E8);color:var(--ink-soft,#5b6470);}
+.capwarn-ok{background:var(--gold,#C9A961);color:#fff;font-weight:600;}
+</style>
+<div class="capwarn-overlay" id="capwarnOverlay">
+  <div class="capwarn-box">
+    <div class="capwarn-icon">&#9888;&#65039;</div>
+    <div class="capwarn-title">受け入れ制限中の時間帯です</div>
+    <div class="capwarn-msg" id="capwarnMsg"></div>
+    <div class="capwarn-sub">それでも予約を追加しますか？</div>
+    <div class="capwarn-actions">
+      <button class="capwarn-cancel" id="capwarnCancel">キャンセル</button>
+      <button class="capwarn-ok" id="capwarnOk">それでも追加する</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
