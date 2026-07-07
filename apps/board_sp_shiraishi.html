@@ -2018,7 +2018,61 @@ function resetNameSearch() {
 }
 function closeModal() { document.getElementById('modal').classList.remove('show'); }
 
-function saveBooking() {
+/* SF-BOARD-CAPWARN-20260707 : その年齢・時間帯が満員(salonならブロック)かを判定 */
+/* SF-CAPWARN-UI-20260707 : アプリUIの確認ダイアログ（Promiseでtrue/falseを返す） */
+function sfCapConfirm(msg) {
+  return new Promise(function(resolve) {
+    var ov = document.getElementById('capwarnOverlay');
+    var m = document.getElementById('capwarnMsg');
+    var ok = document.getElementById('capwarnOk');
+    var cancel = document.getElementById('capwarnCancel');
+    if (!ov || !ok || !cancel) { resolve(window.confirm(msg + '\nそれでも予約を追加しますか？')); return; }
+    if (m) m.textContent = msg;
+    function done(v) {
+      ov.classList.remove('show');
+      ok.onclick = null; cancel.onclick = null; ov.onclick = null;
+      resolve(v);
+    }
+    ok.onclick = function() { done(true); };
+    cancel.onclick = function() { done(false); };
+    ov.onclick = function(e) { if (e.target === ov) done(false); };
+    ov.classList.add('show');
+  });
+}
+function sfCapFull(age, start, end, date) {
+  var g = normGarden(CURRENT_GARDEN);
+  var a = Number(age);
+  /* (a) その日の年齢別定員に達しているか */
+  var cap = capEffective(CURRENT_GARDEN, a, date);
+  if (cap != null && countReservations(CURRENT_GARDEN, a, date) >= cap) return true;
+  /* (b) 予約の時間帯と重なる時間帯制限(_blocks: 基本＋その日)で、対象年齢が上限以上 */
+  var sMin = timeToMin(start), eMin = timeToMin(end);
+  var blocks = [];
+  var base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  if (base && Array.isArray(base._blocks)) blocks = blocks.concat(base._blocks);
+  var day = CAP_MIRROR[date] && CAP_MIRROR[date][g];
+  if (day && Array.isArray(day._blocks)) blocks = blocks.concat(day._blocks);
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i];
+    if (!b || !Array.isArray(b.ages) || b.ages.map(Number).indexOf(a) === -1) continue;
+    var bs = timeToMin(b.from), be = timeToMin(b.to);
+    if (eMin <= bs || sMin >= be) continue; /* 時間が重ならない */
+    var lim = Number(b.limit); if (isNaN(lim)) lim = 0;
+    var used = 0;
+    for (var j = 0; j < bookings.length; j++) {
+      var x = bookings[j];
+      if (!x || Number(x.age) !== a) continue;
+      if ((x.date || boardDateStr()) !== date) continue;
+      if (normGarden(x.gardenId) !== g) continue;
+      var xs = timeToMin(x.start), xe = timeToMin(x.end || minToTime(END_HOUR*60));
+      if (xe <= bs || xs >= be) continue; /* この制限帯と重ならない予約は数えない */
+      used++;
+    }
+    if (used >= lim) return true;
+  }
+  return false;
+}
+async function saveBooking() {
   const name = document.getElementById('mName').value.trim();
   if (!name) { alert('お子様氏名を入力してください'); return; }
   const zone = document.getElementById('mZone').value;
@@ -2051,6 +2105,12 @@ function saveBooking() {
   } else {
     const lane = findFreeLane(zone, start, end, -1);
     if (lane < 0) { alert('この時間帯はこの区分の枠が満員です'); return; }
+    /* SF-CAPWARN-UI-20260707 : 満員/受け入れ制限中なら確認（アプリUIのダイアログ） */
+    if (typeof sfCapFull === 'function' && sfCapFull(age, start, end, boardDateStr())) {
+      var _cwLbl = (age === '3' ? '3歳〜' : age + '歳');
+      var _cwMsg = _cwLbl + ' の ' + start + ' 〜 ' + end + ' は満員（受け入れ制限）です。';
+      if (!(await sfCapConfirm(_cwMsg))) return;
+    }
     const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, memo, start, end, date: boardDateStr(),
       affiliation: youchisha ? 'youchisha' : CURRENT_GARDEN };
     // 延長保育(ext_am/ext_pm)以外は共有ストレージに保存し、TimelySchool予約画面・サロン側に表記連携する
@@ -2404,7 +2464,7 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
 <script>
 /* SF-SPPOP-20260707 : ズーム時、ダイアログを可視範囲(visual viewport)の上部中央へ */
 (function(){
-  function boxOf(ov){ return ov.querySelector('.cap-box, .cal-box, .modal'); }
+  function boxOf(ov){ return ov.querySelector('.cap-box, .cal-box, .modal, .capwarn-box'); }
   function place(ov){
     var box = boxOf(ov); if(!box) return;
     var vv = window.visualViewport; if(!vv) return; /* 非対応は従来の中央寄せ */
@@ -2421,7 +2481,7 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     box.style.overflowY = 'auto';
   }
   function placeShown(){
-    var ov = document.querySelector('.cap-overlay.show, .cal-overlay.show, .modal-overlay.show');
+    var ov = document.querySelector('.cap-overlay.show, .cal-overlay.show, .modal-overlay.show, .capwarn-overlay.show');
     if(ov) place(ov);
   }
   var mo = new MutationObserver(function(muts){
@@ -2431,7 +2491,7 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     }
   });
   function start(){
-    var list = document.querySelectorAll('.cap-overlay, .cal-overlay, .modal-overlay');
+    var list = document.querySelectorAll('.cap-overlay, .cal-overlay, .modal-overlay, .capwarn-overlay');
     for(var i=0;i<list.length;i++){ mo.observe(list[i], {attributes:true, attributeFilter:['class']}); }
     if(window.visualViewport){
       window.visualViewport.addEventListener('resize', placeShown);
@@ -2442,5 +2502,32 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
   else start();
 })();
 </script>
+<style>
+/* SF-CAPWARN-UI-20260707 : 満員確認ダイアログ */
+.capwarn-overlay{position:fixed;inset:0;background:rgba(26,31,38,0.5);display:none;align-items:center;justify-content:center;z-index:500;}
+.capwarn-overlay.show{display:flex;}
+.capwarn-box{background:var(--white,#fff);border-radius:14px;padding:26px 26px 20px;width:360px;max-width:calc(100vw - 32px);box-shadow:0 16px 50px rgba(0,0,0,0.32);animation:calPop 0.2s cubic-bezier(0.16,1,0.3,1);text-align:center;}
+.capwarn-icon{font-size:30px;line-height:1;}
+.capwarn-title{font-family:var(--serif-jp,serif);font-size:16px;font-weight:600;color:var(--ink,#1A1F26);margin:10px 0 12px;}
+.capwarn-msg{font-family:var(--serif-jp,serif);font-size:13px;line-height:1.7;color:var(--ink-soft,#5b6470);margin-bottom:4px;}
+.capwarn-sub{font-family:var(--serif-jp,serif);font-size:12px;color:var(--ink-soft,#5b6470);margin-bottom:22px;}
+.capwarn-actions{display:flex;gap:12px;}
+.capwarn-actions button{flex:1;border:none;border-radius:10px;padding:13px 10px;font-family:var(--serif-jp,serif);font-size:14px;cursor:pointer;transition:transform .08s;}
+.capwarn-actions button:active{transform:scale(0.98);}
+.capwarn-cancel{background:var(--ivory,#F5F1E8);color:var(--ink-soft,#5b6470);}
+.capwarn-ok{background:var(--gold,#C9A961);color:#fff;font-weight:600;}
+</style>
+<div class="capwarn-overlay" id="capwarnOverlay">
+  <div class="capwarn-box">
+    <div class="capwarn-icon">&#9888;&#65039;</div>
+    <div class="capwarn-title">受け入れ制限中の時間帯です</div>
+    <div class="capwarn-msg" id="capwarnMsg"></div>
+    <div class="capwarn-sub">それでも予約を追加しますか？</div>
+    <div class="capwarn-actions">
+      <button class="capwarn-cancel" id="capwarnCancel">キャンセル</button>
+      <button class="capwarn-ok" id="capwarnOk">それでも追加する</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
