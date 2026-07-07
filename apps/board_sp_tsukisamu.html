@@ -1412,11 +1412,22 @@ function needsLunch(b) {
 //   limit=0 → 赤系（block-full）、limit>=1 → 黄系（block-limit）。
 //   _blocks が無ければ空文字を返す（行ごと出さない）。
 function renderCapBlockBand() {
-  var base = CAP_MIRROR.base && CAP_MIRROR.base[normGarden(CURRENT_GARDEN)];
-  if (!base || !Array.isArray(base._blocks) || base._blocks.length === 0) return '';
+  var g = normGarden(CURRENT_GARDEN);
+  var base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  /* SF-CAPBLK-DAILY-20260706 : 基本(毎日)の時間帯ブロックは描画しない（日別のみ） */
+  var baseBlocks = [];
+  var _ds = (typeof boardDateStr === 'function') ? boardDateStr() : null;
+  var dayG = (_ds && CAP_MIRROR[_ds]) ? CAP_MIRROR[_ds][g] : null;
+  var dayBlocks = (dayG && Array.isArray(dayG._blocks)) ? dayG._blocks : [];
+  var merged = [];
+  var _k;
+  for (_k = 0; _k < baseBlocks.length; _k++) merged.push({ b: baseBlocks[_k], daily: false });
+  for (_k = 0; _k < dayBlocks.length; _k++) merged.push({ b: dayBlocks[_k], daily: true });
+  if (merged.length === 0) return '';
   var N = SLOTS.length;
   var bands = '';
-  base._blocks.forEach(function(b) {
+  merged.forEach(function(item) {
+    var b = item.b;
     if (!b) return;
     var si = slotIndex(b.from), ei = slotIndex(b.to);
     if (si < 0) return;
@@ -1427,10 +1438,13 @@ function renderCapBlockBand() {
     var lim = Number(b.limit);
     var isFull = isNaN(lim) ? true : (lim <= 0);
     var cls = isFull ? 'block-full' : 'block-limit';
+    if (item.daily) cls += ' block-daily';
     var ages = Array.isArray(b.ages) ? b.ages.slice().sort(function(x,y){return x-y;}).join('・') : '';
     var label = ages ? (ages + '歳') : '';
     if (!isFull) label += ' 定員' + lim;
-    bands += '<div class="cap-block-band ' + cls + '" style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;" title="' + escapeHtml(b.from + '〜' + b.to + ' / ' + label) + '">' + escapeHtml(label) + '</div>';
+    if (item.daily) label = '◆' + label;
+    var tip = (item.daily ? 'この日限定 ' : '') + b.from + '〜' + b.to + ' / ' + label;
+    bands += '<div class="cap-block-band ' + cls + '" style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;" title="' + escapeHtml(tip) + '">' + escapeHtml(label) + '</div>';
   });
   if (!bands) return '';
   return '<div class="cap-block-lane">'
