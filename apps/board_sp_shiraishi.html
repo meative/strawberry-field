@@ -2401,5 +2401,46 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
   else { document.addEventListener('DOMContentLoaded', init); }
 })();
 </script>
+<script>
+/* SF-SPPOP-20260707 : ズーム時、ダイアログを可視範囲(visual viewport)の上部中央へ */
+(function(){
+  function boxOf(ov){ return ov.querySelector('.cap-box, .cal-box, .modal'); }
+  function place(ov){
+    var box = boxOf(ov); if(!box) return;
+    var vv = window.visualViewport; if(!vv) return; /* 非対応は従来の中央寄せ */
+    var M = 10;
+    box.style.width = '';
+    var natural = box.offsetWidth || 340;
+    var w = Math.min(natural, vv.width - M*2);
+    box.style.position = 'fixed';
+    box.style.margin = '0';
+    box.style.left = (vv.offsetLeft + (vv.width - w)/2) + 'px';
+    box.style.top = (vv.offsetTop + M) + 'px';
+    box.style.width = w + 'px';
+    box.style.maxHeight = (vv.height - M*2) + 'px';
+    box.style.overflowY = 'auto';
+  }
+  function placeShown(){
+    var ov = document.querySelector('.cap-overlay.show, .cal-overlay.show, .modal-overlay.show');
+    if(ov) place(ov);
+  }
+  var mo = new MutationObserver(function(muts){
+    for(var i=0;i<muts.length;i++){
+      var t = muts[i].target;
+      if(t && t.classList && t.classList.contains('show')) place(t);
+    }
+  });
+  function start(){
+    var list = document.querySelectorAll('.cap-overlay, .cal-overlay, .modal-overlay');
+    for(var i=0;i<list.length;i++){ mo.observe(list[i], {attributes:true, attributeFilter:['class']}); }
+    if(window.visualViewport){
+      window.visualViewport.addEventListener('resize', placeShown);
+      window.visualViewport.addEventListener('scroll', placeShown);
+    }
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+</script>
 </body>
 </html>
