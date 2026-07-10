@@ -2140,30 +2140,38 @@ function sfCapFull(age, start, end, date, months) {
     var _cap = capEffective(CURRENT_GARDEN, _newSlots[_si], date);
     if (_cap != null && countReservations(CURRENT_GARDEN, _newSlots[_si], date) >= _cap) return true;
   }
-  /* (b) 予約の時間帯と重なる時間帯制限(_blocks: 基本＋その日)で、対象年齢が上限以上 */
+  /* (b) 予約の時間帯と重なる時間帯制限(_blocks: 基本＋その日)。SF-BLOCKSLOT-20260710: 対象年齢を消費枠(consumedSlots)ベースで判定（≤18ヶ月は0・1両枠を枠ごとに独立判定）。枠の写像は減員(part-a)と同一。数える母集団は従来どおり bookings 全件(ゾーン非フィルタ、ext含む)で、本パッチでは変更しない。 */
   var sMin = timeToMin(start), eMin = timeToMin(end);
   var blocks = [];
   var base = CAP_MIRROR.base && CAP_MIRROR.base[g];
   if (base && Array.isArray(base._blocks)) blocks = blocks.concat(base._blocks);
   var day = CAP_MIRROR[date] && CAP_MIRROR[date][g];
   if (day && Array.isArray(day._blocks)) blocks = blocks.concat(day._blocks);
+  var _bkSlots = consumedSlots(totalMonths(age, months));
+  if (!_bkSlots.length) { var _bkNa = normAge(age); if (_bkNa != null) _bkSlots = [_bkNa]; }
   for (var i = 0; i < blocks.length; i++) {
     var b = blocks[i];
-    if (!b || !Array.isArray(b.ages) || b.ages.map(Number).indexOf(a) === -1) continue;
+    if (!b || !Array.isArray(b.ages)) continue;
+    var _bAges = b.ages.map(String);
     var bs = timeToMin(b.from), be = timeToMin(b.to);
     if (eMin <= bs || sMin >= be) continue; /* 時間が重ならない */
     var lim = Number(b.limit); if (isNaN(lim)) lim = 0;
-    var used = 0;
-    for (var j = 0; j < bookings.length; j++) {
-      var x = bookings[j];
-      if (!x || Number(x.age) !== a) continue;
-      if ((x.date || boardDateStr()) !== date) continue;
-      if (normGarden(x.gardenId) !== g) continue;
-      var xs = timeToMin(x.start), xe = timeToMin(x.end || minToTime(END_HOUR*60));
-      if (xe <= bs || xs >= be) continue; /* この制限帯と重ならない予約は数えない */
-      used++;
+    for (var _bk = 0; _bk < _bkSlots.length; _bk++) {
+      var _slot = String(_bkSlots[_bk]);
+      if (_bAges.indexOf(_slot) === -1) continue; /* 新規予約はこの制限枠を消費しない */
+      var used = 0;
+      for (var j = 0; j < bookings.length; j++) {
+        var x = bookings[j];
+        if (!x) continue;
+        if ((x.date || boardDateStr()) !== date) continue;
+        if (normGarden(x.gardenId) !== g) continue;
+        if (consumedSlots(totalMonths(x.age, x.months)).indexOf(_slot) === -1) continue; /* この枠を消費しない既存予約は数えない（不明除外） */
+        var xs = timeToMin(x.start), xe = timeToMin(x.end || minToTime(END_HOUR*60));
+        if (xe <= bs || xs >= be) continue; /* この制限帯と重ならない予約は数えない */
+        used++;
+      }
+      if (used >= lim) return true;
     }
-    if (used >= lim) return true;
   }
   return false;
 }
