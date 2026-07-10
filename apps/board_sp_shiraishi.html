@@ -297,7 +297,7 @@ body {
 
 /* 予約バー（帯） */
 .booking-bar {
-  position: absolute; top: 5px; bottom: 5px; border-radius: 4px;
+  position: absolute; top: 3px; bottom: 3px; border-radius: 4px;
   display: flex; align-items: stretch;
   color: var(--white);
   box-shadow: 0 1px 4px rgba(26,31,38,0.15);
@@ -314,8 +314,14 @@ body {
 .bar-body:active { cursor: grabbing; }
 /* 氏名は伸びず必要時のみ縮む。1行目の幅を優先確保し、収まらないバッジは折り返す */
 .bar-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-primary { display: flex; align-items: center; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.bar-lines { display: flex; flex-direction: column; justify-content: center; min-width: 0; flex: 1 1 auto; gap: 1px; overflow: hidden; }
+.bar-line1, .bar-line2 { display: flex; align-items: center; min-width: 0; gap: 4px; line-height: 1.15; }
+.bar-line1 .bar-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-line2 { font-size: 10px; }
+.bar-line2 .age-chip { margin-right: 0; }
 .bar-handle {
-  width: 10px; flex-shrink: 0; cursor: ew-resize;
+  width: 7px; flex-shrink: 0; cursor: ew-resize;
   background: rgba(255,255,255,0.25);
   display: flex; align-items: center; justify-content: center;
 }
@@ -1630,10 +1636,10 @@ function renderBoard() {
         const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
         const provMark = (b.provisional && !(b.info && b.info.name)) ? '<span class="bar-prov">新規・受付待ち</span>' : '';
         const affilBadge = (b.affiliation === 'youchisha') ? '<span class="affil-badge">幼稚舎</span>' : '';
-        html += `<div class="booking-bar ${zone.key} ${(b.provisional && !(b.info&&b.info.name))?'is-prov':''}" data-idx="${gidx}" style="left:${left}%; width:calc(${width}% - 4px); margin-left:2px;">
+        html += `<div class="booking-bar ${zone.key} ${(b.provisional && !(b.info&&b.info.name))?'is-prov':''}" data-idx="${gidx}" title="${escapeHtml(b.name)}（${ageLabel}）${b.start}〜${b.end}" style="left:${left}%; width:calc(${width}% - 4px); margin-left:2px;">
           <span class="bar-handle bar-handle-l" data-idx="${gidx}" data-edge="l"></span>
           <span class="bar-body" onclick="onBarTap(${gidx})">
-            <span class="age-chip">${ageLabel}</span>${lunch}<span class="bar-name">${escapeHtml(b.name)}</span>${affilBadge}${provMark}${memo}
+            <span class="bar-lines"><span class="bar-line1"><span class="bar-name">${escapeHtml(b.name)}</span>${lunch}${affilBadge}</span><span class="bar-line2"><span class="age-chip">${ageLabel}</span>${provMark}${memo}</span></span>
           </span>
           <span class="bar-handle bar-handle-r" data-idx="${gidx}" data-edge="r"></span>
         </div>`;
@@ -2616,32 +2622,56 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
 </div>
 <script>
 /* SF-SALON-NOTIFY-20260710 — サロン発の新規予約を保育園ボードに通知（持続バナー＋NEWバッジ＋着信ログ＋端末別既読）。
-   自己完結：CSS/DOMをJSで注入し、sfApplySnapshot と renderBoard をラップして拡張する。既存コードは不変。 */
+   自己完結：CSS/DOMをJSで注入し、sfApplySnapshot と renderBoard をラップして拡張する。既存コードは不変。
+   v3: 通知音を三角波3音アルペジオ(ドミソ↑)化＝お迎えアプリ(正弦2音)と明確に区別／NEWバッジをバー1段目の左端インラインに／着信ログに所要時間と「受信」ラベルを追加。 */
 (function () {
   'use strict';
   if (window.__sfSalonNotify) return; window.__sfSalonNotify = true;
 
   var KEY_PREFIX = 'sfNotify:v1:';
   var LOG_CAP = 100;
+  var WD = ['日', '月', '火', '水', '木', '金', '土'];
 
   // ---- ユーティリティ ----
   function curGarden() {
     try { return (typeof normGarden === 'function') ? normGarden(CURRENT_GARDEN) : CURRENT_GARDEN; }
     catch (e) { return 'tsukisamu'; }
   }
+  function baseDate() { try { return new Date(BOARD_BASE); } catch (e) { var d = new Date(); d.setHours(0,0,0,0); return d; } }
   function todayStr() {
-    var d;
-    try { d = new Date(BOARD_BASE); } catch (e) { d = new Date(); d.setHours(0,0,0,0); }
+    var d = baseDate();
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  function fmtDate(ds) {
+    var p = String(ds || '').split('-');
+    if (p.length < 3) return ds || '';
+    var y = +p[0], m = +p[1], d = +p[2];
+    if (!y || !m || !d) return ds;
+    var dt = new Date(y, m - 1, d);
+    var wd = WD[dt.getDay()];
+    var yPrefix = (y !== baseDate().getFullYear()) ? (y + '年') : '';
+    return yPrefix + m + '月' + d + '日(' + wd + ')';
+  }
+  // 'HH:MM','HH:MM' → 'X時間Y分'（利用時間）
+  function fmtDur(s, e) {
+    var a = String(s || '').split(':'), b = String(e || '').split(':');
+    if (a.length < 2 || b.length < 2) return '';
+    var mins = (+b[0] * 60 + +b[1]) - (+a[0] * 60 + +a[1]);
+    if (!(mins > 0)) return '';
+    var h = Math.floor(mins / 60), mm = mins % 60;
+    return (h ? h + '時間' : '') + (mm ? mm + '分' : '');
   }
   function recName(r) { return (r && r.info && r.info.name) ? r.info.name : (r ? r.name : ''); }
   function salonLabel(s) { return s === 'woodstock' ? 'WOODSTOCK' : (s === 'janis' ? 'JANIS' : String(s || '').toUpperCase()); }
-  function isSalonOrigin(r) {
-    return r && !r.fromBoard && (r.salon === 'woodstock' || r.salon === 'janis');
-  }
+  function isSalonOrigin(r) { return r && !r.fromBoard && (r.salon === 'woodstock' || r.salon === 'janis'); }
   function fmtClock(ts) {
     var d = new Date(ts);
     return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
   }
 
   // ---- 端末別・園別 状態 ----
@@ -2653,11 +2683,9 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
       return { seen: o.seen || [], unread: o.unread || [], log: o.log || [], seeded: !!o.seeded };
     } catch (e) { return { seen: [], unread: [], log: [], seeded: false }; }
   }
-  function save(g, st) {
-    try { localStorage.setItem(KEY_PREFIX + g, JSON.stringify(st)); } catch (e) {}
-  }
+  function save(g, st) { try { localStorage.setItem(KEY_PREFIX + g, JSON.stringify(st)); } catch (e) {} }
 
-  // ---- CSS 注入（既存デザイン言語 Tiffany/serif に合わせる） ----
+  // ---- CSS 注入 ----
   function injectCSS() {
     if (document.getElementById('sfNotifyStyle')) return;
     var css = ''
@@ -2666,106 +2694,119 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
       + 'background:rgba(255,255,255,0.97);box-shadow:0 8px 30px rgba(0,0,0,0.18);border:1px solid rgba(201,169,97,0.35);'
       + 'font-family:var(--serif-jp,serif);opacity:0;transition:opacity .25s ease, transform .25s ease;}'
       + '.sf-nb.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0);}'
-      + '.sf-nb.flash{animation:sfNbFlash 1s ease 2;}'
-      + '@keyframes sfNbFlash{0%,100%{box-shadow:0 8px 30px rgba(0,0,0,0.18);}50%{box-shadow:0 0 0 4px rgba(74,201,182,0.45),0 8px 30px rgba(0,0,0,0.22);}}'
+      + '.sf-nb.flash{animation:sfNbFlash .55s ease 4;}'
+      + '@keyframes sfNbFlash{0%,100%{box-shadow:0 8px 30px rgba(0,0,0,0.18);border-color:rgba(201,169,97,0.35);}'
+      + '50%{box-shadow:0 0 0 5px rgba(74,201,182,0.55),0 10px 34px rgba(0,0,0,0.28);border-color:rgba(74,201,182,0.9);}}'
       + '.sf-nb-bell{font-size:18px;line-height:1;}'
+      + '.sf-nb-bell.ring{animation:sfBell .6s ease 3;transform-origin:50% 0;}'
+      + '@keyframes sfBell{0%,100%{transform:rotate(0);}20%{transform:rotate(16deg);}40%{transform:rotate(-13deg);}60%{transform:rotate(8deg);}80%{transform:rotate(-4deg);}}'
       + '.sf-nb-main{display:flex;flex-direction:column;line-height:1.25;cursor:pointer;}'
-      + '.sf-nb-eyebrow{font-family:var(--serif-en,serif);font-style:italic;font-size:10px;letter-spacing:.14em;color:var(--tiffany-deep,#2aa );}'
+      + '.sf-nb-eyebrow{font-family:var(--serif-en,serif);font-style:italic;font-size:10px;letter-spacing:.14em;color:var(--tiffany-deep,#2aa);}'
       + '.sf-nb-title{font-size:14px;font-weight:600;color:var(--ink,#2b2b2b);}'
       + '.sf-nb-title b{color:var(--gold-deep,#9a7b2e);font-size:15px;}'
       + '.sf-nb-ack{font-family:var(--serif-jp,serif);font-size:12px;font-weight:600;color:#fff;background:var(--tiffany,#4ac9b6);'
       + 'border:none;border-radius:10px;padding:7px 14px;cursor:pointer;white-space:nowrap;}'
       + '.sf-nb-ack:active{transform:scale(.97);}'
-      + '.sf-log{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9998;display:none;'
-      + 'width:min(420px,92vw);max-height:52vh;overflow:auto;background:#fff;border-radius:14px;'
-      + 'box-shadow:0 12px 36px rgba(0,0,0,0.22);border:1px solid rgba(0,0,0,0.08);padding:8px 0;}'
+      + '.sf-log{position:fixed;top:66px;left:50%;transform:translateX(-50%);z-index:9998;display:none;'
+      + 'width:min(460px,93vw);max-height:56vh;overflow:auto;background:#fff;border-radius:16px;'
+      + 'box-shadow:0 16px 44px rgba(0,0,0,0.24);border:1px solid rgba(0,0,0,0.06);padding:6px 0;}'
       + '.sf-log.show{display:block;}'
-      + '.sf-log-h{font-family:var(--serif-jp,serif);font-size:12px;color:var(--ink-soft,#777);padding:8px 16px 6px;border-bottom:1px solid #eee;letter-spacing:.03em;}'
-      + '.sf-log-row{display:flex;gap:10px;align-items:baseline;padding:9px 16px;border-bottom:1px solid #f4f4f4;font-family:var(--serif-jp,serif);}'
-      + '.sf-log-row.unread{background:rgba(74,201,182,0.07);}'
-      + '.sf-log-at{font-family:var(--serif-en,serif);font-size:12px;color:var(--gold-deep,#9a7b2e);min-width:44px;}'
-      + '.sf-log-salon{font-size:10px;font-weight:700;letter-spacing:.05em;padding:1px 7px;border-radius:8px;color:#fff;white-space:nowrap;}'
+      + '.sf-log-h{font-family:var(--serif-en,serif);font-style:italic;font-size:11px;letter-spacing:.12em;color:var(--gold-deep,#9a7b2e);padding:10px 18px 8px;border-bottom:1px solid #f0ece2;}'
+      + '.sf-log-row{display:flex;gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid #f6f6f6;font-family:var(--serif-jp,serif);}'
+      + '.sf-log-row:last-child{border-bottom:none;}'
+      + '.sf-log-row.unread{background:linear-gradient(90deg,rgba(74,201,182,0.12),rgba(74,201,182,0.03));}'
+      + '.sf-log-at{display:flex;flex-direction:column;align-items:center;min-width:46px;line-height:1.05;}'
+      + '.sf-log-at .at-time{font-family:var(--serif-en,serif);font-size:13px;color:var(--ink,#4a4a4a);font-weight:600;}'
+      + '.sf-log-at .at-label{font-size:8px;color:#bcb39c;letter-spacing:.12em;margin-top:2px;}'
+      + '.sf-log-salon{font-size:9px;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:8px;color:#fff;white-space:nowrap;align-self:center;}'
       + '.sf-log-salon.woodstock{background:var(--woodstock,#C9A961);}'
       + '.sf-log-salon.janis{background:var(--janis,#5b8fb0);}'
-      + '.sf-log-body{font-size:13px;color:var(--ink,#2b2b2b);}'
-      + '.sf-log-body .t{color:var(--ink-soft,#888);font-size:12px;}'
-      + '.sf-log-empty{padding:18px 16px;text-align:center;color:#aaa;font-family:var(--serif-jp,serif);font-size:13px;}'
+      + '.sf-log-main{display:flex;flex-direction:column;min-width:0;gap:3px;}'
+      + '.sf-log-name{font-size:14px;font-weight:600;color:var(--ink,#2b2b2b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}'
+      + '.sf-log-when{font-size:12px;color:var(--ink-soft,#8a8a8a);}'
+      + '.sf-log-when .day{color:var(--tiffany-deep,#2f9e8e);font-weight:600;margin-right:6px;}'
+      + '.sf-log-when .dur{color:#b7ad95;margin-left:5px;}'
+      + '.sf-log-empty{padding:20px 16px;text-align:center;color:#bbb;font-family:var(--serif-jp,serif);font-size:13px;}'
       + '.booking-bar.sf-new{box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--tiffany,#4ac9b6);}'
-      + '.sf-new-badge{position:absolute;top:-7px;right:-4px;background:var(--tiffany,#4ac9b6);color:#fff;'
-      + 'font-family:var(--serif-en,serif);font-size:9px;font-weight:700;letter-spacing:.06em;padding:1px 5px;border-radius:7px;'
-      + 'box-shadow:0 2px 5px rgba(0,0,0,0.25);pointer-events:none;}';
-    var el = document.createElement('style');
-    el.id = 'sfNotifyStyle'; el.textContent = css;
+      + '.sf-new-badge{display:inline-block;background:var(--tiffany,#4ac9b6);color:#fff;'
+      + 'font-family:var(--serif-en,serif);font-size:8px;font-weight:700;letter-spacing:.06em;padding:1px 4px;border-radius:5px;'
+      + 'margin-right:4px;flex-shrink:0;line-height:1.4;box-shadow:0 1px 3px rgba(0,0,0,0.22);}';
+    var el = document.createElement('style'); el.id = 'sfNotifyStyle'; el.textContent = css;
     document.head.appendChild(el);
   }
 
-  // ---- バナー/ログ DOM 注入 ----
-  var bannerEl, logEl, countEl;
+  // ---- バナー/ログ DOM ----
+  var bannerEl, logEl, countEl, bellEl;
   function injectDOM() {
     if (document.getElementById('sfNotifyBanner')) return;
     bannerEl = document.createElement('div');
     bannerEl.className = 'sf-nb'; bannerEl.id = 'sfNotifyBanner';
     bannerEl.innerHTML =
-      '<span class="sf-nb-bell">🔔</span>'
+      '<span class="sf-nb-bell" id="sfNbBell">🔔</span>'
       + '<div class="sf-nb-main" id="sfNbMain">'
       + '  <span class="sf-nb-eyebrow">NEW RESERVATION</span>'
       + '  <span class="sf-nb-title">サロンから新規予約 <b><span id="sfNbCount">0</span></b> 件</span>'
       + '</div>'
       + '<button class="sf-nb-ack" id="sfNbAck">全部確認</button>';
     document.body.appendChild(bannerEl);
-
-    logEl = document.createElement('div');
-    logEl.className = 'sf-log'; logEl.id = 'sfNotifyLog';
+    logEl = document.createElement('div'); logEl.className = 'sf-log'; logEl.id = 'sfNotifyLog';
     document.body.appendChild(logEl);
-
     countEl = document.getElementById('sfNbCount');
+    bellEl = document.getElementById('sfNbBell');
     document.getElementById('sfNbMain').addEventListener('click', toggleLog);
     document.getElementById('sfNbAck').addEventListener('click', function (e) { e.stopPropagation(); markAllRead(); });
     document.addEventListener('click', function (e) {
-      if (logEl.classList.contains('show') && !logEl.contains(e.target) && !bannerEl.contains(e.target)) {
-        logEl.classList.remove('show');
-      }
+      if (logEl.classList.contains('show') && !logEl.contains(e.target) && !bannerEl.contains(e.target)) logEl.classList.remove('show');
     });
   }
-
   function toggleLog() { renderLog(); logEl.classList.toggle('show'); }
-
   function renderLog() {
     var st = load(curGarden());
     var unread = new Set(st.unread);
     var rows = (st.log || []).map(function (e) {
       var cls = unread.has(e.id) ? ' unread' : '';
+      var dur = fmtDur(e.start, e.end);
       return '<div class="sf-log-row' + cls + '">'
-        + '<span class="sf-log-at">' + fmtClock(e.at) + '</span>'
+        + '<span class="sf-log-at"><span class="at-time">' + fmtClock(e.at) + '</span><span class="at-label">受信</span></span>'
         + '<span class="sf-log-salon ' + e.salon + '">' + salonLabel(e.salon) + '</span>'
-        + '<span class="sf-log-body">' + escapeHtml(e.name) + ' <span class="t">' + (e.date === todayStr() ? '' : (e.date + ' ')) + e.start + '〜' + e.end + '</span></span>'
-        + '</div>';
+        + '<div class="sf-log-main">'
+        + '  <div class="sf-log-name">' + escapeHtml(e.name) + '</div>'
+        + '  <div class="sf-log-when"><span class="day">' + fmtDate(e.date) + '</span>' + e.start + '〜' + e.end + (dur ? '<span class="dur">（' + dur + '）</span>' : '') + '</div>'
+        + '</div></div>';
     }).join('');
-    logEl.innerHTML = '<div class="sf-log-h">サロン予約 着信ログ（この端末）</div>'
+    logEl.innerHTML = '<div class="sf-log-h">SALON RESERVATIONS — 着信ログ（この端末）</div>'
       + (rows || '<div class="sf-log-empty">まだ通知はありません</div>');
   }
 
-  function escapeHtml(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
+  // ---- 通知音（サロン専用：三角波3音アルペジオ）＋自動再生対策 ----
+  var _actx = null;
+  function ensureAudio() {
+    try { var Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return null;
+      if (!_actx) _actx = new Ctx();
+      if (_actx.state === 'suspended' && _actx.resume) _actx.resume();
+      return _actx;
+    } catch (e) { return null; }
   }
-
-  // ---- ビープ（任意・ベストエフォート） ----
-  function beep() {
+  function chime() {
+    var c = ensureAudio(); if (!c) return;
     try {
-      var Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
-      var c = new Ctx(); var o = c.createOscillator(); var g = c.createGain();
-      o.connect(g); g.connect(c.destination); o.type = 'sine'; o.frequency.value = 880;
-      g.gain.setValueAtTime(0.0001, c.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.12, c.currentTime + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.35);
-      o.start(); o.stop(c.currentTime + 0.36);
-      setTimeout(function () { try { c.close(); } catch (e) {} }, 600);
+      function tone(freq, start, dur) {
+        var o = c.createOscillator(), g = c.createGain();
+        o.type = 'triangle'; o.frequency.value = freq; o.connect(g); g.connect(c.destination);
+        var t = c.currentTime + start;
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.16, t + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.start(t); o.stop(t + dur + 0.02);
+      }
+      // ドミソ↑（三角波3音）＝お迎えアプリの正弦2音と耳で明確に区別
+      tone(1047, 0.00, 0.26);  // C6
+      tone(1319, 0.12, 0.26);  // E6
+      tone(1568, 0.24, 0.44);  // G6
     } catch (e) {}
   }
 
-  // ---- 検知（スナップショット/園切替の度に） ----
+  // ---- 検知 ----
   var _lastGarden = null;
   function scan(arr) {
     if (!Array.isArray(arr)) { try { arr = SF_MIRROR; } catch (e) { arr = []; } }
@@ -2774,12 +2815,9 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     var recs = arr.filter(function (r) {
       return isSalonOrigin(r)
         && (typeof normGarden === 'function' ? normGarden(r.gardenId) : r.gardenId) === g
-        && String(r.date || '') >= today; // 今日＋未来
+        && String(r.date || '') >= today;
     });
-    var st = load(g);
-    var seen = new Set(st.seen);
-    var firstLoad = !st.seeded; // この端末×園で初回：既存分は既読扱いで通知しない
-    var arrived = 0;
+    var st = load(g); var seen = new Set(st.seen); var firstLoad = !st.seeded; var arrived = 0;
     recs.forEach(function (r) {
       if (!seen.has(r.id)) {
         seen.add(r.id); st.seen.push(r.id);
@@ -2790,36 +2828,27 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
         }
       }
     });
-    // 既に消えた予約は未読から除去（削除が他端末で行われた場合）
     var present = new Set(recs.map(function (r) { return r.id; }));
     st.unread = st.unread.filter(function (id) { return present.has(id); });
-    // ログ上限
     if (st.log.length > LOG_CAP) st.log = st.log.slice(0, LOG_CAP);
-    st.seeded = true;
-    save(g, st);
-    renderBanner();
-    decorate();
-    if (arrived > 0) { flash(); beep(); }
+    st.seeded = true; save(g, st);
+    renderBanner(); decorate();
+    if (arrived > 0) { flash(); chime(); }
   }
-
   function flash() {
     if (!bannerEl) return;
     bannerEl.classList.remove('flash'); void bannerEl.offsetWidth; bannerEl.classList.add('flash');
+    if (bellEl) { bellEl.classList.remove('ring'); void bellEl.offsetWidth; bellEl.classList.add('ring'); }
   }
-
   function renderBanner() {
     if (!bannerEl) return;
     var n = load(curGarden()).unread.length;
     if (countEl) countEl.textContent = String(n);
     if (n > 0) bannerEl.classList.add('show'); else { bannerEl.classList.remove('show'); if (logEl) logEl.classList.remove('show'); }
   }
-
-  // ---- ボード上のバーへ NEW バッジ付与（renderBoard 後） ----
   function decorate() {
-    // 園が切り替わっていたら再スキャン（未読集合は園別のため）
     if (_lastGarden !== null && curGarden() !== _lastGarden) { scan(); return; }
-    var unread;
-    try { unread = new Set(load(curGarden()).unread); } catch (e) { return; }
+    var unread; try { unread = new Set(load(curGarden()).unread); } catch (e) { return; }
     var bars = document.querySelectorAll('.booking-bar[data-idx]');
     bars.forEach(function (bar) {
       var idx = parseInt(bar.dataset.idx, 10);
@@ -2827,11 +2856,11 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
       var isNew = b && b.sfId && unread.has(b.sfId);
       bar.classList.toggle('sf-new', !!isNew);
       var badge = bar.querySelector('.sf-new-badge');
-      if (isNew && !badge) bar.insertAdjacentHTML('beforeend', '<span class="sf-new-badge">NEW</span>');
+      var line1 = bar.querySelector('.bar-line1');
+      if (isNew && !badge && line1) line1.insertAdjacentHTML('afterbegin', '<span class="sf-new-badge">NEW</span>');
       else if (!isNew && badge) badge.remove();
     });
   }
-
   function markAllRead() {
     var g = curGarden(); var st = load(g); st.unread = []; save(g, st);
     renderBanner(); decorate(); renderLog();
@@ -2857,15 +2886,13 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     }
   }
 
-  // ---- 起動 ----
   function boot() {
     injectCSS(); injectDOM(); wrap();
-    // 初期スキャン（SF_MIRROR が既に入っていれば既存分を既読シード）
+    ['click', 'touchstart', 'keydown'].forEach(function (ev) { document.addEventListener(ev, ensureAudio, { passive: true }); });
     try { scan(); } catch (e) {}
     renderBanner();
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
 </script>
 </body>
