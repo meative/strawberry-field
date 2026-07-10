@@ -784,17 +784,15 @@ body {
       <div class="kana-result" id="kanaResult"></div>
     </div>
     <div class="field">
-      <label>年齢クラス</label>
-      <div class="age-tabs" id="mAgeTabs">
-        <div class="age-tab" data-age="0">0歳</div>
-        <div class="age-tab active" data-age="1">1歳</div>
-        <div class="age-tab" data-age="2">2歳</div>
-        <div class="age-tab" data-age="3">3歳〜</div>
+      <label>生年月（西暦）</label>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <select id="mBirthYear" style="flex:1;"></select>
+        <select id="mBirthMonth" style="flex:1;"></select>
       </div>
-    </div>
-    <div class="field" id="mMonthsField">
-      <label>月齢 <span style="color:var(--gold-deep); font-style:italic; font-family:var(--serif-en); font-size:11px;">任意（わかる場合）</span></label>
-      <div class="months-grid" id="mMonthsGrid"><!-- JSで生成 --></div>
+      <div id="mAgePreview" style="margin-top:8px; display:flex; align-items:center; gap:10px; font-family:var(--serif-jp);">
+        <span style="font-size:11px; color:var(--gold-deep); font-style:italic; font-family:var(--serif-en);">年齢（自動）</span>
+        <span id="mAgePreviewVal" style="font-size:20px; font-weight:700; color:var(--tiffany); letter-spacing:0.02em;">—</span>
+      </div>
     </div>
     <div class="field">
       <label>区分</label>
@@ -1759,8 +1757,7 @@ function onSlotTap(zoneKey, lane, slotIdx) {
   document.getElementById('mYouchisha').checked = false;
   document.getElementById('mDateField').style.display = 'none'; // 新規は現在のボード日付
   document.getElementById('mDate').value = boardDateStr();
-  selectedMonths = null; renderMonthsActive();
-  setAge('1');
+  setBirthYM(null, null); // 新規は生年月未選択（保存時に選択必須）
   resetNameSearch();
   buildStartSelect(SLOTS[slotIdx]);
   setDuration(90);
@@ -1782,8 +1779,7 @@ function onBarTap(gidx) {
   document.getElementById('mYouchisha').checked = (b.affiliation === 'youchisha');
   document.getElementById('mDateField').style.display = ''; // 編集時は日付変更可
   document.getElementById('mDate').value = b.date || boardDateStr();
-  selectedMonths = (b.months != null) ? b.months : null; renderMonthsActive();
-  setAge(b.age);
+  prefillBirthFrom(b); // birthがあればそれ、旧レコードは age/months から逆算して近似表示
   resetNameSearch();
   setTimeFromRange(b.start, b.end);
   // 新規（仮）でまだ受付未連携なら、TimelySchool受付の案内を表示
@@ -1830,6 +1826,15 @@ function ageMonthsFromBirth(by, bm, bd) {
   if (months < 0) months = 0;
   const age = Math.floor(months/12);
   return { age: String(Math.min(age,3)), months: age >= 3 ? null : (months % 12) };
+}
+/* PHASE_A_BIRTH_YM v1 — 生年(西暦)＋誕生月から月齢/年齢を算出（日は取らない＝学年フェーズで追加）。基準日 BOARD_BASE 時点。ageMonthsFromBirth と同形の戻り値。 */
+function ageMonthsFromYM(by, bm) {
+  if (!by || !bm) return { age: null, months: null };
+  const ref = new Date(BOARD_BASE);
+  let months = (ref.getFullYear() - by) * 12 + (ref.getMonth() - (bm - 1));
+  if (months < 0) months = 0;
+  const age = Math.floor(months / 12);
+  return { age: String(Math.min(age, 3)), months: age >= 3 ? null : (months % 12) };
 }
 // TimelySchool受付内容を新規（仮）予約に取り込む
 function syncFromTimelySchool() {
@@ -1884,64 +1889,69 @@ function syncFromTimelySchool() {
   return changed;
 }
 
-let selectedMonths = null; // 選択中の月齢（0〜11）。未選択は null
-
-// 月齢グリッドを生成（0〜11ヶ月）
-function buildMonthsGrid() {
-  const grid = document.getElementById('mMonthsGrid');
-  if (!grid) return;
-  let html = '';
-  for (let m = 2; m <= 11; m++) {
-    html += `<div class="month-cell" data-m="${m}">${m}ヶ月</div>`;
+/* PHASE_A_BIRTH_YM v1 — 入力＝生年(西暦)＋誕生月。age/months は基準日 BOARD_BASE で自動算出（方式A：保存は age/months、birthは付加情報）。年齢クラスタブ＋月齢グリッドは廃止。3歳〜は36ヶ月以上に自動集約、月齢は0〜11すべて算出可。 */
+function buildBirthSelectors() {
+  const yEl = document.getElementById('mBirthYear');
+  const mEl = document.getElementById('mBirthMonth');
+  if (yEl && !yEl.dataset.built) {
+    const cy = new Date().getFullYear(); // 読み込み時はBOARD_BASE未初期化(TDZ)のためnew Dateで年を取得
+    let h = '<option value="">—</option>';
+    for (let y = cy; y >= cy - 7; y--) h += '<option value="' + y + '">' + y + '年</option>';
+    yEl.innerHTML = h;
+    yEl.dataset.built = '1';
+    yEl.addEventListener('change', updateAgePreview);
   }
-  grid.innerHTML = html;
-  grid.querySelectorAll('.month-cell').forEach(c => {
-    c.addEventListener('click', () => {
-      const v = c.dataset.m === '' ? null : parseInt(c.dataset.m, 10);
-      // 同じものを再タップしたら選択解除（任意項目なので未選択に戻せる）
-      selectedMonths = (selectedMonths === v) ? null : v;
-      renderMonthsActive();
-    });
-  });
-}
-function renderMonthsActive() {
-  document.querySelectorAll('#mMonthsGrid .month-cell').forEach(c => {
-    const v = c.dataset.m === '' ? null : parseInt(c.dataset.m, 10);
-    c.classList.toggle('active', v === selectedMonths);
-  });
-}
-// 年齢クラスに応じて月齢欄の表示/非表示を切り替え（3歳〜は月齢なし）
-function updateMonthsVisibility() {
-  const field = document.getElementById('mMonthsField');
-  if (!field) return;
-  const age = getAge();
-  if (age === '3') {
-    field.style.display = 'none';
-    selectedMonths = null;
-    renderMonthsActive();
-  } else {
-    field.style.display = '';
+  if (mEl && !mEl.dataset.built) {
+    let h = '<option value="">—</option>';
+    for (let m = 1; m <= 12; m++) h += '<option value="' + m + '">' + m + '月</option>';
+    mEl.innerHTML = h;
+    mEl.dataset.built = '1';
+    mEl.addEventListener('change', updateAgePreview);
   }
 }
-
-function setAge(age) {
-  document.querySelectorAll('#mAgeTabs .age-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.age === age);
-  });
-  updateMonthsVisibility();
+function getBirthYM() {
+  const y = document.getElementById('mBirthYear');
+  const m = document.getElementById('mBirthMonth');
+  return {
+    by: (y && y.value) ? parseInt(y.value, 10) : null,
+    bm: (m && m.value) ? parseInt(m.value, 10) : null
+  };
 }
-function getAge() {
-  const el = document.querySelector('#mAgeTabs .age-tab.active');
-  return el ? el.dataset.age : '1';
+function setBirthYM(by, bm) {
+  const y = document.getElementById('mBirthYear');
+  const m = document.getElementById('mBirthMonth');
+  if (y) y.value = by ? String(by) : '';
+  if (m) m.value = bm ? String(bm) : '';
+  updateAgePreview();
 }
-function getMonths() {
-  // 3歳〜は月齢なし。それ以外は選択値（未選択は null）
-  return getAge() === '3' ? null : selectedMonths;
+// 旧レコード(birth無し)の編集用：age/months から近似の生年月を逆算（基準日 BOARD_BASE から遡る）
+function birthYMFromAgeMonths(age, months) {
+  const a = parseInt(age, 10);
+  if (isNaN(a)) return { by: null, bm: null };
+  const tm = a * 12 + (months != null ? months : 0); // 3歳〜(months null)は36相当
+  const d = new Date(BOARD_BASE);
+  d.setMonth(d.getMonth() - tm);
+  return { by: d.getFullYear(), bm: d.getMonth() + 1 };
 }
-document.querySelectorAll('#mAgeTabs .age-tab').forEach(t => {
-  t.addEventListener('click', () => setAge(t.dataset.age));
-});
-buildMonthsGrid();
+// 編集/顧客連携時のプリフィル：birthがあればそれ、無ければ age/months から逆算
+function prefillBirthFrom(rec) {
+  if (rec && rec.birthY && rec.birthM) { setBirthYM(rec.birthY, rec.birthM); return; }
+  if (rec) { const d = birthYMFromAgeMonths(rec.age, rec.months); setBirthYM(d.by, d.bm); return; }
+  setBirthYM(null, null);
+}
+function updateAgePreview() {
+  const el = document.getElementById('mAgePreviewVal');
+  if (!el) return;
+  const ym = getBirthYM();
+  const r = ageMonthsFromYM(ym.by, ym.bm);
+  if (r.age == null) el.textContent = '—';                 // 生年月が未選択
+  else if (r.age === '3') el.textContent = '3歳〜';        // 36ヶ月以上は集約表示
+  else el.textContent = r.age + '歳' + (r.months != null ? r.months + 'ヶ月' : '');
+}
+// saveBooking はこの2つを従来どおり呼ぶ（生年月→age/months に変換して返す）
+function getAge() { const ym = getBirthYM(); return ageMonthsFromYM(ym.by, ym.bm).age; }
+function getMonths() { const ym = getBirthYM(); return ageMonthsFromYM(ym.by, ym.bm).months; }
+buildBirthSelectors();
 
 // ===== 時間: 開始時刻 + 所要時間(分) =====
 function timeToMin(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
@@ -2020,7 +2030,7 @@ function suggestItemHtml(c) {
 // 顧客を選択 → 氏名と年齢を自動セット
 function pickCustomer(name, age) {
   document.getElementById('mName').value = name;
-  setAge(age);
+  { const _d = birthYMFromAgeMonths(age, null); setBirthYM(_d.by, _d.bm); } // 顧客の丸め年齢から近似生年月
   document.getElementById('nameSuggest').classList.remove('show');
   document.getElementById('kanaResult').innerHTML = '';
   document.querySelectorAll('#kanaIndex .kana-btn').forEach(b => b.classList.remove('active'));
@@ -2061,7 +2071,7 @@ function openModal() {
   document.getElementById('mZone').value = 'woodstock';
   document.getElementById('mMemo').value = '';
   document.getElementById('mYouchisha').checked = false;
-  setAge('1');
+  setBirthYM(null, null);
   resetNameSearch();
   buildStartSelect('10:00');
   setDuration(90);
@@ -2140,8 +2150,11 @@ async function saveBooking() {
   const name = document.getElementById('mName').value.trim();
   if (!name) { alert('お子様氏名を入力してください'); return; }
   const zone = document.getElementById('mZone').value;
+  const _ym = getBirthYM();
+  const birthY = _ym.by, birthM = _ym.bm;
   const age = getAge();
   const months = getMonths();
+  if (age == null) { alert('生年月（西暦の年と誕生月）を選択してください'); return; }
   const memo = document.getElementById('mMemo').value.trim();
   const youchisha = document.getElementById('mYouchisha').checked;
   const start = document.getElementById('mStart').value;
@@ -2155,7 +2168,7 @@ async function saveBooking() {
     // 編集時は日付欄から予約日を取得（未入力なら元の日付を維持）
     const newDate = document.getElementById('mDate').value || prev.date || boardDateStr();
     const movedToOtherDay = (newDate !== (prev.date || boardDateStr()));
-    const updated = { ...prev, name, zone, age, months, memo, start, end, date: newDate,
+    const updated = { ...prev, name, zone, age, months, birthY, birthM, memo, start, end, date: newDate,
       affiliation: youchisha ? 'youchisha' : (prev.gardenId || CURRENT_GARDEN),
       lane: findFreeLane(zone, start, end, editingIdx) };
     // 共有ストレージにも反映（sfId を持つ＝共有由来の予約のみ）
@@ -2175,7 +2188,7 @@ async function saveBooking() {
       var _cwMsg = _cwLbl + ' の ' + start + ' 〜 ' + end + ' は満員（受け入れ制限）です。';
       if (!(await sfCapConfirm(_cwMsg))) return;
     }
-    const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, memo, start, end, date: boardDateStr(),
+    const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, birthY, birthM, memo, start, end, date: boardDateStr(),
       affiliation: youchisha ? 'youchisha' : CURRENT_GARDEN };
     // 延長保育(ext_am/ext_pm)以外は共有ストレージに保存し、TimelySchool予約画面・サロン側に表記連携する
     if (zone !== 'ext_am' && zone !== 'ext_pm') {
