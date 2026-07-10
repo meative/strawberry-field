@@ -313,7 +313,6 @@ body {
 .bar-body:active { cursor: grabbing; }
 /* 氏名は伸びず必要時のみ縮む。1行目の幅を優先確保し、収まらないバッジは折り返す */
 .bar-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bar-primary { display: flex; align-items: center; min-width: 0; flex: 1 1 auto; overflow: hidden; }
 .bar-lines { display: flex; flex-direction: column; justify-content: center; min-width: 0; flex: 1 1 auto; gap: 1px; overflow: hidden; }
 .bar-line1, .bar-line2 { display: flex; align-items: center; min-width: 0; gap: 4px; line-height: 1.15; }
 .bar-line1 .bar-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2138,7 +2137,6 @@ function sfCapConfirm(msg) {
 }
 function sfCapFull(age, start, end, date, months) {
   var g = normGarden(CURRENT_GARDEN);
-  var a = Number(age);
   /* (a) SF-DECREMENT-20260710 減員: 新規予約が消費する枠(0/1/2/3)のいずれかが定員に達していれば満員扱い */
   var _newSlots = consumedSlots(totalMonths(age, months));
   if (!_newSlots.length) { var _na = normAge(age); if (_na != null) _newSlots = [_na]; }
@@ -2715,6 +2713,7 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     var present = new Set(recs.map(function (r) { return r.id; }));
     st.unread = st.unread.filter(function (id) { return present.has(id); });
     if (st.log.length > LOG_CAP) st.log = st.log.slice(0, LOG_CAP);
+    if (st.seen.length > 1000) st.seen = st.seen.slice(-1000); /* seen 上限（無制限増加を防ぐ） */
     st.seeded = true; save(g, st);
     renderBanner(); decorate();
     if (arrived > 0) { flash(); chime(); }

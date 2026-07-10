@@ -35,3 +35,23 @@ coverage/
 # ローカル設定（個別）
 .env
 .env.local
+
+# パッチ適用時のバックアップ（タイムスタンプ付き prepatch / backup / bk- / broken-）
+*.prepatch
+*.backup
+*.bk-*
+*.broken-*
+*.oldmd
+*.oldmd.md
+
+# ファイル名重複コピー（例: board_sp_factory (1).html）
+apps/*([0-9]).html
+
+# パッチ適用スクリプト（ローカル運用・リポジトリには含めない）
+apply_*.py
+patch_*.py
+apps/kinder_*.py
+
+# 数字サフィックスのバックアップ（例: HANDOFF.md.bk2 / notify.html.backup2）
+*.bk[0-9]*
+*.backup[0-9]*
