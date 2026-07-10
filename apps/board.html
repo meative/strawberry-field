@@ -2498,5 +2498,259 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     </div>
   </div>
 </div>
+<script>
+/* SF-SALON-NOTIFY-20260710 — サロン発の新規予約を保育園ボードに通知（持続バナー＋NEWバッジ＋着信ログ＋端末別既読）。
+   自己完結：CSS/DOMをJSで注入し、sfApplySnapshot と renderBoard をラップして拡張する。既存コードは不変。 */
+(function () {
+  'use strict';
+  if (window.__sfSalonNotify) return; window.__sfSalonNotify = true;
+
+  var KEY_PREFIX = 'sfNotify:v1:';
+  var LOG_CAP = 100;
+
+  // ---- ユーティリティ ----
+  function curGarden() {
+    try { return (typeof normGarden === 'function') ? normGarden(CURRENT_GARDEN) : CURRENT_GARDEN; }
+    catch (e) { return 'tsukisamu'; }
+  }
+  function todayStr() {
+    var d;
+    try { d = new Date(BOARD_BASE); } catch (e) { d = new Date(); d.setHours(0,0,0,0); }
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  function recName(r) { return (r && r.info && r.info.name) ? r.info.name : (r ? r.name : ''); }
+  function salonLabel(s) { return s === 'woodstock' ? 'WOODSTOCK' : (s === 'janis' ? 'JANIS' : String(s || '').toUpperCase()); }
+  function isSalonOrigin(r) {
+    return r && !r.fromBoard && (r.salon === 'woodstock' || r.salon === 'janis');
+  }
+  function fmtClock(ts) {
+    var d = new Date(ts);
+    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+
+  // ---- 端末別・園別 状態 ----
+  function load(g) {
+    try {
+      var raw = localStorage.getItem(KEY_PREFIX + g);
+      if (!raw) return { seen: [], unread: [], log: [], seeded: false };
+      var o = JSON.parse(raw);
+      return { seen: o.seen || [], unread: o.unread || [], log: o.log || [], seeded: !!o.seeded };
+    } catch (e) { return { seen: [], unread: [], log: [], seeded: false }; }
+  }
+  function save(g, st) {
+    try { localStorage.setItem(KEY_PREFIX + g, JSON.stringify(st)); } catch (e) {}
+  }
+
+  // ---- CSS 注入（既存デザイン言語 Tiffany/serif に合わせる） ----
+  function injectCSS() {
+    if (document.getElementById('sfNotifyStyle')) return;
+    var css = ''
+      + '.sf-nb{position:fixed;top:14px;left:50%;transform:translateX(-50%) translateY(-8px);z-index:9999;'
+      + 'display:none;align-items:center;gap:14px;max-width:92vw;padding:11px 16px;border-radius:14px;'
+      + 'background:rgba(255,255,255,0.97);box-shadow:0 8px 30px rgba(0,0,0,0.18);border:1px solid rgba(201,169,97,0.35);'
+      + 'font-family:var(--serif-jp,serif);opacity:0;transition:opacity .25s ease, transform .25s ease;}'
+      + '.sf-nb.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0);}'
+      + '.sf-nb.flash{animation:sfNbFlash 1s ease 2;}'
+      + '@keyframes sfNbFlash{0%,100%{box-shadow:0 8px 30px rgba(0,0,0,0.18);}50%{box-shadow:0 0 0 4px rgba(74,201,182,0.45),0 8px 30px rgba(0,0,0,0.22);}}'
+      + '.sf-nb-bell{font-size:18px;line-height:1;}'
+      + '.sf-nb-main{display:flex;flex-direction:column;line-height:1.25;cursor:pointer;}'
+      + '.sf-nb-eyebrow{font-family:var(--serif-en,serif);font-style:italic;font-size:10px;letter-spacing:.14em;color:var(--tiffany-deep,#2aa );}'
+      + '.sf-nb-title{font-size:14px;font-weight:600;color:var(--ink,#2b2b2b);}'
+      + '.sf-nb-title b{color:var(--gold-deep,#9a7b2e);font-size:15px;}'
+      + '.sf-nb-ack{font-family:var(--serif-jp,serif);font-size:12px;font-weight:600;color:#fff;background:var(--tiffany,#4ac9b6);'
+      + 'border:none;border-radius:10px;padding:7px 14px;cursor:pointer;white-space:nowrap;}'
+      + '.sf-nb-ack:active{transform:scale(.97);}'
+      + '.sf-log{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:9998;display:none;'
+      + 'width:min(420px,92vw);max-height:52vh;overflow:auto;background:#fff;border-radius:14px;'
+      + 'box-shadow:0 12px 36px rgba(0,0,0,0.22);border:1px solid rgba(0,0,0,0.08);padding:8px 0;}'
+      + '.sf-log.show{display:block;}'
+      + '.sf-log-h{font-family:var(--serif-jp,serif);font-size:12px;color:var(--ink-soft,#777);padding:8px 16px 6px;border-bottom:1px solid #eee;letter-spacing:.03em;}'
+      + '.sf-log-row{display:flex;gap:10px;align-items:baseline;padding:9px 16px;border-bottom:1px solid #f4f4f4;font-family:var(--serif-jp,serif);}'
+      + '.sf-log-row.unread{background:rgba(74,201,182,0.07);}'
+      + '.sf-log-at{font-family:var(--serif-en,serif);font-size:12px;color:var(--gold-deep,#9a7b2e);min-width:44px;}'
+      + '.sf-log-salon{font-size:10px;font-weight:700;letter-spacing:.05em;padding:1px 7px;border-radius:8px;color:#fff;white-space:nowrap;}'
+      + '.sf-log-salon.woodstock{background:var(--woodstock,#C9A961);}'
+      + '.sf-log-salon.janis{background:var(--janis,#5b8fb0);}'
+      + '.sf-log-body{font-size:13px;color:var(--ink,#2b2b2b);}'
+      + '.sf-log-body .t{color:var(--ink-soft,#888);font-size:12px;}'
+      + '.sf-log-empty{padding:18px 16px;text-align:center;color:#aaa;font-family:var(--serif-jp,serif);font-size:13px;}'
+      + '.booking-bar.sf-new{box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--tiffany,#4ac9b6);}'
+      + '.sf-new-badge{position:absolute;top:-7px;right:-4px;background:var(--tiffany,#4ac9b6);color:#fff;'
+      + 'font-family:var(--serif-en,serif);font-size:9px;font-weight:700;letter-spacing:.06em;padding:1px 5px;border-radius:7px;'
+      + 'box-shadow:0 2px 5px rgba(0,0,0,0.25);pointer-events:none;}';
+    var el = document.createElement('style');
+    el.id = 'sfNotifyStyle'; el.textContent = css;
+    document.head.appendChild(el);
+  }
+
+  // ---- バナー/ログ DOM 注入 ----
+  var bannerEl, logEl, countEl;
+  function injectDOM() {
+    if (document.getElementById('sfNotifyBanner')) return;
+    bannerEl = document.createElement('div');
+    bannerEl.className = 'sf-nb'; bannerEl.id = 'sfNotifyBanner';
+    bannerEl.innerHTML =
+      '<span class="sf-nb-bell">🔔</span>'
+      + '<div class="sf-nb-main" id="sfNbMain">'
+      + '  <span class="sf-nb-eyebrow">NEW RESERVATION</span>'
+      + '  <span class="sf-nb-title">サロンから新規予約 <b><span id="sfNbCount">0</span></b> 件</span>'
+      + '</div>'
+      + '<button class="sf-nb-ack" id="sfNbAck">全部確認</button>';
+    document.body.appendChild(bannerEl);
+
+    logEl = document.createElement('div');
+    logEl.className = 'sf-log'; logEl.id = 'sfNotifyLog';
+    document.body.appendChild(logEl);
+
+    countEl = document.getElementById('sfNbCount');
+    document.getElementById('sfNbMain').addEventListener('click', toggleLog);
+    document.getElementById('sfNbAck').addEventListener('click', function (e) { e.stopPropagation(); markAllRead(); });
+    document.addEventListener('click', function (e) {
+      if (logEl.classList.contains('show') && !logEl.contains(e.target) && !bannerEl.contains(e.target)) {
+        logEl.classList.remove('show');
+      }
+    });
+  }
+
+  function toggleLog() { renderLog(); logEl.classList.toggle('show'); }
+
+  function renderLog() {
+    var st = load(curGarden());
+    var unread = new Set(st.unread);
+    var rows = (st.log || []).map(function (e) {
+      var cls = unread.has(e.id) ? ' unread' : '';
+      return '<div class="sf-log-row' + cls + '">'
+        + '<span class="sf-log-at">' + fmtClock(e.at) + '</span>'
+        + '<span class="sf-log-salon ' + e.salon + '">' + salonLabel(e.salon) + '</span>'
+        + '<span class="sf-log-body">' + escapeHtml(e.name) + ' <span class="t">' + (e.date === todayStr() ? '' : (e.date + ' ')) + e.start + '〜' + e.end + '</span></span>'
+        + '</div>';
+    }).join('');
+    logEl.innerHTML = '<div class="sf-log-h">サロン予約 着信ログ（この端末）</div>'
+      + (rows || '<div class="sf-log-empty">まだ通知はありません</div>');
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ---- ビープ（任意・ベストエフォート） ----
+  function beep() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return;
+      var c = new Ctx(); var o = c.createOscillator(); var g = c.createGain();
+      o.connect(g); g.connect(c.destination); o.type = 'sine'; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.12, c.currentTime + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 0.35);
+      o.start(); o.stop(c.currentTime + 0.36);
+      setTimeout(function () { try { c.close(); } catch (e) {} }, 600);
+    } catch (e) {}
+  }
+
+  // ---- 検知（スナップショット/園切替の度に） ----
+  var _lastGarden = null;
+  function scan(arr) {
+    if (!Array.isArray(arr)) { try { arr = SF_MIRROR; } catch (e) { arr = []; } }
+    var g = curGarden(); _lastGarden = g;
+    var today = todayStr();
+    var recs = arr.filter(function (r) {
+      return isSalonOrigin(r)
+        && (typeof normGarden === 'function' ? normGarden(r.gardenId) : r.gardenId) === g
+        && String(r.date || '') >= today; // 今日＋未来
+    });
+    var st = load(g);
+    var seen = new Set(st.seen);
+    var firstLoad = !st.seeded; // この端末×園で初回：既存分は既読扱いで通知しない
+    var arrived = 0;
+    recs.forEach(function (r) {
+      if (!seen.has(r.id)) {
+        seen.add(r.id); st.seen.push(r.id);
+        if (!firstLoad) {
+          st.unread.push(r.id);
+          st.log.unshift({ id: r.id, at: Date.now(), salon: r.salon, name: recName(r), start: r.start, end: r.end, date: r.date || today });
+          arrived++;
+        }
+      }
+    });
+    // 既に消えた予約は未読から除去（削除が他端末で行われた場合）
+    var present = new Set(recs.map(function (r) { return r.id; }));
+    st.unread = st.unread.filter(function (id) { return present.has(id); });
+    // ログ上限
+    if (st.log.length > LOG_CAP) st.log = st.log.slice(0, LOG_CAP);
+    st.seeded = true;
+    save(g, st);
+    renderBanner();
+    decorate();
+    if (arrived > 0) { flash(); beep(); }
+  }
+
+  function flash() {
+    if (!bannerEl) return;
+    bannerEl.classList.remove('flash'); void bannerEl.offsetWidth; bannerEl.classList.add('flash');
+  }
+
+  function renderBanner() {
+    if (!bannerEl) return;
+    var n = load(curGarden()).unread.length;
+    if (countEl) countEl.textContent = String(n);
+    if (n > 0) bannerEl.classList.add('show'); else { bannerEl.classList.remove('show'); if (logEl) logEl.classList.remove('show'); }
+  }
+
+  // ---- ボード上のバーへ NEW バッジ付与（renderBoard 後） ----
+  function decorate() {
+    // 園が切り替わっていたら再スキャン（未読集合は園別のため）
+    if (_lastGarden !== null && curGarden() !== _lastGarden) { scan(); return; }
+    var unread;
+    try { unread = new Set(load(curGarden()).unread); } catch (e) { return; }
+    var bars = document.querySelectorAll('.booking-bar[data-idx]');
+    bars.forEach(function (bar) {
+      var idx = parseInt(bar.dataset.idx, 10);
+      var b = (typeof bookings !== 'undefined' && bookings) ? bookings[idx] : null;
+      var isNew = b && b.sfId && unread.has(b.sfId);
+      bar.classList.toggle('sf-new', !!isNew);
+      var badge = bar.querySelector('.sf-new-badge');
+      if (isNew && !badge) bar.insertAdjacentHTML('beforeend', '<span class="sf-new-badge">NEW</span>');
+      else if (!isNew && badge) badge.remove();
+    });
+  }
+
+  function markAllRead() {
+    var g = curGarden(); var st = load(g); st.unread = []; save(g, st);
+    renderBanner(); decorate(); renderLog();
+  }
+
+  // ---- 既存関数のラップ ----
+  function wrap() {
+    if (typeof window.sfApplySnapshot === 'function') {
+      var _apply = window.sfApplySnapshot;
+      window.sfApplySnapshot = function (arr) {
+        var r = _apply.apply(this, arguments);
+        try { scan(arr); } catch (e) { console.error('[sfNotify scan]', e); }
+        return r;
+      };
+    }
+    if (typeof window.renderBoard === 'function') {
+      var _render = window.renderBoard;
+      window.renderBoard = function () {
+        var r = _render.apply(this, arguments);
+        try { decorate(); } catch (e) { console.error('[sfNotify decorate]', e); }
+        return r;
+      };
+    }
+  }
+
+  // ---- 起動 ----
+  function boot() {
+    injectCSS(); injectDOM(); wrap();
+    // 初期スキャン（SF_MIRROR が既に入っていれば既存分を既読シード）
+    try { scan(); } catch (e) {}
+    renderBanner();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
 </body>
 </html>
