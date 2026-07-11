@@ -550,6 +550,26 @@ function normAge(a) {
   if (isNaN(n) || n < 0) return null;
   return String(Math.min(n, 3));
 }
+// SF-SALON-CSLOT-20260711: board減員と同一の消費枠写像。≤18ヶ月は0・1両枠を消費
+function totalMonths(age, months) {
+  if (age === '3') return 36;
+  var a = parseInt(age, 10);
+  if (isNaN(a)) return null;
+  return a * 12 + (months != null ? months : 0);
+}
+function consumedSlots(months) {
+  if (months == null || isNaN(months) || months < 0) return [];
+  if (months <= 18) return ['0','1'];
+  if (months < 24) return ['1'];
+  if (months < 36) return ['2'];
+  return ['3'];
+}
+// 選択中の子が消費する枠（生年月→月齢→消費枠）。未確定時は丸めageにフォールバック
+function selConsumedSlots() {
+  const s = consumedSlots(totalMonths(selectedAge, selectedMonths));
+  if (s.length) return s;
+  const n = normAge(selectedAge); return (n != null) ? [n] : [];
+}
 // 実効定員を解決：日別例外 → 基本設定 → 未設定(null=無制限) の順
 function capEffective(garden, age, date) {
   const g = normGarden(garden); const a = String(age);
@@ -560,17 +580,21 @@ function capEffective(garden, age, date) {
   return null; // 未設定＝無制限
 }
 // その日・その園・その年齢区分の予約数（temp/woodstock/janis、仮予約も数える、ext・年齢不明除外）
-function countReservations(garden, age, date) {
-  const g = normGarden(garden); const a = String(age);
+function countReservations(garden, slot, date) {
+  const g = normGarden(garden); const s = String(slot);
   let c = 0;
   sfLoad().forEach(r => {
     if (!r || !COUNTED_ZONES.has(r.salon)) return;
     if (normGarden(r.gardenId) !== g) return;
     if (r.date !== date) return;
-    if (normAge(r.age) !== a) return;
+    if (consumedSlots(totalMonths(r.age, r.months)).indexOf(s) === -1) return; // その枠を消費する予約か（≤18ヶ月は0/1両方・不明除外）
     c++;
   });
   return c;
+}
+// その日、消費枠のいずれかが1日定員に達しているか（board part-aと整合）
+function dayCapFull(slots, date) {
+  return slots.some(s => { const cap = capEffective(CURRENT_GARDEN, s, date); return (cap != null) && countReservations(CURRENT_GARDEN, s, date) >= cap; });
 }
 // onSnapshot（module側）から呼ばれる：定員マップを丸ごと置換（salon は読み取り専用・再描画不要）
 window.capApplySnapshot = function(map) {
@@ -614,7 +638,24 @@ let used = {};
 AGES.forEach(a => used[a.key] = new Array(N).fill(0));
 // サンプルで一部埋める
 function seed(age, start, end) { for (let i=slotIdx(start); i<slotIdx(end); i++) if(i>=0) used[age][i]++; }
-seed('0','10:00','11:30'); seed('0','13:00','14:00');
+// used グリッドを実データ(sf_bookings)から消費枠ベースで再構築（サンプルseed廃止）。checkAvailability の都度呼ぶ
+function rebuildUsed() {
+  const g = normGarden(CURRENT_GARDEN);
+  const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+  const ds = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+  const grid = {}; AGES.forEach(a => grid[a.key] = new Array(N).fill(0));
+  sfLoad().forEach(r => {
+    if (!r || !COUNTED_ZONES.has(r.salon)) return;
+    if (normGarden(r.gardenId) !== g) return;
+    if (r.date !== ds) return;
+    const slots = consumedSlots(totalMonths(r.age, r.months));
+    if (!slots.length) return;
+    const si = slotIdx(r.start), ei = slotIdx(r.end);
+    for (let i = si; i < ei; i++) { if (i < 0) continue; slots.forEach(s => { if (grid[s]) grid[s][i]++; }); }
+  });
+  used = grid;
+}
+
 seed('1','09:00','12:00'); seed('1','13:00','14:30');
 seed('2','11:00','13:00');
 seed('3','15:00','17:00');
@@ -778,6 +819,8 @@ function checkAvailability() {
   const dur = parseInt(document.getElementById('wantDur').value);
   const area = document.getElementById('resultArea');
   if (!start) { area.innerHTML = ''; return; }
+  rebuildUsed();
+  const _slots = selConsumedSlots();
   const a = ACCEPT[selectedAge];
   const sIdx = slotIdx(start);
   const slotsNeeded = dur / SLOT_MIN;
@@ -789,8 +832,7 @@ function checkAvailability() {
   // 日付は予約書き込みと同一式（new Date() + dayOffset）で算出し、判定日と予約日を一致させる
   const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
   const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
-  const _cap = capEffective(CURRENT_GARDEN, selectedAge, _capDate);
-  if (_cap != null && countReservations(CURRENT_GARDEN, selectedAge, _capDate) >= _cap) {
+  if (dayCapFull(_slots, _capDate)) {
     area.innerHTML = `<div class="result-ng">
       <div class="result-headline">この日 ${ageJp} は満員です</div>
       <div class="result-detail">申し訳ございません。${ageJp}のこの日のお預かりは満員でございます。別の日でご相談くださいませ。</div>
@@ -798,7 +840,7 @@ function checkAvailability() {
     return;
   }
 
-  if (rangeAvailable(selectedAge, sIdx, eIdx)) {
+  if (_slots.every(s => rangeAvailable(s, sIdx, eIdx))) {
     // 予約可能
     area.innerHTML = `<div class="result-ok">
       <div class="result-headline">◎ お預かりできます</div>
@@ -810,7 +852,7 @@ function checkAvailability() {
     </div>`;
   } else {
     // 予約不可 → 同じ長さで入れる近い時間を探す
-    const alts = findAlternatives(selectedAge, dur, sIdx);
+    const alts = findAlternatives(_slots, dur, sIdx);
     let altHtml;
     if (alts.length) {
       altHtml = `<div class="alt-title">近い時間で、以下が空いています：</div>
@@ -830,11 +872,11 @@ function checkAvailability() {
 }
 
 // 同じ長さで入れる代替時間（最大4件）
-function findAlternatives(age, dur, aroundIdx) {
+function findAlternatives(slots, dur, aroundIdx) {
   const slotsNeeded = dur / SLOT_MIN;
   const candidates = [];
   for (let s = 0; s + slotsNeeded <= N; s++) {
-    if (rangeAvailable(age, s, s + slotsNeeded)) candidates.push(s);
+    if (slots.every(_s => rangeAvailable(_s, s, s + slotsNeeded))) candidates.push(s);
   }
   // aroundIdxに近い順
   candidates.sort((x,y) => Math.abs(x-aroundIdx) - Math.abs(y-aroundIdx));
@@ -915,8 +957,7 @@ function confirmReserve() {
   {
     const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
     const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
-    const _cap = capEffective(CURRENT_GARDEN, selectedAge, _capDate);
-    if (_cap != null && countReservations(CURRENT_GARDEN, selectedAge, _capDate) >= _cap) {
+    if (dayCapFull(selConsumedSlots(), _capDate)) {
       showToast(`申し訳ございません。${AGES.find(a => a.key === selectedAge).jp}のこの日のお預かりは満員でございます`);
       return;
     }
