@@ -3,324 +3,690 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>STRAWBERRY FIELD ・ 店舗別 配布ガイド</title>
+<title>店舗別 配布ガイド ・ Strawberry Field</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+JP:wght@300;400;500;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{
-  --ivory:#F8F4ED; --ivory-deep:#EFE8DA; --tiffany:#0ABAB5; --tiffany-deep:#089A95; --tiffany-soft:#E8F4F3;
-  --gold:#C9A961; --gold-deep:#A88A4A; --ink:#1A1F26; --ink-soft:#4A5158;
-  --line:#DDD4C2; --line-soft:#EAE4D4; --error:#B23E4C; --success:#5A8A6A; --white:#FFFFFF;
-  --woodstock:#C9A961; --janis:#5B8DB8;
-  --serif-en:'Cormorant Garamond',serif; --serif-jp:'Noto Serif JP',serif;
+:root {
+  --ivory: #F8F4ED;
+  --ivory-deep: #EFE8DA;
+  --tiffany: #0ABAB5;
+  --tiffany-deep: #089A95;
+  --tiffany-soft: #E8F4F3;
+  --gold: #C9A961;
+  --gold-deep: #A88A4A;
+  --ink: #1A1F26;
+  --ink-soft: #4A5158;
+  --line: #DDD4C2;
+  --line-soft: #EAE4D4;
+  --error: #B23E4C;
+  --success: #5A8A6A;
+  --white: #FFFFFF;
+  --serif-en: 'Cormorant Garamond', serif;
+  --serif-jp: 'Noto Serif JP', serif;
+  --sans: 'Inter', sans-serif;
 }
-*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:var(--serif-jp);color:var(--ink);background:var(--ivory);line-height:1.8;}
-.wrap{max-width:900px;margin:0 auto;background:var(--white);padding:56px 64px;}
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--ivory);
+  color: var(--ink);
+  font-family: var(--serif-jp);
+  font-weight: 400;
+  line-height: 1.9;
+  padding: 32px 16px 80px;
+}
+.wrap { max-width: 860px; margin: 0 auto; }
 
 /* 表紙 */
-.cover{text-align:center;padding:56px 0 48px;border-bottom:1px solid var(--gold);margin-bottom:48px;}
-.cover .eyebrow{font-family:var(--serif-en);font-style:italic;font-size:13px;color:var(--gold-deep);letter-spacing:.3em;margin-bottom:20px;}
-.cover .brand{font-family:var(--serif-en);font-style:italic;font-size:46px;color:var(--ink);letter-spacing:.02em;}
-.cover .brand .f{color:var(--tiffany);}
-.cover .title{font-family:var(--serif-jp);font-size:21px;letter-spacing:.2em;margin-top:14px;}
-.orn{display:flex;align-items:center;justify-content:center;gap:14px;margin:26px 0 0;}
-.orn .l{width:70px;height:1px;background:var(--gold);} .orn .d{color:var(--gold);font-size:13px;}
-.cover .meta{font-family:var(--serif-en);font-size:12px;color:var(--ink-soft);letter-spacing:.15em;margin-top:22px;}
+.cover {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 56px 40px 48px;
+  text-align: center;
+  margin-bottom: 36px;
+}
+.cover .eyebrow {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 14px;
+  letter-spacing: 0.22em;
+  color: var(--gold-deep);
+  margin-bottom: 14px;
+}
+.cover h1 {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 46px;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+}
+.cover h1 .ac { color: var(--tiffany); }
+.cover .jp {
+  font-family: var(--serif-jp);
+  font-size: 19px;
+  font-weight: 500;
+  margin-top: 12px;
+  letter-spacing: 0.08em;
+}
+.orn { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 24px 0 18px; }
+.orn .l { width: 60px; height: 1px; background: var(--gold); }
+.orn .d { color: var(--gold); font-size: 9px; }
+.cover .date { font-size: 12px; color: var(--ink-soft); letter-spacing: 0.1em; }
 
-/* 見出し */
-h2{font-family:var(--serif-jp);font-size:19px;margin:44px 0 6px;padding-bottom:8px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:12px;}
-h2 .num{font-family:var(--serif-en);font-style:italic;font-size:14px;color:var(--gold-deep);letter-spacing:.1em;}
-h2 .en{font-family:var(--serif-en);font-style:italic;font-size:13px;color:var(--ink-soft);margin-left:auto;font-weight:400;}
-.lead{font-size:14px;color:var(--ink-soft);margin:14px 0 22px;}
+/* セクション */
+.sec {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 34px 34px 30px;
+  margin-bottom: 24px;
+}
+.sec-num {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  color: var(--gold-deep);
+}
+.sec-title { font-size: 24px; font-weight: 600; margin-top: 4px; letter-spacing: 0.04em; }
+.sec-title-en {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--ink-soft);
+  margin-bottom: 20px;
+}
+.sec p { font-size: 15px; margin-bottom: 14px; }
+strong { color: var(--tiffany-deep); font-weight: 600; }
 
 /* 店舗カード */
-.shop{border:1px solid var(--line);border-radius:4px;margin:18px 0;overflow:hidden;page-break-inside:avoid;}
-.shop-head{padding:13px 18px;background:var(--ivory);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-.shop-name{font-family:var(--serif-jp);font-size:16px;font-weight:600;}
-.shop-en{font-family:var(--serif-en);font-style:italic;font-size:13px;color:var(--gold-deep);}
-.shop-kind{margin-left:auto;font-size:11px;padding:2px 10px;border-radius:2px;font-family:var(--serif-jp);}
-.kind-en{background:var(--tiffany-soft);color:var(--tiffany-deep);border:1px solid var(--tiffany);}
-.kind-wood{background:rgba(201,169,97,.12);color:var(--gold-deep);border:1px solid var(--gold);}
-.kind-janis{background:#EAF1F7;color:#3D6E96;border:1px solid var(--janis);}
-.shop-body{padding:6px 18px 14px;}
+.shop {
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  margin-bottom: 22px;
+  overflow: hidden;
+}
+.shop-head {
+  background: var(--ink);
+  color: var(--white);
+  padding: 16px 22px;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.shop-no {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 22px;
+  color: var(--gold);
+}
+.shop-name { font-size: 18px; font-weight: 500; letter-spacing: 0.05em; }
+.shop-sub {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--tiffany);
+  margin-left: auto;
+}
+.shop-body { padding: 20px 22px 8px; }
 
-.app{padding:12px 0;border-bottom:1px solid var(--line-soft);}
-.app:last-child{border-bottom:none;}
-.app-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
-.app-name{font-size:14px;font-weight:500;}
-.app-dev{font-size:11px;color:var(--ink-soft);background:var(--ivory-deep);padding:1px 8px;border-radius:2px;}
-.url{display:block;margin-top:6px;font-family:var(--serif-en);font-size:13px;color:var(--tiffany-deep);word-break:break-all;background:var(--tiffany-soft);padding:7px 10px;border-radius:3px;border:1px solid rgba(10,186,181,.25);user-select:all;}
-.fixed{font-size:11px;color:var(--success);margin-top:5px;}
-.caution{font-size:12px;color:var(--error);margin-top:5px;}
-.hint{font-size:12px;color:var(--ink-soft);margin-top:5px;}
+/* アプリ項目 */
+.app { margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px dashed var(--line-soft); }
+.app:last-child { border-bottom: none; }
+.app-name { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+.app-role { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 9px; }
+.url {
+  display: block;
+  background: var(--ivory);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 11px 13px;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--tiffany-deep);
+  word-break: break-all;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.url:hover { border-color: var(--tiffany); background: var(--tiffany-soft); }
+.url-hint { font-size: 11px; color: var(--ink-soft); margin-top: 5px; font-family: var(--sans); }
 
 /* 注意ボックス */
-.box{border-radius:4px;padding:14px 18px;margin:16px 0;font-size:13.5px;line-height:1.85;}
-.box-warn{background:rgba(178,62,76,.05);border:1px solid rgba(178,62,76,.35);}
-.box-tif{background:var(--tiffany-soft);border:1px solid var(--tiffany);}
-.box-gold{background:var(--ivory);border:1px solid var(--gold);}
-.box-title{font-family:var(--serif-jp);font-size:13px;font-weight:600;margin-bottom:6px;}
-.box-warn .box-title{color:var(--error);} .box-tif .box-title{color:var(--tiffany-deep);} .box-gold .box-title{color:var(--gold-deep);}
+.note {
+  border-left: 3px solid var(--gold);
+  background: #FCF9F2;
+  border-radius: 0 4px 4px 0;
+  padding: 12px 16px;
+  margin-top: 10px;
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+.note.warn { border-left-color: var(--error); background: #FDF2F3; }
+.note.tif { border-left-color: var(--tiffany); background: var(--tiffany-soft); }
+.note-label {
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--gold-deep);
+  display: block;
+  margin-bottom: 3px;
+}
+.note.warn .note-label { color: var(--error); }
+.note.tif .note-label { color: var(--tiffany-deep); }
+
+.none {
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  background: var(--ivory);
+  border-radius: 4px;
+  padding: 12px 16px;
+}
 
 /* 手順 */
-.step{display:flex;gap:14px;padding:10px 0;border-bottom:1px solid var(--line-soft);}
-.step:last-child{border-bottom:none;}
-.step-n{flex-shrink:0;width:24px;height:24px;border-radius:50%;background:var(--ink);color:var(--white);font-family:var(--serif-en);font-size:12px;display:flex;align-items:center;justify-content:center;}
-.step-t{font-size:14px;font-weight:500;}
-.step-d{font-size:13px;color:var(--ink-soft);margin-top:2px;}
+.step { display: flex; gap: 16px; margin-bottom: 16px; align-items: flex-start; }
+.step-n {
+  flex-shrink: 0;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--gold);
+  color: var(--white);
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
+  margin-top: 2px;
+}
+.step-b .t { font-size: 15px; font-weight: 500; }
+.step-b .d { font-size: 13.5px; color: var(--ink-soft); line-height: 1.75; }
 
-ul.clean{list-style:none;padding:0;margin:8px 0 0;}
-ul.clean li{position:relative;padding:4px 0 4px 18px;font-size:13.5px;}
-ul.clean li::before{content:'◆';position:absolute;left:0;color:var(--gold);font-size:9px;top:9px;}
+/* リスト */
+ul.clean { list-style: none; margin: 8px 0; }
+ul.clean li { font-size: 14px; padding: 5px 0 5px 22px; position: relative; line-height: 1.8; }
+ul.clean li::before { content: '—'; position: absolute; left: 0; color: var(--gold-deep); }
 
-.foot{text-align:center;margin-top:56px;padding-top:22px;border-top:1px solid var(--gold);font-family:var(--serif-en);font-style:italic;font-size:12px;color:var(--ink-soft);}
-.print{position:fixed;bottom:22px;right:22px;background:var(--ink);color:var(--white);border:none;padding:13px 22px;border-radius:2px;font-family:var(--serif-jp);font-size:13px;cursor:pointer;box-shadow:0 4px 12px rgba(26,31,38,.2);}
-@page{size:A4 portrait;margin:16mm;}
-@media print{ body{background:#fff;} .wrap{padding:0;max-width:none;} .print{display:none;} .shop,.box,h2{page-break-inside:avoid;} }
-@media (max-width:640px){ .wrap{padding:28px 18px;} .cover .brand{font-size:34px;} }
+.foot {
+  text-align: center;
+  font-family: var(--serif-en);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--ink-soft);
+  letter-spacing: 0.1em;
+  padding: 20px 0 0;
+}
+.printbtn {
+  position: fixed; right: 20px; bottom: 20px;
+  background: var(--ink); color: var(--white);
+  border: none; border-radius: 24px;
+  padding: 12px 22px;
+  font-family: var(--serif-jp); font-size: 13px;
+  cursor: pointer; box-shadow: 0 3px 14px rgba(0,0,0,0.18);
+}
+.printbtn:hover { background: var(--tiffany-deep); }
+@media print {
+  body { background: var(--white); padding: 0; }
+  .printbtn { display: none; }
+  .sec, .cover { border: none; page-break-inside: avoid; }
+  .shop { page-break-inside: avoid; }
+}
+@media (max-width: 600px) {
+  .sec { padding: 24px 18px 20px; }
+  .cover { padding: 40px 20px 34px; }
+  .cover h1 { font-size: 34px; }
+  .shop-body { padding: 16px 14px 6px; }
+}
 </style>
 </head>
 <body>
-<button class="print" onclick="window.print()">📄 印刷 / PDF保存</button>
 <div class="wrap">
 
 <div class="cover">
-  <div class="eyebrow">◆ DISTRIBUTION GUIDE ◆</div>
-  <div class="brand">Strawberry <span class="f">Field</span></div>
-  <div class="title">店舗別 ・ 配布ガイド</div>
+  <div class="eyebrow">STRAWBERRY FIELD</div>
+  <h1>Distribution <span class="ac">Guide</span></h1>
+  <div class="jp">店舗別 配布ガイド</div>
   <div class="orn"><span class="l"></span><span class="d">◆</span><span class="l"></span></div>
-  <div class="meta">FOR STAFF TEST RUN ・ 2026.07</div>
+  <div class="date">保育園 4園 ・ サロン 4店 ／ 2026年7月15日</div>
 </div>
 
-<div class="box box-tif">
-  <div class="box-title">この資料について</div>
-  スタッフのテスト実走用に、<strong>お店ごとに必要なアプリとURL</strong>をまとめました。ご自分のお店のページだけを見ていただければ大丈夫です。URLは<strong>タップすると全選択</strong>できます。
-</div>
-
-<h2><span class="num">01</span>はじめに ・ ホーム画面に追加<span class="en">Getting Started</span></h2>
-<p class="lead">毎回URLを打つ必要はありません。最初に一度だけ、ホーム画面に追加しておくと、アプリのように開けます。</p>
-<div class="step">
-  <div class="step-n">1</div>
-  <div>
-    <div class="step-t">ご自分のお店のURLを開く</div>
-    <div class="step-d">iPhone / iPad は <strong>Safari</strong>、Android は <strong>Chrome</strong> で開いてください。</div>
-  </div>
-</div>
-<div class="step">
-  <div class="step-n">2</div>
-  <div>
-    <div class="step-t">ホーム画面に追加する</div>
-    <div class="step-d">Safari：共有ボタン → 「ホーム画面に追加」／Chrome：右上の︙ → 「ホーム画面に追加」</div>
-  </div>
-</div>
-<div class="step">
-  <div class="step-n">3</div>
-  <div>
-    <div class="step-t">次からはアイコンをタップ</div>
-    <div class="step-d">画面が古いまま変わらないときは、下に引っぱって再読み込みしてください。</div>
+<!-- 00 -->
+<div class="sec">
+  <div class="sec-num">SECTION 00</div>
+  <div class="sec-title">このガイドの使い方</div>
+  <div class="sec-title-en">How to Use</div>
+  <p>8つの店舗それぞれについて、<strong>開くURL</strong>と<strong>最初にやること</strong>をまとめています。ご自身の店舗のページだけご覧ください。</p>
+  <p>URLの枠を<strong>タップすると全部選択されます</strong>。そのままコピーして、LINEやメールで送れます。</p>
+  <div class="note tif">
+    <span class="note-label">◆ IMPORTANT</span>
+    アプリは<strong>常に最新版</strong>です。ファイルを配り直す必要はありません。URLを開けば、その時点の最新の画面が出ます。
   </div>
 </div>
 
-<h2><span class="num">02</span>保育園<span class="en">Nursery ・ 4 Gardens</span></h2>
-<p class="lead">スマホ版は<strong>園ごとの専用ページ</strong>です。その園だけが表示されるので、園を間違える心配はありません。</p>
+<!-- 01 -->
+<div class="sec">
+  <div class="sec-num">SECTION 01</div>
+  <div class="sec-title">ホーム画面に追加する</div>
+  <div class="sec-title-en">Add to Home Screen</div>
+  <p>毎回URLを入力しなくて済むよう、<strong>ホーム画面に追加</strong>してください。アプリのアイコンのように使えます。</p>
+  <div class="step">
+    <div class="step-n">1</div>
+    <div class="step-b">
+      <div class="t">Safari でURLを開く</div>
+      <div class="d">iPad ・ iPhone は必ず <strong>Safari</strong> で開いてください。他のブラウザだとホーム画面に追加できないことがあります。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-n">2</div>
+    <div class="step-b">
+      <div class="t">共有ボタン → 「ホーム画面に追加」</div>
+      <div class="d">画面下（iPhone）または上（iPad）の <strong>□に↑</strong> のマークを押し、メニューから選びます。</div>
+    </div>
+  </div>
+  <div class="step">
+    <div class="step-n">3</div>
+    <div class="step-b">
+      <div class="t">名前を短くして「追加」</div>
+      <div class="d">「予約ボード」「保育予約」など、分かりやすい短い名前に変えてください。アイコンがホーム画面に並びます。</div>
+    </div>
+  </div>
+  <div class="note">
+    <span class="note-label">◆ TIP</span>
+    複数のアプリを使う店舗は、<strong>それぞれ別々に追加</strong>してください。1つずつアイコンができます。
+  </div>
+</div>
 
-<div class="shop">
-  <div class="shop-head"><span class="shop-name">月寒園</span><span class="shop-en">Tsukisamu</span><span class="shop-kind kind-en">保育園</span></div>
-  <div class="shop-body">
-    <div class="app">
-      <div class="app-top"><span class="app-name">予約管理ボード</span><span class="app-dev">スマホ</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/board_sp_tsukisamu.html</span>
-      <div class="fixed">✓ 月寒園に固定。他の園は表示されません</div>
+<!-- 02 保育園 -->
+<div class="sec">
+  <div class="sec-num">SECTION 02</div>
+  <div class="sec-title">保育園 ・ 4園</div>
+  <div class="sec-title-en">Nursery</div>
+
+  <!-- ① 月寒園 -->
+  <div class="shop">
+    <div class="shop-head">
+      <span class="shop-no">01</span>
+      <span class="shop-name">月寒園</span>
+      <span class="shop-sub">Tsukisamu</span>
     </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">予約管理ボード</span><span class="app-dev">iPad / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/board.html</span>
-      <div class="hint">上のタブで園を選びます。最初に「月寒園」を選ぶと、次から記憶されます</div>
+    <div class="shop-body">
+      <div class="app">
+        <div class="app-name">予約管理ボード（iPad ・ パソコン）</div>
+        <div class="app-role">その日の予約を一望する、いちばん使う画面</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/board.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note">
+          <span class="note-label">◆ NOTE</span>
+          4園のタブが並んでいます。<strong>「月寒園」タブ</strong>を選んでください。選んだ園はその端末に記憶されます。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">予約管理ボード（スマートフォン）</div>
+        <div class="app-role">外出先や手元で確認する用</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/board_sp_tsukisamu.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          こちらは<strong>月寒園に固定</strong>されています。園を選ぶ必要はありません。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">お迎え ・ 遅延通知</div>
+        <div class="app-role">受付に常時表示しておく通知ボード</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/notify_sp_tsukisamu.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          画面の<strong>右半分（受信ボード）</strong>が保育園側です。サロンから連絡が届くと音が鳴ります。月寒園に固定されています。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">受付アプリ TimelySchool</div>
+        <div class="app-role">来園受付 ・ お会計 ・ 顧客登録</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/timely.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note warn">
+          <span class="note-label">⚠ 最初に必ず</span>
+          このURLは<strong>4園共通</strong>です。開いたら<strong>「管理メニュー」→「表示園」で「月寒園」を選んでください</strong>。<br>
+          設定しないと、画面上部が「サッポロファクトリー園」のままになり、<strong>お客様の記録が別の園のものとして保存されます</strong>。設定は端末ごとに1回だけです。
+        </div>
+      </div>
     </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">お迎え・遅延通知</span><span class="app-dev">iPad（受付に常時表示）</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/notify_sp_tsukisamu.html</span>
-      <div class="fixed">✓ 月寒園に固定</div>
+  </div>
+
+  <!-- ② 白石園 -->
+  <div class="shop">
+    <div class="shop-head">
+      <span class="shop-no">02</span>
+      <span class="shop-name">白石園</span>
+      <span class="shop-sub">Shiraishi</span>
     </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">受付アプリ TimelySchool</span><span class="app-dev">iPad / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/timely.html</span>
-      <div class="caution">初回だけ：管理メニューで園を「月寒園」に設定してください</div>
+    <div class="shop-body">
+      <div class="app">
+        <div class="app-name">予約管理ボード（iPad ・ パソコン）</div>
+        <div class="app-role">その日の予約を一望する、いちばん使う画面</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/board.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note">
+          <span class="note-label">◆ NOTE</span>
+          4園のタブから<strong>「白石園」タブ</strong>を選んでください。選んだ園はその端末に記憶されます。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">予約管理ボード（スマートフォン）</div>
+        <div class="app-role">外出先や手元で確認する用</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/board_sp_shiraishi.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          こちらは<strong>白石園に固定</strong>されています。園を選ぶ必要はありません。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">お迎え ・ 遅延通知</div>
+        <div class="app-role">受付に常時表示しておく通知ボード</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/notify_sp_shiraishi.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          画面の<strong>右半分（受信ボード）</strong>が保育園側です。BUDDY BROWN ・ JANIS白石 から連絡が届きます。白石園に固定されています。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">受付アプリ TimelySchool</div>
+        <div class="app-role">来園受付 ・ お会計 ・ 顧客登録</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/timely.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note warn">
+          <span class="note-label">⚠ 最初に必ず</span>
+          このURLは<strong>4園共通</strong>です。開いたら<strong>「管理メニュー」→「表示園」で「白石園」を選んでください</strong>。<br>
+          設定しないと、画面上部が「サッポロファクトリー園」のままになり、<strong>お客様の記録が別の園のものとして保存されます</strong>。設定は端末ごとに1回だけです。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ サッポロファクトリー園 -->
+  <div class="shop">
+    <div class="shop-head">
+      <span class="shop-no">03</span>
+      <span class="shop-name">サッポロファクトリー園</span>
+      <span class="shop-sub">Sapporo Factory</span>
+    </div>
+    <div class="shop-body">
+      <div class="app">
+        <div class="app-name">予約管理ボード（iPad ・ パソコン）</div>
+        <div class="app-role">その日の予約を一望する、いちばん使う画面</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/board.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note">
+          <span class="note-label">◆ NOTE</span>
+          4園のタブから<strong>「サッポロファクトリー園」タブ</strong>を選んでください。選んだ園はその端末に記憶されます。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">予約管理ボード（スマートフォン）</div>
+        <div class="app-role">外出先や手元で確認する用</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/board_sp_factory.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          こちらは<strong>サッポロファクトリー園に固定</strong>されています。園を選ぶ必要はありません。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">受付アプリ TimelySchool</div>
+        <div class="app-role">来園受付 ・ お会計 ・ 顧客登録</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/timely.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note">
+          <span class="note-label">◆ NOTE</span>
+          このURLは4園共通です。<strong>「管理メニュー」→「表示園」が「サッポロファクトリー園」になっているか確認</strong>してください。（初期状態がこの園なので、そのままで正しいはずです。）
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">お迎え ・ 遅延通知</div>
+        <div class="app-role">—</div>
+        <div class="none">サロン併設がないため、<strong>この園では使いません</strong>。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ 資生館園 -->
+  <div class="shop">
+    <div class="shop-head">
+      <span class="shop-no">04</span>
+      <span class="shop-name">資生館園</span>
+      <span class="shop-sub">Shiseikan</span>
+    </div>
+    <div class="shop-body">
+      <div class="app">
+        <div class="app-name">予約管理ボード（iPad ・ パソコン）</div>
+        <div class="app-role">その日の予約を一望する、いちばん使う画面</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/board.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note">
+          <span class="note-label">◆ NOTE</span>
+          4園のタブから<strong>「資生館園」タブ</strong>を選んでください。選んだ園はその端末に記憶されます。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">予約管理ボード（スマートフォン）</div>
+        <div class="app-role">外出先や手元で確認する用</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/board_sp_shiseikan.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          こちらは<strong>資生館園に固定</strong>されています。園を選ぶ必要はありません。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">受付アプリ TimelySchool</div>
+        <div class="app-role">来園受付 ・ お会計 ・ 顧客登録</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/timely.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note warn">
+          <span class="note-label">⚠ 最初に必ず</span>
+          このURLは<strong>4園共通</strong>です。開いたら<strong>「管理メニュー」→「表示園」で「資生館園」を選んでください</strong>。<br>
+          設定しないと、画面上部が「サッポロファクトリー園」のままになり、<strong>お客様の記録が別の園のものとして保存されます</strong>。設定は端末ごとに1回だけです。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">お迎え ・ 遅延通知</div>
+        <div class="app-role">—</div>
+        <div class="none">サロン併設がないため、<strong>この園では使いません</strong>。</div>
+      </div>
     </div>
   </div>
 </div>
 
-<div class="shop">
-  <div class="shop-head"><span class="shop-name">白石園</span><span class="shop-en">Shiraishi</span><span class="shop-kind kind-en">保育園</span></div>
-  <div class="shop-body">
-    <div class="app">
-      <div class="app-top"><span class="app-name">予約管理ボード</span><span class="app-dev">スマホ</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/board_sp_shiraishi.html</span>
-      <div class="fixed">✓ 白石園に固定</div>
+<!-- 03 サロン -->
+<div class="sec">
+  <div class="sec-num">SECTION 03</div>
+  <div class="sec-title">サロン ・ 4店</div>
+  <div class="sec-title-en">Salon</div>
+
+  <!-- ⑤ WOODSTOCK -->
+  <div class="shop">
+    <div class="shop-head">
+      <span class="shop-no">05</span>
+      <span class="shop-name">WOODSTOCK（月寒 ・ 美容室）</span>
+      <span class="shop-sub">Tsukisamu</span>
     </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">予約管理ボード</span><span class="app-dev">iPad / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/board.html</span>
-      <div class="hint">上のタブで「白石園」を選びます（次から記憶されます）</div>
+    <div class="shop-body">
+      <div class="app">
+        <div class="app-name">お子様の保育予約</div>
+        <div class="app-role">施術中のお預かりを予約する</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/salon_sp_tsukisamu.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          開くと<strong>「ウッドストック」が最初から選ばれています</strong>。そのままお使いください。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">お迎え ・ 遅延通知</div>
+        <div class="app-role">施術の進み具合を園へワンタップで連絡</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/notify_sp_tsukisamu.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          画面の<strong>左半分（サロン側）</strong>を使います。開くと<strong>「WOODSTOCK」が最初から選ばれています</strong>。
+        </div>
+      </div>
     </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">お迎え・遅延通知</span><span class="app-dev">iPad（受付に常時表示）</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/notify_sp_shiraishi.html</span>
-      <div class="fixed">✓ 白石園に固定</div>
+  </div>
+
+  <!-- ⑥ JANIS -->
+  <div class="shop">
+    <div class="shop-head">
+      <span class="shop-no">06</span>
+      <span class="shop-name">JANIS（月寒 ・ まつエク）</span>
+      <span class="shop-sub">Tsukisamu</span>
     </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">受付アプリ TimelySchool</span><span class="app-dev">iPad / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/timely.html</span>
-      <div class="caution">初回だけ：管理メニューで園を「白石園」に設定してください</div>
+    <div class="shop-body">
+      <div class="app">
+        <div class="app-name">お子様の保育予約</div>
+        <div class="app-role">施術中のお預かりを予約する</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/salon_sp_tsukisamu.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note warn">
+          <span class="note-label">⚠ 毎回のお願い</span>
+          この画面は<strong>開くたびに「ウッドストック」が選ばれた状態</strong>で始まります。<br>
+          <strong>必ず毎回「ジャニス」タブを押してから</strong>ご予約ください。押し忘れると、ウッドストック経由の予約として登録されてしまいます。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">お迎え ・ 遅延通知</div>
+        <div class="app-role">施術の進み具合を園へワンタップで連絡</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/notify_sp_tsukisamu.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note warn">
+          <span class="note-label">⚠ 毎回のお願い</span>
+          こちらも<strong>開くと「WOODSTOCK」が選ばれています</strong>。左半分（サロン側）で<strong>「JANIS」タブを押してから</strong>お使いください。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑦ BUDDY BROWN -->
+  <div class="shop">
+    <div class="shop-head">
+      <span class="shop-no">07</span>
+      <span class="shop-name">BUDDY BROWN（白石 ・ 美容室）</span>
+      <span class="shop-sub">Shiraishi</span>
+    </div>
+    <div class="shop-body">
+      <div class="app">
+        <div class="app-name">お子様の保育予約</div>
+        <div class="app-role">施術中のお預かりを予約する</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/salon_sp_shiraishi.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          開くと<strong>「BUDDY BROWN」が最初から選ばれています</strong>。そのままお使いください。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">お迎え ・ 遅延通知</div>
+        <div class="app-role">施術の進み具合を園へワンタップで連絡</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/notify_sp_shiraishi.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note tif">
+          <span class="note-label">◆ NOTE</span>
+          画面の<strong>左半分（サロン側）</strong>を使います。開くと<strong>「BUDDY BROWN」が最初から選ばれています</strong>。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑧ JANIS白石 -->
+  <div class="shop">
+    <div class="shop-head">
+      <span class="shop-no">08</span>
+      <span class="shop-name">JANIS白石（白石 ・ まつエク）</span>
+      <span class="shop-sub">Shiraishi</span>
+    </div>
+    <div class="shop-body">
+      <div class="app">
+        <div class="app-name">お子様の保育予約</div>
+        <div class="app-role">施術中のお預かりを予約する</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/salon_sp_shiraishi.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note warn">
+          <span class="note-label">⚠ 毎回のお願い</span>
+          この画面は<strong>開くたびに「BUDDY BROWN」が選ばれた状態</strong>で始まります。<br>
+          <strong>必ず毎回「JANIS白石」タブを押してから</strong>ご予約ください。押し忘れると、BUDDY BROWN 経由の予約として登録されてしまいます。
+        </div>
+      </div>
+      <div class="app">
+        <div class="app-name">お迎え ・ 遅延通知</div>
+        <div class="app-role">施術の進み具合を園へワンタップで連絡</div>
+        <div class="url" onclick="sel(this)">https://meative.github.io/strawberry-field/apps/notify_sp_shiraishi.html</div>
+        <div class="url-hint">タップで全選択</div>
+        <div class="note warn">
+          <span class="note-label">⚠ 毎回のお願い</span>
+          こちらも<strong>開くと「BUDDY BROWN」が選ばれています</strong>。左半分（サロン側）で<strong>「JANIS白石」タブを押してから</strong>お使いください。
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
-<div class="shop">
-  <div class="shop-head"><span class="shop-name">サッポロファクトリー園</span><span class="shop-en">Sapporo Factory</span><span class="shop-kind kind-en">保育園</span></div>
-  <div class="shop-body">
-    <div class="app">
-      <div class="app-top"><span class="app-name">予約管理ボード</span><span class="app-dev">スマホ</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/board_sp_factory.html</span>
-      <div class="fixed">✓ サッポロファクトリー園に固定</div>
-    </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">予約管理ボード</span><span class="app-dev">iPad / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/board.html</span>
-      <div class="hint">上のタブで「サッポロファクトリー園」を選びます</div>
-    </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">受付アプリ TimelySchool</span><span class="app-dev">iPad / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/timely.html</span>
-      <div class="caution">初回だけ：管理メニューで園を「サッポロファクトリー園」に設定</div>
-    </div>
-    <div class="app">
-      <div class="hint">◆ サロン併設がないため、お迎え・遅延通知はありません</div>
-    </div>
+<!-- 04 -->
+<div class="sec">
+  <div class="sec-num">SECTION 04</div>
+  <div class="sec-title">全員へのお願い</div>
+  <div class="sec-title-en">Please Remember</div>
+
+  <div class="note warn">
+    <span class="note-label">⚠ 1 ・ 受付アプリは最初に園を設定</span>
+    TimelySchool（timely.html）は<strong>4園共通のURL</strong>です。開いたら「管理メニュー」→「表示園」で<strong>ご自分の園</strong>を選んでください。<br>
+    未設定だと<strong>「サッポロファクトリー園」として記録されます</strong>。端末ごとに1回だけの作業です。
+  </div>
+
+  <div class="note warn">
+    <span class="note-label">⚠ 2 ・ JANIS ・ JANIS白石 は毎回タブを押す</span>
+    予約画面もお迎え通知も、<strong>開くと必ず美容室側</strong>（ウッドストック ／ BUDDY BROWN）が選ばれています。<strong>毎回タブを押してください。</strong>この選択は記憶されません。
+  </div>
+
+  <div class="note tif">
+    <span class="note-label">◆ 3 ・ 予約と通知は、全員にすぐ届きます</span>
+    予約 ・ お迎え通知は<strong>クラウドで共有</strong>されています。どこかで予約が入ると、他の端末の画面もその場で変わります。ご自分の端末だけの話ではありません。
+  </div>
+
+  <div class="note">
+    <span class="note-label">◆ 4 ・ 顧客 ・ 来園記録 ・ お会計はその端末だけ</span>
+    受付アプリの<strong>お客様情報 ・ 来園記録 ・ お会計</strong>は、<strong>その端末の中だけ</strong>に保存されます。クラウドには入っていません。<br>
+    終業時に「管理メニュー」→「データ管理」→<strong>「データをJSON出力」でバックアップ</strong>をお願いします。
+  </div>
+
+  <div class="note">
+    <span class="note-label">◆ 5 ・ 困ったとき</span>
+    <ul class="clean" style="margin-bottom:0;">
+      <li>画面が古いままに見える → 一度閉じて開き直してください</li>
+      <li>予約が二重に見える → 消さずに、まず開発担当へご連絡ください</li>
+      <li>使いにくい ・ こうしてほしい → <strong>すべて記録して共有してください。</strong>良くなるかどうかは、皆さまの声次第です</li>
+    </ul>
   </div>
 </div>
 
-<div class="shop">
-  <div class="shop-head"><span class="shop-name">資生館園</span><span class="shop-en">Shiseikan</span><span class="shop-kind kind-en">保育園</span></div>
-  <div class="shop-body">
-    <div class="app">
-      <div class="app-top"><span class="app-name">予約管理ボード</span><span class="app-dev">スマホ</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/board_sp_shiseikan.html</span>
-      <div class="fixed">✓ 資生館園に固定</div>
-    </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">予約管理ボード</span><span class="app-dev">iPad / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/board.html</span>
-      <div class="hint">上のタブで「資生館園」を選びます</div>
-    </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">受付アプリ TimelySchool</span><span class="app-dev">iPad / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/timely.html</span>
-      <div class="caution">初回だけ：管理メニューで園を「資生館園」に設定</div>
-    </div>
-    <div class="app">
-      <div class="hint">◆ サロン併設がないため、お迎え・遅延通知はありません</div>
-    </div>
-  </div>
+<div class="foot">Strawberry Field Children's Garden ・ Distribution Guide ・ 2026.07.15</div>
 </div>
 
-<h2><span class="num">03</span>サロン<span class="en">Salon ・ 4 Shops</span></h2>
-<p class="lead">同じ園の美容室とまつげサロンは、<strong>同じURL</strong>を使います。画面上部のタブでご自分のお店を選んでください。</p>
+<button class="printbtn" onclick="window.print()">◆ 印刷 / PDF保存</button>
 
-<div class="shop">
-  <div class="shop-head"><span class="shop-name">WOODSTOCK</span><span class="shop-en">月寒 ・ 美容室</span><span class="shop-kind kind-wood">美容室</span></div>
-  <div class="shop-body">
-    <div class="app">
-      <div class="app-top"><span class="app-name">保育予約（かんたん予約検索）</span><span class="app-dev">スマホ / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/salon_sp_tsukisamu.html</span>
-      <div class="fixed">✓ 月寒園に固定。開くと「ウッドストック」が選ばれています</div>
-    </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">お迎え・遅延通知</span><span class="app-dev">iPad / スマホ</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/notify_sp_tsukisamu.html</span>
-      <div class="fixed">✓ 月寒園に固定</div>
-    </div>
-  </div>
-</div>
-
-<div class="shop">
-  <div class="shop-head"><span class="shop-name">JANIS</span><span class="shop-en">月寒 ・ まつげサロン</span><span class="shop-kind kind-janis">まつげ</span></div>
-  <div class="shop-body">
-    <div class="app">
-      <div class="app-top"><span class="app-name">保育予約（かんたん予約検索）</span><span class="app-dev">スマホ / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/salon_sp_tsukisamu.html</span>
-      <div class="caution">⚠ 開くと「ウッドストック」が選ばれています。予約の前に必ず<strong>「ジャニス」タブ</strong>を押してください</div>
-    </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">お迎え・遅延通知</span><span class="app-dev">iPad / スマホ</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/notify_sp_tsukisamu.html</span>
-      <div class="fixed">✓ 月寒園に固定</div>
-    </div>
-  </div>
-</div>
-
-<div class="shop">
-  <div class="shop-head"><span class="shop-name">BUDDY BROWN</span><span class="shop-en">白石 ・ 美容室</span><span class="shop-kind kind-wood">美容室</span></div>
-  <div class="shop-body">
-    <div class="app">
-      <div class="app-top"><span class="app-name">保育予約（かんたん予約検索）</span><span class="app-dev">スマホ / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/salon_sp_shiraishi.html</span>
-      <div class="fixed">✓ 白石園に固定。開くと「バディブラウン」が選ばれています</div>
-    </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">お迎え・遅延通知</span><span class="app-dev">iPad / スマホ</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/notify_sp_shiraishi.html</span>
-      <div class="fixed">✓ 白石園に固定</div>
-    </div>
-  </div>
-</div>
-
-<div class="shop">
-  <div class="shop-head"><span class="shop-name">JANIS白石</span><span class="shop-en">白石 ・ まつげサロン</span><span class="shop-kind kind-janis">まつげ</span></div>
-  <div class="shop-body">
-    <div class="app">
-      <div class="app-top"><span class="app-name">保育予約（かんたん予約検索）</span><span class="app-dev">スマホ / PC</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/salon_sp_shiraishi.html</span>
-      <div class="caution">⚠ 開くと「バディブラウン」が選ばれています。予約の前に必ず<strong>「JANIS白石」タブ</strong>を押してください</div>
-    </div>
-    <div class="app">
-      <div class="app-top"><span class="app-name">お迎え・遅延通知</span><span class="app-dev">iPad / スマホ</span></div>
-      <span class="url">https://meative.github.io/strawberry-field/apps/notify_sp_shiraishi.html</span>
-      <div class="fixed">✓ 白石園に固定</div>
-    </div>
-  </div>
-</div>
-
-<h2><span class="num">04</span>テスト中に見ていただきたいこと<span class="en">What to Test</span></h2>
-<div class="box box-gold">
-  <div class="box-title">今回から変わったところ</div>
-  <ul class="clean">
-    <li><strong>お子様の年齢は「生まれた年・月」で入力</strong>します。選ぶとその場で「◯歳◯ヶ月」と表示されます</li>
-    <li><strong>1歳6ヶ月まで</strong>のお子様は、0歳の枠と1歳の枠を<strong>両方</strong>使います（1歳7ヶ月からは1歳の枠だけ）</li>
-    <li>サロンで予約を入れると、<strong>保育園のボードに通知</strong>が届きます（音が鳴ります）</li>
-    <li>受け入れ制限中の時間帯に予約すると、<strong>確認画面</strong>が出ます</li>
-  </ul>
-</div>
-<div class="box box-tif">
-  <div class="box-title">気づいたことの伝え方</div>
-  次の4つがあると、すぐ直せます。 ①どの画面か ②どこで ③何をしようとして ④どうなってほしかったか<br>
-  例：「サロン予約画面の、生まれ月を選ぶところで、1歳6ヶ月の子を予約したかったが、満員と出て入れられなかった」
-</div>
-
-<h2><span class="num">05</span>お願い ・ 注意<span class="en">Notes</span></h2>
-<div class="box box-warn">
-  <div class="box-title">⚠ 大切なこと</div>
-  <ul class="clean">
-    <li><strong>この資料のURLをそのまま使ってください。</strong>他の方から回ってきたURLは、別の園のものかもしれません</li>
-    <li>予約や通知は<strong>他の端末にもすぐ反映されます</strong>。テストであっても、実際のお客様の予約と混ざらないようご注意ください</li>
-    <li>受付アプリ（TimelySchool）の<strong>「全データ削除」「サンプルデータを投入」は押さないでください</strong></li>
-    <li>受付アプリの<strong>お客様情報・来園記録・お会計は、その端末だけに保存</strong>されます。終業時のバックアップをお願いします（取扱説明書 SECTION 11）</li>
-  </ul>
-</div>
-
-<div class="foot">Strawberry Field Children's Garden ・ Distribution Guide ・ 2026.07</div>
-</div>
+<script>
+function sel(el) {
+  var r = document.createRange();
+  r.selectNodeContents(el);
+  var s = window.getSelection();
+  s.removeAllRanges();
+  s.addRange(r);
+  try { document.execCommand('copy'); } catch (e) {}
+}
+</script>
 </body>
 </html>
