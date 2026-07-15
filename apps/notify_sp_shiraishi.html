@@ -484,7 +484,7 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
   </div>
 </div>
 <div class="intro-bar">
-  ◆ 左の<strong>サロン側</strong>から送ると、右の<strong>保育園側</strong>の受信ボードに届いて<strong>音が鳴ります</strong>。
+  ◆ <strong>白石園</strong>：左の<strong>サロン側</strong>から送ると、右の<strong>保育園側</strong>の受信ボードに届いて<strong>音が鳴ります</strong>。
 </div>
 
 <div class="split">
@@ -794,10 +794,7 @@ const GARDENS = {
   shiraishi:  { name:'白石園',       salons:['woodstock','janis'] }, // データ識別子は woodstock/janis 共通。表示名/色は GARDEN_SALON で出し分け
 };
 // 現在運用中の園：URL の ?garden= から決定（無指定/未知は tsukisamu）。データ識別子(salon)は園に依らず woodstock/janis。
-const CURRENT_GARDEN = (() => {
-  try { const g = new URLSearchParams(location.search).get('garden'); if (g && GARDENS[g]) return g; } catch (e) {}
-  return 'tsukisamu';
-})();
+const CURRENT_GARDEN = 'shiraishi'; /* SF-NOTIFY-SP-FIX-20260715: 園を固定(URL・ブラウザ不問) */
 // gardenId が無い既存レコードは月寒園として扱う（補完）
 function normGarden(g) {
   // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
