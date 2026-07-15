@@ -674,8 +674,8 @@ table tbody tr:hover { background: var(--ivory); }
     <div class="step">
       <div class="step-num">1</div>
       <div class="step-content">
-        <div class="step-title">ファイルをダブルクリック</div>
-        <div class="step-desc">配布された <strong>TimelySchool受付_v36.html</strong> ファイルをダブルクリックで開きます。Chrome または Safari が起動します。</div>
+        <div class="step-title">URLを開く</div>
+        <div class="step-desc">配布された<strong>URL</strong>を Safari (iPad) または Chrome (PC) で開きます。ファイルを配ることはありません。開くたびに<strong>常に最新版</strong>が表示されます。</div>
       </div>
     </div>
     <div class="step">
@@ -689,7 +689,23 @@ table tbody tr:hover { background: var(--ivory); }
   
   <div class="note">
     <div class="note-label">◆ NOTE</div>
-    <div class="note-text">現在 (v36) のアプリは、<strong>そのブラウザだけにデータを保存</strong>します。同じiPadで使い続ければデータは残りますが、別の端末からは見えません。クラウド化 (Firebase化) は次のフェーズで実装予定です。</div>
+    <div class="note-text"><strong>予約とお迎え通知はクラウドで共有</strong>されています。どこかで予約が入ると、他の端末の画面もその場で変わります。<br>いっぽう<strong>お客様情報 ・ 来園記録 ・ お会計は、その端末の中だけ</strong>に保存されます。別の端末からは見えません。終業時のバックアップ (SECTION 11) をお願いします。</div>
+  </div>
+
+  <div class="subsection">
+    <div class="subsection-title">表示園の設定 ・ 最初に必ず</div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <div class="step-title">ご自分の園を選ぶ (端末ごとに1回だけ)</div>
+        <div class="step-desc">このURLは<strong>4園共通</strong>です。開いたら「管理メニュー」→「表示園」で<strong>ご自分の園</strong>を選んでください。画面上部の園名が切り替わります。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="warning">
+    <div class="warning-label">⚠ IMPORTANT</div>
+    <div class="warning-text">表示園を設定しないと、画面上部は<strong>「サッポロファクトリー園」</strong>のままです。その状態で受付をすると、<strong>お客様情報 ・ 来園記録 ・ お会計が、すべてサッポロファクトリー園のものとして保存されます</strong>。月寒園 ・ 白石園 ・ 資生館園の端末では、<strong>いちばん最初に必ず設定してください</strong>。</div>
   </div>
 </div>
 
@@ -1160,12 +1176,12 @@ table tbody tr:hover { background: var(--ivory); }
   
   <div class="subsection">
     <div class="subsection-title">データ管理</div>
-    <p>顧客リストをコピー (Google Sheets貼り付け用) / JSON出力 / JSON読込 / 全データ削除 が可能です。</p>
+    <p>顧客リストをコピー (Google Sheets貼り付け用) / データをJSON出力 / データをJSON読込 が可能です。</p>
   </div>
   
   <div class="warning">
-    <div class="warning-label">⚠ DANGER</div>
-    <div class="warning-text"><strong>「全データ削除」</strong>は元に戻せません。誤って押さないよう注意してください。テスト期間中はこの操作はしないでください。</div>
+    <div class="warning-label">⚠ IMPORTANT</div>
+    <div class="warning-text">お客様情報 ・ 来園記録 ・ お会計は<strong>この端末の中だけ</strong>に保存されています。クラウドには入っていません。端末が壊れる ・ 初期化される ・ ブラウザのデータを消すと、<strong>元に戻せません</strong>。終業時に<strong>「データをJSON出力」でバックアップ</strong>をお願いします (SECTION 11)。</div>
   </div>
 </div>
 
@@ -1248,7 +1264,7 @@ table tbody tr:hover { background: var(--ivory); }
   
   <div class="faq-item">
     <div class="faq-q"><span class="faq-q-mark">Q.</span>iPadとPCでデータが違って見える</div>
-    <div class="faq-a">現在 (v36) は端末ごとにデータが独立しています。データを共有するには JSON 出力・読込で手動同期するか、クラウド化 (Firebase) を待つ必要があります。</div>
+    <div class="faq-a">予約とお迎え通知は<strong>クラウドで共有</strong>されているので、どの端末でも同じ内容が見えます。いっぽうお客様情報 ・ 来園記録 ・ お会計は<strong>端末ごとに独立</strong>しています。こちらを別の端末へ移すには、管理メニュー →「データ管理」→ JSON出力 ・ JSON読込 で手動同期してください。</div>
   </div>
   
   <div class="faq-item">
@@ -1278,7 +1294,7 @@ table tbody tr:hover { background: var(--ivory); }
     <span class="line"></span>
   </div>
   
-  <p>v36 はテスト運用版です。<strong>使いにくさ・不具合・要望</strong>は、すべて記録して開発担当者に共有してください。良くなるかどうかは、皆さまのフィードバックにかかっています。</p>
+  <p><strong>使いにくさ ・ 不具合 ・ 要望</strong>は、すべて記録して開発担当者に共有してください。良くなるかどうかは、皆さまのフィードバックにかかっています。</p>
   
   <div class="subsection">
     <div class="subsection-title">記録すべきこと</div>
@@ -1339,5 +1355,6 @@ table tbody tr:hover { background: var(--ivory); }
 
 </div>
 
+<!-- SF-MANUAL-UPDATE-20260715 -->
 </body>
 </html>
