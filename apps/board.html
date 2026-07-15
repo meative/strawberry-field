@@ -549,12 +549,7 @@ body {
     console.log('[kinder] roster loaded:', KINDER_ROSTER.length, 'name(s)');
   }, function(e){ console.error('[kinder] roster subscribe failed', e); });
 
-  // 出欠購読: strawberry-field-timely / sf_kinder_attendance/{今日} (board既存の認証で読める)
-  onSnapshot(doc(db, 'sf_kinder_attendance', kinderTodayId), function(snap){
-    kinderAttendance = snap.exists() ? (snap.data() || {}) : {};
-    window.kinderAttendance = kinderAttendance;
-    console.log('[kinder] attendance loaded for', kinderTodayId, kinderAttendance);
-  }, function(e){ console.error('[kinder] attendance subscribe failed', e); });
+  /* SF-KINDER-AUTHFIX-20260715: kinder attendance subscribe moved below into the anonymous-signin success block. */
   /* ===== end SF-KINDER-BOARD-STEP1 ===== */
 
   /* ===== SF-KINDER-BOARD-STEP23-20260630: 幼稚舎チップ(モジュール側 公開＋保存) ===== */
@@ -604,6 +599,12 @@ body {
   // ステップ3で Firestore ルールを「認証必須」に厳格化しても、サインイン済みの状態で
   // 購読が始まるため permission-denied で落ちない。
   signInAnonymously(auth).then(() => {
+    /* SF-KINDER-AUTHFIX-20260715: subscribe AFTER anonymous sign-in so that tightening Firestore rules to request.auth != null does not cause permission-denied. */
+    onSnapshot(doc(db, 'sf_kinder_attendance', kinderTodayId), function(snap){
+      kinderAttendance = snap.exists() ? (snap.data() || {}) : {};
+      window.kinderAttendance = kinderAttendance;
+      console.log('[kinder] attendance loaded for', kinderTodayId, kinderAttendance);
+    }, function(e){ console.error('[kinder] attendance subscribe failed', e); });
     // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す（丸ごと置き換え）
     onSnapshot(collection(db, COL), (snap) => {
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
