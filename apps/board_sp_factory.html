@@ -800,6 +800,7 @@ body {
       <div id="mAgePreview" style="margin-top:8px; display:flex; align-items:center; gap:10px; font-family:var(--serif-jp);">
         <span style="font-size:11px; color:var(--gold-deep); font-style:italic; font-family:var(--serif-en);">年齢（自動）</span>
         <span id="mAgePreviewVal" style="font-size:20px; font-weight:700; color:var(--tiffany); letter-spacing:0.02em;">—</span>
+        <span id="mAgePreviewClass0" style="display:none; background:#FCEBEB; color:#A32D2D; border:0.5px solid #E24B4A; font-size:12px; font-weight:600; padding:1px 8px; border-radius:8px; line-height:1.6; white-space:nowrap;"></span><!-- SF-CLASS0-MODAL-20260722 -->
       </div>
     </div>
     <div class="field">
@@ -1965,6 +1966,7 @@ function updateAgePreview() {
   if (!el) return;
   const ym = getBirthYM();
   const r = ageMonthsFromYM(ym.by, ym.bm);
+  /* SF-CLASS0-MODAL-20260722 : モーダルのプレビューにも0歳児バッジ */ var _c0m = document.getElementById('mAgePreviewClass0'); if (_c0m) { var _cim = (ym.by && ym.bm) ? class0FromBoard(ym.by, ym.bm) : {is0:false,label:''}; if (_cim.is0) { _c0m.textContent = _cim.label; _c0m.style.display = 'inline-block'; } else { _c0m.textContent = ''; _c0m.style.display = 'none'; } }
   /* SF-AGEMONTH-3PLUS-20260722 : 実年齢＋月齢で表示（3歳以上も「◯歳◯ヶ月」）。判定は age(丸め)で別途。 */
   if (r.realAge == null) el.textContent = '—';                 // 生年月が未選択
   else el.textContent = r.realAge + '歳' + (r.realMonths != null ? r.realMonths + 'ヶ月' : '');
@@ -2240,6 +2242,7 @@ function sfWriteNew(b) {
     id, gardenId: CURRENT_GARDEN,
     salon: b.zone, // temp / woodstock / janis（ext は呼び出し側で除外済み）
     name: b.name, kana: b.kana || '', age: b.age, months: b.months != null ? b.months : null,
+    birthY: (b.birthY != null ? b.birthY : null), birthM: (b.birthM != null ? b.birthM : null), /* SF-BIRTH-WRITEBACK-20260721 */
     start: b.start, end: b.end, date: boardDateStr(),
     nextReservation: null, provisional: false, info: null, memo: b.memo || '',
     affiliation: b.affiliation || CURRENT_GARDEN,
@@ -2256,6 +2259,7 @@ function sfWriteBack(b) {
   if (!rec) return;
   rec.name = b.name; rec.age = b.age; rec.start = b.start; rec.end = b.end;
   rec.months = (b.months != null ? b.months : null);
+  rec.birthY = (b.birthY != null ? b.birthY : null); rec.birthM = (b.birthM != null ? b.birthM : null); /* SF-BIRTH-WRITEBACK-20260721 */
   if (b.date) rec.date = b.date; // 予約日の変更を反映（TimelySchool・サロン・お迎え通知にも伝わる）
   rec.memo = b.memo || ''; rec.salon = b.zone; rec.gardenId = normGarden(b.gardenId);
   if (b.affiliation !== undefined) rec.affiliation = b.affiliation;
