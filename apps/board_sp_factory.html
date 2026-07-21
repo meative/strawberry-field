@@ -2,8 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=1560, user-scalable=yes">
-<!-- SF-BOARD-SP-FITA-20260705 : 全体一望(盤面実幅1502px + 余白1560px)・ピンチ拡大有効 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>STRAWBERRY FIELD ・ 予約管理ボード</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -297,7 +296,7 @@ body {
 
 /* 予約バー（帯） */
 .booking-bar {
-  position: absolute; top: 3px; bottom: 3px; border-radius: 4px;
+  position: absolute; top: 5px; bottom: 5px; border-radius: 4px;
   display: flex; align-items: stretch;
   color: var(--white);
   box-shadow: 0 1px 4px rgba(26,31,38,0.15);
@@ -314,13 +313,8 @@ body {
 .bar-body:active { cursor: grabbing; }
 /* 氏名は伸びず必要時のみ縮む。1行目の幅を優先確保し、収まらないバッジは折り返す */
 .bar-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bar-lines { display: flex; flex-direction: column; justify-content: center; min-width: 0; flex: 1 1 auto; gap: 1px; overflow: hidden; }
-.bar-line1, .bar-line2 { display: flex; align-items: center; min-width: 0; gap: 4px; line-height: 1.15; }
-.bar-line1 .bar-name { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bar-line2 { font-size: 10px; }
-.bar-line2 .age-chip { margin-right: 0; }
 .bar-handle {
-  width: 7px; flex-shrink: 0; cursor: ew-resize;
+  width: 10px; flex-shrink: 0; cursor: ew-resize;
   background: rgba(255,255,255,0.25);
   display: flex; align-items: center; justify-content: center;
 }
@@ -550,7 +544,12 @@ body {
     console.log('[kinder] roster loaded:', KINDER_ROSTER.length, 'name(s)');
   }, function(e){ console.error('[kinder] roster subscribe failed', e); });
 
-  /* SF-KINDER-AUTHFIX-20260715: kinder attendance subscribe moved below into the anonymous-signin success block. */
+  // 出欠購読: strawberry-field-timely / sf_kinder_attendance/{今日} (board既存の認証で読める)
+  onSnapshot(doc(db, 'sf_kinder_attendance', kinderTodayId), function(snap){
+    kinderAttendance = snap.exists() ? (snap.data() || {}) : {};
+    window.kinderAttendance = kinderAttendance;
+    console.log('[kinder] attendance loaded for', kinderTodayId, kinderAttendance);
+  }, function(e){ console.error('[kinder] attendance subscribe failed', e); });
   /* ===== end SF-KINDER-BOARD-STEP1 ===== */
 
   /* ===== SF-KINDER-BOARD-STEP23-20260630: 幼稚舎チップ(モジュール側 公開＋保存) ===== */
@@ -600,12 +599,6 @@ body {
   // ステップ3で Firestore ルールを「認証必須」に厳格化しても、サインイン済みの状態で
   // 購読が始まるため permission-denied で落ちない。
   signInAnonymously(auth).then(() => {
-    /* SF-KINDER-AUTHFIX-20260715: subscribe AFTER anonymous sign-in so that tightening Firestore rules to request.auth != null does not cause permission-denied. */
-    onSnapshot(doc(db, 'sf_kinder_attendance', kinderTodayId), function(snap){
-      kinderAttendance = snap.exists() ? (snap.data() || {}) : {};
-      window.kinderAttendance = kinderAttendance;
-      console.log('[kinder] attendance loaded for', kinderTodayId, kinderAttendance);
-    }, function(e){ console.error('[kinder] attendance subscribe failed', e); });
     // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す（丸ごと置き換え）
     onSnapshot(collection(db, COL), (snap) => {
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
@@ -648,8 +641,6 @@ body {
   .fab{width:56px;height:56px;right:14px;bottom:14px}
 }
 </style>
-<style>/* SF-BOARD-SP-FITA-20260705 : 単一園固定のため園切替UIは常時非表示(取り違え防止) */
-.garden-switch, .garden-seg { display: none !important; }</style>
 </head>
 <body>
 
@@ -670,8 +661,6 @@ body {
 <div class="garden-switch"><div class="garden-seg" id="gardenSeg"></div></div>
 
 <!-- 日付バー -->
-<!-- SF-GSW-20260706 : スマホ版 園切替ボタン -->
-<div class="sf-gsw-row"><button type="button" class="sf-gsw-btn" onclick="sfGswToggle()"><span class="sf-gsw-ico">⌂</span><span id="sfGswCurName">園</span><span class="sf-gsw-caret">▾</span></button></div>
 <div class="date-bar">
   <button onclick="changeDay(-1)">← 前日</button>
   <button class="cur cur-btn" id="curDate" onclick="toggleCalendar()" title="タップで日付を選ぶ"><span class="cal-caret">▾</span></button>
@@ -704,13 +693,16 @@ body {
     <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput1" placeholder="無制限"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput2" placeholder="無制限"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput3" placeholder="無制限"><span class="cap-unit">名</span></span></div>
-    <!-- SF-CAP-UNIFY-20260706 : 時間帯制限は「特定日の定員（日別例外）」画面へ一本化 -->
-    <div class="cap-blocks-note" style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line-soft); font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); line-height:1.7;">時間帯ごとの制限は、下の「特定日の定員（日別例外）」からカレンダーで日を選んで設定します。</div>
+    <div class="cap-blocks-section" style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line-soft);">
+      <div class="cap-blocks-head" style="font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); letter-spacing:0.04em; margin-bottom:8px;">時間帯ごとの制限</div>
+      <div id="capBlocksList"></div>
+      <button type="button" class="cap-block-add" onclick="capBlockAdd()" style="display:block; width:100%; margin-top:8px; background:var(--ivory); border:1px dashed var(--line); border-radius:8px; padding:9px; font-family:var(--serif-jp); font-size:13px; color:var(--tiffany-deep); cursor:pointer;">＋ 制限を追加</button>
+    </div>
     <div class="cap-actions">
       <button class="cap-cancel" onclick="closeCapSettings()">閉じる</button>
       <button class="cap-save" onclick="saveCapSettings()">保存</button>
     </div>
-    <button class="cap-daily-link" onclick="openCapDaily()">▸ 特定日の設定（定員・時間帯制限）を開く</button>
+    <button class="cap-daily-link" onclick="openCapDaily()">▸ 特定日の定員（日別例外）を設定</button>
   </div>
 </div>
 
@@ -735,11 +727,6 @@ body {
     <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput1" placeholder="基本"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput2" placeholder="基本"><span class="cap-unit">名</span></span></div>
     <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput3" placeholder="基本"><span class="cap-unit">名</span></span></div>
-    <div class="cap-blocks-section" id="capDailyBlocksSection" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft);">
-      <div class="cap-blocks-head" style="font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); letter-spacing:0.04em; margin-bottom:8px;">この日だけの時間帯制限</div>
-      <div id="capDailyBlocksList"></div>
-      <button type="button" class="cap-block-add" onclick="capBlockAdd({}, 'capDailyBlocksList')" style="display:block; width:100%; margin-top:8px; background:var(--ivory); border:1px dashed var(--line); border-radius:8px; padding:9px; font-family:var(--serif-jp); font-size:13px; color:var(--tiffany-deep); cursor:pointer;">＋ この日の制限を追加</button>
-    </div>
     <div class="cap-actions">
       <button class="cap-cancel" onclick="closeCapDaily()">閉じる</button>
       <button class="cap-clear" onclick="clearCapDaily()">例外を削除</button>
@@ -790,15 +777,17 @@ body {
       <div class="kana-result" id="kanaResult"></div>
     </div>
     <div class="field">
-      <label>生年月（西暦）</label>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <select id="mBirthYear" style="flex:1;"></select>
-        <select id="mBirthMonth" style="flex:1;"></select>
+      <label>年齢クラス</label>
+      <div class="age-tabs" id="mAgeTabs">
+        <div class="age-tab" data-age="0">0歳</div>
+        <div class="age-tab active" data-age="1">1歳</div>
+        <div class="age-tab" data-age="2">2歳</div>
+        <div class="age-tab" data-age="3">3歳〜</div>
       </div>
-      <div id="mAgePreview" style="margin-top:8px; display:flex; align-items:center; gap:10px; font-family:var(--serif-jp);">
-        <span style="font-size:11px; color:var(--gold-deep); font-style:italic; font-family:var(--serif-en);">年齢（自動）</span>
-        <span id="mAgePreviewVal" style="font-size:20px; font-weight:700; color:var(--tiffany); letter-spacing:0.02em;">—</span>
-      </div>
+    </div>
+    <div class="field" id="mMonthsField">
+      <label>月齢 <span style="color:var(--gold-deep); font-style:italic; font-family:var(--serif-en); font-size:11px;">任意（わかる場合）</span></label>
+      <div class="months-grid" id="mMonthsGrid"><!-- JSで生成 --></div>
     </div>
     <div class="field">
       <label>区分</label>
@@ -849,7 +838,7 @@ body {
   </div>
 </div>
 
-
+<div class="proto-note">◆ <strong>デザイン構想プロトタイプ</strong>です（サンプル表示）。空き枠タップ・予約バータップ・通知デモを実際に触ってご確認ください。</div>
 
 <script>
 // ===== 共有ストレージ連携（サロン予約画面から入った予約を取り込む） =====
@@ -998,9 +987,9 @@ function capBlockTimeOptions(selected) {
 }
 
 // 1行を capBlocksList に追加（valは既存値の復元用、省略時は空の新規行）
-function capBlockAdd(val, listId) {
+function capBlockAdd(val) {
   val = val || {};
-  var list = document.getElementById(listId || 'capBlocksList');
+  var list = document.getElementById('capBlocksList');
   if (!list) return;
   var row = document.createElement('div');
   row.className = 'cap-block-row';
@@ -1087,17 +1076,17 @@ function saveCapSettings() {
 
     // --- バリデーション（最初の1件で中止） ---
     if (ages.length === 0) {
-      sfAlert('時間帯制限の' + no + '行目：対象の年齢を1つ以上選んでください。');
+      alert('時間帯制限の' + no + '行目：対象の年齢を1つ以上選んでください。');
       return;
     }
     if (fromV >= toV) {
-      sfAlert('時間帯制限の' + no + '行目：終了時刻は開始時刻より後にしてください。');
+      alert('時間帯制限の' + no + '行目：終了時刻は開始時刻より後にしてください。');
       return;
     }
     // 定員空欄は0扱い（完全ブロック）。空欄でも保存でき、既定で完全ブロックになる。
     var limitN = (limitRaw === '') ? 0 : parseInt(limitRaw, 10);
     if (isNaN(limitN) || limitN < 0) {
-      sfAlert('時間帯制限の' + no + '行目：定員は0以上の数値を入力してください。');
+      alert('時間帯制限の' + no + '行目：定員は0以上の数値を入力してください。');
       return;
     }
     ages.sort(function(a, b){ return a - b; });
@@ -1119,7 +1108,6 @@ function openCapDaily() {
   capDailyDate = boardDateStr();
   capCalYM = null;                                     // 表示月を選択日から再補完させる
   loadCapDailyInputs();
-  restoreCapDailyBlocks();
   renderCapCalendar();
   closeCapSettings();                                  // 基本設定を閉じてから
   document.getElementById('capDailyOverlay').classList.add('show');
@@ -1144,16 +1132,6 @@ function loadCapDailyInputs() {
 function closeCapDaily() {
   document.getElementById('capDailyOverlay').classList.remove('show');
 }
-/* SF-DAYBLOCK-20260706 : 日別の時間帯制限(_blocks)を復元 */
-function restoreCapDailyBlocks(){
-  var _dlist = document.getElementById('capDailyBlocksList');
-  if (!_dlist) return;
-  _dlist.innerHTML = '';
-  var _day = capGetDaily(capDailyDate);
-  var _g = (_day && _day[CURRENT_GARDEN]) || {};
-  var _blocks = (_g && _g._blocks) ? _g._blocks : [];
-  for (var _i = 0; _i < _blocks.length; _i++) { capBlockAdd(_blocks[_i], 'capDailyBlocksList'); }
-}
 // この日の CURRENT_GARDEN 例外だけ差し替えて保存（他園・他日は触らない）
 function saveCapDaily() {
   if (!capDailyDate) return;
@@ -1166,24 +1144,6 @@ function saveCapDaily() {
     const n = parseInt(raw, 10);
     if (!isNaN(n) && n >= 0) gObj[a] = n;              // 0 も有効値
   });
-  /* SF-DAYBLOCK-20260706 : この日の時間帯制限(_blocks)を集める＋バリデーション */
-  var _dRows = document.querySelectorAll('#capDailyBlocksList .cap-block-row');
-  var _dBlocks = [];
-  for (var _bi = 0; _bi < _dRows.length; _bi++) {
-    var _row = _dRows[_bi]; var _no = _bi + 1;
-    var _fromEl = _row.querySelector('.cb-from'); var _toEl = _row.querySelector('.cb-to');
-    var _fromV = _fromEl ? _fromEl.value : ''; var _toV = _toEl ? _toEl.value : '';
-    var _ageEls = _row.querySelectorAll('.cb-age'); var _ages = [];
-    for (var _ai = 0; _ai < _ageEls.length; _ai++) { if (_ageEls[_ai].checked) _ages.push(parseInt(_ageEls[_ai].value, 10)); }
-    var _limitEl = _row.querySelector('.cb-limit'); var _limitRaw = _limitEl ? _limitEl.value.trim() : '';
-    if (_ages.length === 0) { sfAlert('この日の時間帯制限の' + _no + '行目：対象の年齢を1つ以上選んでください。'); return; }
-    if (_fromV >= _toV) { sfAlert('この日の時間帯制限の' + _no + '行目：終了時刻は開始時刻より後にしてください。'); return; }
-    var _limitN = (_limitRaw === '') ? 0 : parseInt(_limitRaw, 10);
-    if (isNaN(_limitN) || _limitN < 0) { sfAlert('この日の時間帯制限の' + _no + '行目：定員は0以上の数値を入力してください。'); return; }
-    _ages.sort(function(a, b){ return a - b; });
-    _dBlocks.push({ from: _fromV, to: _toV, ages: _ages, limit: _limitN });
-  }
-  if (_dBlocks.length > 0) gObj._blocks = _dBlocks;
   if (Object.keys(gObj).length > 0) day[CURRENT_GARDEN] = gObj;
   else delete day[CURRENT_GARDEN];                     // この園の例外が空なら園キー削除
   if (Object.keys(day).length > 0) capSaveDaily(capDailyDate, day); // 他園の例外が残るなら保存
@@ -1248,7 +1208,6 @@ function capCalMove(delta) {
 function selectCapDate(ds) {
   capDailyDate = ds;
   loadCapDailyInputs();
-  restoreCapDailyBlocks();
   renderCapCalendar();
 }
 
@@ -1270,7 +1229,7 @@ function countReservations(garden, age, date) {
     if (!r || !COUNTED_ZONES.has(r.salon)) return;   // 種別ホワイトリスト
     if (normGarden(r.gardenId) !== g) return;        // 園一致
     if (r.date !== date) return;                     // 対象日厳密一致
-    if (consumedSlots(totalMonths(r.age, r.months)).indexOf(a) === -1) return; /* SF-DECREMENT-20260710 減員:枠aを消費する予約か（≤18ヶ月は0/1両方・不明除外） */
+    if (normAge(r.age) !== a) return;                // 年齢区分一致（不明は除外）
     c++;                                             // provisional も数える
   });
   return c;
@@ -1417,22 +1376,11 @@ function needsLunch(b) {
 //   limit=0 → 赤系（block-full）、limit>=1 → 黄系（block-limit）。
 //   _blocks が無ければ空文字を返す（行ごと出さない）。
 function renderCapBlockBand() {
-  var g = normGarden(CURRENT_GARDEN);
-  var base = CAP_MIRROR.base && CAP_MIRROR.base[g];
-  /* SF-CAPBLK-DAILY-20260706 : 基本(毎日)の時間帯ブロックは描画しない（日別のみ） */
-  var baseBlocks = [];
-  var _ds = (typeof boardDateStr === 'function') ? boardDateStr() : null;
-  var dayG = (_ds && CAP_MIRROR[_ds]) ? CAP_MIRROR[_ds][g] : null;
-  var dayBlocks = (dayG && Array.isArray(dayG._blocks)) ? dayG._blocks : [];
-  var merged = [];
-  var _k;
-  for (_k = 0; _k < baseBlocks.length; _k++) merged.push({ b: baseBlocks[_k], daily: false });
-  for (_k = 0; _k < dayBlocks.length; _k++) merged.push({ b: dayBlocks[_k], daily: true });
-  if (merged.length === 0) return '';
+  var base = CAP_MIRROR.base && CAP_MIRROR.base[normGarden(CURRENT_GARDEN)];
+  if (!base || !Array.isArray(base._blocks) || base._blocks.length === 0) return '';
   var N = SLOTS.length;
   var bands = '';
-  merged.forEach(function(item) {
-    var b = item.b;
+  base._blocks.forEach(function(b) {
     if (!b) return;
     var si = slotIndex(b.from), ei = slotIndex(b.to);
     if (si < 0) return;
@@ -1443,13 +1391,10 @@ function renderCapBlockBand() {
     var lim = Number(b.limit);
     var isFull = isNaN(lim) ? true : (lim <= 0);
     var cls = isFull ? 'block-full' : 'block-limit';
-    if (item.daily) cls += ' block-daily';
     var ages = Array.isArray(b.ages) ? b.ages.slice().sort(function(x,y){return x-y;}).join('・') : '';
     var label = ages ? (ages + '歳') : '';
     if (!isFull) label += ' 定員' + lim;
-    if (item.daily) label = '◆' + label;
-    var tip = (item.daily ? 'この日限定 ' : '') + b.from + '〜' + b.to + ' / ' + label;
-    bands += '<div class="cap-block-band ' + cls + '" style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;" title="' + escapeHtml(tip) + '">' + escapeHtml(label) + '</div>';
+    bands += '<div class="cap-block-band ' + cls + '" style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;" title="' + escapeHtml(b.from + '〜' + b.to + ' / ' + label) + '">' + escapeHtml(label) + '</div>';
   });
   if (!bands) return '';
   return '<div class="cap-block-lane">'
@@ -1561,7 +1506,7 @@ function bookKinder(zoneKey, idx) {
   var dur   = (zoneKey === 'ext_am') ? 90 : 60;   /* 早朝7:00-8:30(90分) / 延長16:30-17:30(60分) */  /* SF-KINDER-EXT-PICKUP-V4-20260701 */
   var end   = minToTime(timeToMin(start) + dur);
   var lane = findFreeLane(zoneKey, start, end, -1);
-  if (lane < 0) { sfAlert('この時間帯は満員です'); return; }
+  if (lane < 0) { alert('この時間帯は満員です'); return; }
   var nb = { zone: zoneKey, lane: lane, gardenId: CURRENT_GARDEN,
              name: r.name, age: '3', months: null, memo: '',
              start: start, end: end, date: boardDateStr(),
@@ -1636,10 +1581,10 @@ function renderBoard() {
         const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
         const provMark = (b.provisional && !(b.info && b.info.name)) ? '<span class="bar-prov">新規・受付待ち</span>' : '';
         const affilBadge = (b.affiliation === 'youchisha') ? '<span class="affil-badge">幼稚舎</span>' : '';
-        html += `<div class="booking-bar ${zone.key} ${(b.provisional && !(b.info&&b.info.name))?'is-prov':''}" data-idx="${gidx}" title="${escapeHtml(b.name)}（${ageLabel}）${b.start}〜${b.end}" style="left:${left}%; width:calc(${width}% - 4px); margin-left:2px;">
+        html += `<div class="booking-bar ${zone.key} ${(b.provisional && !(b.info&&b.info.name))?'is-prov':''}" data-idx="${gidx}" style="left:${left}%; width:calc(${width}% - 4px); margin-left:2px;">
           <span class="bar-handle bar-handle-l" data-idx="${gidx}" data-edge="l"></span>
           <span class="bar-body" onclick="onBarTap(${gidx})">
-            <span class="bar-lines"><span class="bar-line1"><span class="bar-name">${escapeHtml(b.name)}</span>${lunch}${affilBadge}</span><span class="bar-line2"><span class="age-chip">${ageLabel}</span>${provMark}${memo}</span></span>
+            <span class="age-chip">${ageLabel}</span>${lunch}<span class="bar-name">${escapeHtml(b.name)}</span>${affilBadge}${provMark}${memo}
           </span>
           <span class="bar-handle bar-handle-r" data-idx="${gidx}" data-edge="r"></span>
         </div>`;
@@ -1763,7 +1708,8 @@ function onSlotTap(zoneKey, lane, slotIdx) {
   document.getElementById('mYouchisha').checked = false;
   document.getElementById('mDateField').style.display = 'none'; // 新規は現在のボード日付
   document.getElementById('mDate').value = boardDateStr();
-  setBirthYM(null, null); // 新規は生年月未選択（保存時に選択必須）
+  selectedMonths = null; renderMonthsActive();
+  setAge('1');
   resetNameSearch();
   buildStartSelect(SLOTS[slotIdx]);
   setDuration(90);
@@ -1785,7 +1731,8 @@ function onBarTap(gidx) {
   document.getElementById('mYouchisha').checked = (b.affiliation === 'youchisha');
   document.getElementById('mDateField').style.display = ''; // 編集時は日付変更可
   document.getElementById('mDate').value = b.date || boardDateStr();
-  prefillBirthFrom(b); // birthがあればそれ、旧レコードは age/months から逆算して近似表示
+  selectedMonths = (b.months != null) ? b.months : null; renderMonthsActive();
+  setAge(b.age);
   resetNameSearch();
   setTimeFromRange(b.start, b.end);
   // 新規（仮）でまだ受付未連携なら、TimelySchool受付の案内を表示
@@ -1809,20 +1756,6 @@ function normKana(s) {
   return (s||'').replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0)+0x60)).replace(/[\s　]/g,'');
 }
 // 生年月日から月齢を概算（基準日 BOARD_BASE 時点）
-/* PHASE1_CONSUMED_SLOTS v1 (handoff) — 減員ロジック用の純関数。副作用なし。Phase2で countReservations / sfCapFull が参照する。 */
-function consumedSlots(months) {
-  if (months == null || isNaN(months) || months < 0) return [];
-  if (months <= 18) return ['0','1'];
-  if (months < 24) return ['1'];
-  if (months < 36) return ['2'];
-  return ['3'];
-}
-function totalMonths(age, months) {
-  if (age === '3') return 36;
-  var a = parseInt(age, 10);
-  if (isNaN(a)) return null;
-  return a * 12 + (months != null ? months : 0);
-}
 function ageMonthsFromBirth(by, bm, bd) {
   if (!by || !bm || !bd) return { age: null, months: null };
   const birth = new Date(by, bm-1, bd);
@@ -1832,15 +1765,6 @@ function ageMonthsFromBirth(by, bm, bd) {
   if (months < 0) months = 0;
   const age = Math.floor(months/12);
   return { age: String(Math.min(age,3)), months: age >= 3 ? null : (months % 12) };
-}
-/* PHASE_A_BIRTH_YM v1 — 生年(西暦)＋誕生月から月齢/年齢を算出（日は取らない＝学年フェーズで追加）。基準日 BOARD_BASE 時点。ageMonthsFromBirth と同形の戻り値。 */
-function ageMonthsFromYM(by, bm) {
-  if (!by || !bm) return { age: null, months: null };
-  const ref = new Date(BOARD_BASE);
-  let months = (ref.getFullYear() - by) * 12 + (ref.getMonth() - (bm - 1));
-  if (months < 0) months = 0;
-  const age = Math.floor(months / 12);
-  return { age: String(Math.min(age, 3)), months: age >= 3 ? null : (months % 12) };
 }
 // TimelySchool受付内容を新規（仮）予約に取り込む
 function syncFromTimelySchool() {
@@ -1895,69 +1819,64 @@ function syncFromTimelySchool() {
   return changed;
 }
 
-/* PHASE_A_BIRTH_YM v1 — 入力＝生年(西暦)＋誕生月。age/months は基準日 BOARD_BASE で自動算出（方式A：保存は age/months、birthは付加情報）。年齢クラスタブ＋月齢グリッドは廃止。3歳〜は36ヶ月以上に自動集約、月齢は0〜11すべて算出可。 */
-function buildBirthSelectors() {
-  const yEl = document.getElementById('mBirthYear');
-  const mEl = document.getElementById('mBirthMonth');
-  if (yEl && !yEl.dataset.built) {
-    const cy = new Date().getFullYear(); // 読み込み時はBOARD_BASE未初期化(TDZ)のためnew Dateで年を取得
-    let h = '<option value="">—</option>';
-    for (let y = cy; y >= cy - 7; y--) h += '<option value="' + y + '">' + y + '年</option>';
-    yEl.innerHTML = h;
-    yEl.dataset.built = '1';
-    yEl.addEventListener('change', updateAgePreview);
+let selectedMonths = null; // 選択中の月齢（0〜11）。未選択は null
+
+// 月齢グリッドを生成（0〜11ヶ月）
+function buildMonthsGrid() {
+  const grid = document.getElementById('mMonthsGrid');
+  if (!grid) return;
+  let html = '';
+  for (let m = 2; m <= 11; m++) {
+    html += `<div class="month-cell" data-m="${m}">${m}ヶ月</div>`;
   }
-  if (mEl && !mEl.dataset.built) {
-    let h = '<option value="">—</option>';
-    for (let m = 1; m <= 12; m++) h += '<option value="' + m + '">' + m + '月</option>';
-    mEl.innerHTML = h;
-    mEl.dataset.built = '1';
-    mEl.addEventListener('change', updateAgePreview);
+  grid.innerHTML = html;
+  grid.querySelectorAll('.month-cell').forEach(c => {
+    c.addEventListener('click', () => {
+      const v = c.dataset.m === '' ? null : parseInt(c.dataset.m, 10);
+      // 同じものを再タップしたら選択解除（任意項目なので未選択に戻せる）
+      selectedMonths = (selectedMonths === v) ? null : v;
+      renderMonthsActive();
+    });
+  });
+}
+function renderMonthsActive() {
+  document.querySelectorAll('#mMonthsGrid .month-cell').forEach(c => {
+    const v = c.dataset.m === '' ? null : parseInt(c.dataset.m, 10);
+    c.classList.toggle('active', v === selectedMonths);
+  });
+}
+// 年齢クラスに応じて月齢欄の表示/非表示を切り替え（3歳〜は月齢なし）
+function updateMonthsVisibility() {
+  const field = document.getElementById('mMonthsField');
+  if (!field) return;
+  const age = getAge();
+  if (age === '3') {
+    field.style.display = 'none';
+    selectedMonths = null;
+    renderMonthsActive();
+  } else {
+    field.style.display = '';
   }
 }
-function getBirthYM() {
-  const y = document.getElementById('mBirthYear');
-  const m = document.getElementById('mBirthMonth');
-  return {
-    by: (y && y.value) ? parseInt(y.value, 10) : null,
-    bm: (m && m.value) ? parseInt(m.value, 10) : null
-  };
+
+function setAge(age) {
+  document.querySelectorAll('#mAgeTabs .age-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.age === age);
+  });
+  updateMonthsVisibility();
 }
-function setBirthYM(by, bm) {
-  const y = document.getElementById('mBirthYear');
-  const m = document.getElementById('mBirthMonth');
-  if (y) y.value = by ? String(by) : '';
-  if (m) m.value = bm ? String(bm) : '';
-  updateAgePreview();
+function getAge() {
+  const el = document.querySelector('#mAgeTabs .age-tab.active');
+  return el ? el.dataset.age : '1';
 }
-// 旧レコード(birth無し)の編集用：age/months から近似の生年月を逆算（基準日 BOARD_BASE から遡る）
-function birthYMFromAgeMonths(age, months) {
-  const a = parseInt(age, 10);
-  if (isNaN(a)) return { by: null, bm: null };
-  const tm = a * 12 + (months != null ? months : 0); // 3歳〜(months null)は36相当
-  const d = new Date(BOARD_BASE);
-  d.setMonth(d.getMonth() - tm);
-  return { by: d.getFullYear(), bm: d.getMonth() + 1 };
+function getMonths() {
+  // 3歳〜は月齢なし。それ以外は選択値（未選択は null）
+  return getAge() === '3' ? null : selectedMonths;
 }
-// 編集/顧客連携時のプリフィル：birthがあればそれ、無ければ age/months から逆算
-function prefillBirthFrom(rec) {
-  if (rec && rec.birthY && rec.birthM) { setBirthYM(rec.birthY, rec.birthM); return; }
-  if (rec) { const d = birthYMFromAgeMonths(rec.age, rec.months); setBirthYM(d.by, d.bm); return; }
-  setBirthYM(null, null);
-}
-function updateAgePreview() {
-  const el = document.getElementById('mAgePreviewVal');
-  if (!el) return;
-  const ym = getBirthYM();
-  const r = ageMonthsFromYM(ym.by, ym.bm);
-  if (r.age == null) el.textContent = '—';                 // 生年月が未選択
-  else if (r.age === '3') el.textContent = '3歳〜';        // 36ヶ月以上は集約表示
-  else el.textContent = r.age + '歳' + (r.months != null ? r.months + 'ヶ月' : '');
-}
-// saveBooking はこの2つを従来どおり呼ぶ（生年月→age/months に変換して返す）
-function getAge() { const ym = getBirthYM(); return ageMonthsFromYM(ym.by, ym.bm).age; }
-function getMonths() { const ym = getBirthYM(); return ageMonthsFromYM(ym.by, ym.bm).months; }
-buildBirthSelectors();
+document.querySelectorAll('#mAgeTabs .age-tab').forEach(t => {
+  t.addEventListener('click', () => setAge(t.dataset.age));
+});
+buildMonthsGrid();
 
 // ===== 時間: 開始時刻 + 所要時間(分) =====
 function timeToMin(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
@@ -2036,7 +1955,7 @@ function suggestItemHtml(c) {
 // 顧客を選択 → 氏名と年齢を自動セット
 function pickCustomer(name, age) {
   document.getElementById('mName').value = name;
-  { const _d = birthYMFromAgeMonths(age, null); setBirthYM(_d.by, _d.bm); } // 顧客の丸め年齢から近似生年月
+  setAge(age);
   document.getElementById('nameSuggest').classList.remove('show');
   document.getElementById('kanaResult').innerHTML = '';
   document.querySelectorAll('#kanaIndex .kana-btn').forEach(b => b.classList.remove('active'));
@@ -2077,7 +1996,7 @@ function openModal() {
   document.getElementById('mZone').value = 'woodstock';
   document.getElementById('mMemo').value = '';
   document.getElementById('mYouchisha').checked = false;
-  setBirthYM(null, null);
+  setAge('1');
   resetNameSearch();
   buildStartSelect('10:00');
   setDuration(90);
@@ -2094,86 +2013,18 @@ function resetNameSearch() {
 }
 function closeModal() { document.getElementById('modal').classList.remove('show'); }
 
-/* SF-BOARD-CAPWARN-20260707 : その年齢・時間帯が満員(salonならブロック)かを判定 */
-/* SF-CAPWARN-UI-20260707 : アプリUIの確認ダイアログ（Promiseでtrue/falseを返す） */
-function sfCapConfirm(msg) {
-  return new Promise(function(resolve) {
-    var ov = document.getElementById('capwarnOverlay');
-    var m = document.getElementById('capwarnMsg');
-    var ok = document.getElementById('capwarnOk');
-    var cancel = document.getElementById('capwarnCancel');
-    if (!ov || !ok || !cancel) { resolve(window.confirm(msg + '\nそれでも予約を追加しますか？')); return; }
-    if (m) m.textContent = msg;
-    function done(v) {
-      ov.classList.remove('show');
-      ok.onclick = null; cancel.onclick = null; ov.onclick = null;
-      resolve(v);
-    }
-    ok.onclick = function() { done(true); };
-    cancel.onclick = function() { done(false); };
-    ov.onclick = function(e) { if (e.target === ov) done(false); };
-    ov.classList.add('show');
-  });
-}
-function sfCapFull(age, start, end, date, months) {
-  var g = normGarden(CURRENT_GARDEN);
-  /* (a) SF-DECREMENT-20260710 減員: 新規予約が消費する枠(0/1/2/3)のいずれかが定員に達していれば満員扱い */
-  var _newSlots = consumedSlots(totalMonths(age, months));
-  if (!_newSlots.length) { var _na = normAge(age); if (_na != null) _newSlots = [_na]; }
-  for (var _si = 0; _si < _newSlots.length; _si++) {
-    var _cap = capEffective(CURRENT_GARDEN, _newSlots[_si], date);
-    if (_cap != null && countReservations(CURRENT_GARDEN, _newSlots[_si], date) >= _cap) return true;
-  }
-  /* (b) 予約の時間帯と重なる時間帯制限(_blocks: 基本＋その日)。SF-BLOCKSLOT-20260710: 対象年齢を消費枠(consumedSlots)ベースで判定（≤18ヶ月は0・1両枠を枠ごとに独立判定）。枠の写像は減員(part-a)と同一。数える母集団は従来どおり bookings 全件(ゾーン非フィルタ、ext含む)で、本パッチでは変更しない。 */
-  var sMin = timeToMin(start), eMin = timeToMin(end);
-  var blocks = [];
-  var base = CAP_MIRROR.base && CAP_MIRROR.base[g];
-  if (base && Array.isArray(base._blocks)) blocks = blocks.concat(base._blocks);
-  var day = CAP_MIRROR[date] && CAP_MIRROR[date][g];
-  if (day && Array.isArray(day._blocks)) blocks = blocks.concat(day._blocks);
-  var _bkSlots = consumedSlots(totalMonths(age, months));
-  if (!_bkSlots.length) { var _bkNa = normAge(age); if (_bkNa != null) _bkSlots = [_bkNa]; }
-  for (var i = 0; i < blocks.length; i++) {
-    var b = blocks[i];
-    if (!b || !Array.isArray(b.ages)) continue;
-    var _bAges = b.ages.map(String);
-    var bs = timeToMin(b.from), be = timeToMin(b.to);
-    if (eMin <= bs || sMin >= be) continue; /* 時間が重ならない */
-    var lim = Number(b.limit); if (isNaN(lim)) lim = 0;
-    for (var _bk = 0; _bk < _bkSlots.length; _bk++) {
-      var _slot = String(_bkSlots[_bk]);
-      if (_bAges.indexOf(_slot) === -1) continue; /* 新規予約はこの制限枠を消費しない */
-      var used = 0;
-      for (var j = 0; j < bookings.length; j++) {
-        var x = bookings[j];
-        if (!x) continue;
-        if ((x.date || boardDateStr()) !== date) continue;
-        if (normGarden(x.gardenId) !== g) continue;
-        if (consumedSlots(totalMonths(x.age, x.months)).indexOf(_slot) === -1) continue; /* この枠を消費しない既存予約は数えない（不明除外） */
-        var xs = timeToMin(x.start), xe = timeToMin(x.end || minToTime(END_HOUR*60));
-        if (xe <= bs || xs >= be) continue; /* この制限帯と重ならない予約は数えない */
-        used++;
-      }
-      if (used >= lim) return true;
-    }
-  }
-  return false;
-}
-async function saveBooking() {
+function saveBooking() {
   const name = document.getElementById('mName').value.trim();
-  if (!name) { sfAlert('お子様氏名を入力してください'); return; }
+  if (!name) { alert('お子様氏名を入力してください'); return; }
   const zone = document.getElementById('mZone').value;
-  const _ym = getBirthYM();
-  const birthY = _ym.by, birthM = _ym.bm;
   const age = getAge();
   const months = getMonths();
-  if (age == null) { sfAlert('生年月（西暦の年と誕生月）を選択してください'); return; }
   const memo = document.getElementById('mMemo').value.trim();
   const youchisha = document.getElementById('mYouchisha').checked;
   const start = document.getElementById('mStart').value;
   const dur = getDuration();
   const endMin = timeToMin(start) + dur;
-  if (endMin > END_HOUR * 60) { sfAlert(`終了時刻が閉園(${END_HOUR}:00)を超えます。開始時刻またはご利用時間を調整してください。`); return; }
+  if (endMin > END_HOUR * 60) { alert(`終了時刻が閉園(${END_HOUR}:00)を超えます。開始時刻またはご利用時間を調整してください。`); return; }
   const end = minToTime(endMin);
 
   if (editingIdx >= 0) {
@@ -2181,7 +2032,7 @@ async function saveBooking() {
     // 編集時は日付欄から予約日を取得（未入力なら元の日付を維持）
     const newDate = document.getElementById('mDate').value || prev.date || boardDateStr();
     const movedToOtherDay = (newDate !== (prev.date || boardDateStr()));
-    const updated = { ...prev, name, zone, age, months, birthY, birthM, memo, start, end, date: newDate,
+    const updated = { ...prev, name, zone, age, months, memo, start, end, date: newDate,
       affiliation: youchisha ? 'youchisha' : (prev.gardenId || CURRENT_GARDEN),
       lane: findFreeLane(zone, start, end, editingIdx) };
     // 共有ストレージにも反映（sfId を持つ＝共有由来の予約のみ）
@@ -2194,14 +2045,8 @@ async function saveBooking() {
     }
   } else {
     const lane = findFreeLane(zone, start, end, -1);
-    if (lane < 0) { sfAlert('この時間帯はこの区分の枠が満員です'); return; }
-    /* SF-CAPWARN-UI-20260707 : 満員/受け入れ制限中なら確認（アプリUIのダイアログ） */
-    if (typeof sfCapFull === 'function' && sfCapFull(age, start, end, boardDateStr(), months)) {
-      var _cwLbl = (age === '3' ? '3歳〜' : age + '歳');
-      var _cwMsg = _cwLbl + ' の ' + start + ' 〜 ' + end + ' は満員（受け入れ制限）です。';
-      if (!(await sfCapConfirm(_cwMsg))) return;
-    }
-    const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, birthY, birthM, memo, start, end, date: boardDateStr(),
+    if (lane < 0) { alert('この時間帯はこの区分の枠が満員です'); return; }
+    const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, memo, start, end, date: boardDateStr(),
       affiliation: youchisha ? 'youchisha' : CURRENT_GARDEN };
     // 延長保育(ext_am/ext_pm)以外は共有ストレージに保存し、TimelySchool予約画面・サロン側に表記連携する
     if (zone !== 'ext_am' && zone !== 'ext_pm') {
@@ -2261,9 +2106,9 @@ function findFreeLane(zone, start, end, excludeIdx) {
   return -1;
 }
 
-async function deleteBooking() {
+function deleteBooking() {
   if (editingIdx < 0) return;
-  if (!(await sfConfirm('この予約を削除しますか？', {okText:'削除する', danger:true}))) return;
+  if (!confirm('この予約を削除しますか？')) return;
   const b = bookings[editingIdx];
   // 共有由来（sfId付き）なら共有ストレージからも削除し、サロン・通知・TimelySchool予約から消す
   if (b && b.sfId) {
@@ -2454,494 +2299,6 @@ window.addEventListener('storage', (e) => {
   if (e.key === TS_KEY) { syncFromTimelySchool(); }
 });
 setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); // フォールバック
-</script>
-<style>/* SF-GSW-20260706 : スマホ版 園切替(確認ダイアログ付き) */
-.sf-gsw-row{display:flex;justify-content:center;padding:8px 12px 0;}
-.sf-gsw-btn{appearance:none;display:inline-flex;align-items:center;gap:8px;border:1px solid var(--gold,#C9A961);background:var(--white,#ffffff);color:var(--ink,#1A1F26);font-family:var(--serif-jp,serif);font-size:14px;padding:9px 20px;min-height:44px;border-radius:22px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,0.06);}
-.sf-gsw-btn .sf-gsw-ico{color:var(--gold-deep,#a8872f);font-size:15px;}
-.sf-gsw-btn .sf-gsw-caret{color:var(--ink-soft,#6b7280);font-size:12px;}
-/* SF-GSW-POS-20260706 : popup shown below the switch button (top area) */
-.sf-gsw-overlay,.sf-gsw-confirm-overlay{position:fixed;inset:0;background:rgba(26,31,38,0.5);display:none;align-items:flex-start;justify-content:center;z-index:400;padding-top:130px;}
-.sf-gsw-overlay.open,.sf-gsw-confirm-overlay.open{display:flex;}
-.sf-gsw-menu{background:var(--white,#ffffff);border-radius:12px;padding:18px 18px 14px;width:340px;max-width:calc(100vw - 32px);box-shadow:0 16px 50px rgba(0,0,0,0.32);}
-.sf-gsw-menu-head{font-family:var(--serif-jp,serif);font-size:16px;font-weight:600;color:var(--ink,#1A1F26);margin-bottom:12px;text-align:center;}
-.sf-gsw-item{display:flex;align-items:center;gap:10px;width:100%;appearance:none;border:1px solid var(--line,#e5e2da);background:var(--white,#ffffff);color:var(--ink,#1A1F26);font-family:var(--serif-jp,serif);font-size:15px;padding:12px 14px;min-height:48px;border-radius:8px;margin-bottom:8px;cursor:pointer;text-align:left;}
-.sf-gsw-item:active{background:var(--tiffany-soft,#E4F4F2);}
-.sf-gsw-item.cur{background:var(--ivory,#faf8f2);color:var(--ink-soft,#6b7280);cursor:default;}
-.sf-gsw-item .sf-gsw-check{width:18px;flex:0 0 18px;color:var(--tiffany,#0ABAB5);font-weight:700;}
-.sf-gsw-item .sf-gsw-item-name{flex:1;}
-.sf-gsw-item .sf-gsw-here{font-size:11px;color:var(--tiffany-deep,#0a8f8a);}
-.sf-gsw-cancel{width:100%;appearance:none;border:1px solid var(--line,#e5e2da);background:var(--ivory,#faf8f2);color:var(--ink-soft,#6b7280);font-family:var(--serif-jp,serif);font-size:14px;padding:11px;min-height:44px;border-radius:8px;cursor:pointer;margin-top:4px;}
-.sf-gsw-confirm{background:var(--white,#ffffff);border-radius:12px;padding:22px 24px 18px;width:340px;max-width:calc(100vw - 32px);box-shadow:0 16px 50px rgba(0,0,0,0.32);}
-.sf-gsw-confirm-title{font-family:var(--serif-jp,serif);font-size:16px;font-weight:600;color:var(--ink,#1A1F26);line-height:1.5;}
-.sf-gsw-confirm-note{font-family:var(--serif-jp,serif);font-size:12px;color:var(--ink-soft,#6b7280);margin-top:8px;}
-.sf-gsw-confirm-actions{display:flex;gap:10px;margin-top:18px;}
-.sf-gsw-confirm-actions button{flex:1;appearance:none;font-family:var(--serif-jp,serif);font-size:14px;padding:11px;min-height:46px;border-radius:8px;cursor:pointer;}
-.sf-gsw-confirm-no{border:1px solid var(--line,#e5e2da);background:var(--ivory,#faf8f2);color:var(--ink-soft,#6b7280);}
-.sf-gsw-confirm-yes{border:1px solid var(--tiffany,#0ABAB5);background:var(--tiffany,#0ABAB5);color:var(--white,#ffffff);font-weight:600;}
-</style>
-<!-- SF-GSW-20260706 : 園切替メニュー -->
-<div class="sf-gsw-overlay" id="sfGswOverlay" onclick="sfGswClose()">
-  <div class="sf-gsw-menu" onclick="event.stopPropagation()">
-    <div class="sf-gsw-menu-head">園を切り替え</div>
-    <div id="sfGswList"></div>
-    <button type="button" class="sf-gsw-cancel" onclick="sfGswClose()">閉じる</button>
-  </div>
-</div>
-<!-- SF-GSW-20260706 : 切替確認ダイアログ -->
-<div class="sf-gsw-confirm-overlay" id="sfGswConfirmOverlay" onclick="sfGswConfirmClose()">
-  <div class="sf-gsw-confirm" onclick="event.stopPropagation()">
-    <div class="sf-gsw-confirm-title" id="sfGswConfirmTitle">切り替えますか？</div>
-    <div class="sf-gsw-confirm-note">現在の園の画面から移動します。</div>
-    <div class="sf-gsw-confirm-actions">
-      <button type="button" class="sf-gsw-confirm-no" onclick="sfGswConfirmClose()">いいえ</button>
-      <button type="button" class="sf-gsw-confirm-yes" id="sfGswConfirmYes">はい、切り替える</button>
-    </div>
-  </div>
-</div>
-<script>
-/* SF-GSW-20260706 : 園切替ロジック（別園ごとの固定URLへ移動する方式） */
-(function(){
-  var CUR = 'factory';
-  var GARDENS = [
-    {id:'tsukisamu', name:'月寒園'},
-    {id:'shiraishi', name:'白石園'},
-    {id:'factory',   name:'サッポロファクトリー園'},
-    {id:'shiseikan', name:'資生館園'}
-  ];
-  var pending = null;
-  function nameOf(id){ for(var i=0;i<GARDENS.length;i++){ if(GARDENS[i].id===id){ return GARDENS[i].name; } } return ''; }
-  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function build(){
-    var lbl = document.getElementById('sfGswCurName'); if(lbl){ lbl.textContent = nameOf(CUR) || '園'; }
-    var list = document.getElementById('sfGswList'); if(!list){ return; }
-    var html = '';
-    for(var i=0;i<GARDENS.length;i++){
-      var g = GARDENS[i];
-      var isCur = (g.id===CUR);
-      html += '<button type="button" class="sf-gsw-item'+(isCur?' cur':'')+'"'
-            + (isCur?' disabled':' data-id="'+esc(g.id)+'"')+'>'
-            +   '<span class="sf-gsw-check">'+(isCur?'✓':'')+'</span>'
-            +   '<span class="sf-gsw-item-name">'+esc(g.name)+'</span>'
-            +   (isCur?'<span class="sf-gsw-here">表示中</span>':'')
-            + '</button>';
-    }
-    list.innerHTML = html;
-    var btns = list.querySelectorAll('button[data-id]');
-    for(var j=0;j<btns.length;j++){
-      btns[j].addEventListener('click', function(){ sfGswAsk(this.getAttribute('data-id')); });
-    }
-  }
-  window.sfGswToggle = function(){ var o=document.getElementById('sfGswOverlay'); if(o){ o.classList.add('open'); } };
-  window.sfGswClose  = function(){ var o=document.getElementById('sfGswOverlay'); if(o){ o.classList.remove('open'); } };
-  window.sfGswAsk = function(id){
-    pending = id;
-    var t = document.getElementById('sfGswConfirmTitle');
-    if(t){ t.textContent = nameOf(id) + 'に切り替えますか？'; }
-    sfGswClose();
-    var c = document.getElementById('sfGswConfirmOverlay'); if(c){ c.classList.add('open'); }
-  };
-  window.sfGswConfirmClose = function(){ var c=document.getElementById('sfGswConfirmOverlay'); if(c){ c.classList.remove('open'); } pending=null; };
-  function bindYes(){
-    var yes = document.getElementById('sfGswConfirmYes');
-    if(yes){ yes.addEventListener('click', function(){ if(pending){ window.location.href = 'board_sp_'+pending+'.html'; } }); }
-  }
-  function init(){ build(); bindYes(); }
-  if(document.readyState!=='loading'){ init(); }
-  else { document.addEventListener('DOMContentLoaded', init); }
-})();
-</script>
-<style>
-/* SF-CAPWARN-UI-20260707 : 満員確認ダイアログ */
-.capwarn-overlay{position:fixed;inset:0;background:rgba(26,31,38,0.5);display:none;align-items:center;justify-content:center;z-index:500;}
-.capwarn-overlay.show{display:flex;}
-.capwarn-box{background:var(--white,#fff);border-radius:14px;padding:26px 26px 20px;width:360px;max-width:calc(100vw - 32px);box-shadow:0 16px 50px rgba(0,0,0,0.32);animation:calPop 0.2s cubic-bezier(0.16,1,0.3,1);text-align:center;}
-.capwarn-icon{font-size:30px;line-height:1;}
-.capwarn-title{font-family:var(--serif-jp,serif);font-size:16px;font-weight:600;color:var(--ink,#1A1F26);margin:10px 0 12px;}
-.capwarn-msg{font-family:var(--serif-jp,serif);font-size:13px;line-height:1.7;color:var(--ink-soft,#5b6470);margin-bottom:4px;}
-.capwarn-sub{font-family:var(--serif-jp,serif);font-size:12px;color:var(--ink-soft,#5b6470);margin-bottom:22px;}
-.capwarn-actions{display:flex;gap:12px;}
-.capwarn-actions button{flex:1;border:none;border-radius:10px;padding:13px 10px;font-family:var(--serif-jp,serif);font-size:14px;cursor:pointer;transition:transform .08s;}
-.capwarn-actions button:active{transform:scale(0.98);}
-.capwarn-cancel{background:var(--ivory,#F5F1E8);color:var(--ink-soft,#5b6470);}
-.capwarn-ok{background:var(--gold,#C9A961);color:#fff;font-weight:600;}
-</style>
-<div class="capwarn-overlay" id="capwarnOverlay">
-  <div class="capwarn-box">
-    <div class="capwarn-icon">&#9888;&#65039;</div>
-    <div class="capwarn-title">受け入れ制限中の時間帯です</div>
-    <div class="capwarn-msg" id="capwarnMsg"></div>
-    <div class="capwarn-sub">それでも予約を追加しますか？</div>
-    <div class="capwarn-actions">
-      <button class="capwarn-cancel" id="capwarnCancel">キャンセル</button>
-      <button class="capwarn-ok" id="capwarnOk">それでも追加する</button>
-    </div>
-  </div>
-</div>
-<script>
-/* SF-SALON-NOTIFY-20260710 — サロン発の新規予約を保育園ボードに通知（持続バナー＋NEWバッジ＋着信ログ＋端末別既読）。
-   自己完結：CSS/DOMをJSで注入し、sfApplySnapshot と renderBoard をラップして拡張する。既存コードは不変。
-   v3: 通知音を三角波3音アルペジオ(ドミソ↑)化＝お迎えアプリ(正弦2音)と明確に区別／NEWバッジをバー1段目の左端インラインに／着信ログに所要時間と「受信」ラベルを追加。 */
-(function () {
-  'use strict';
-  if (window.__sfSalonNotify) return; window.__sfSalonNotify = true;
-
-  var KEY_PREFIX = 'sfNotify:v1:';
-  var LOG_CAP = 100;
-  var WD = ['日', '月', '火', '水', '木', '金', '土'];
-
-  // ---- ユーティリティ ----
-  function curGarden() {
-    try { return (typeof normGarden === 'function') ? normGarden(CURRENT_GARDEN) : CURRENT_GARDEN; }
-    catch (e) { return 'tsukisamu'; }
-  }
-  function baseDate() { try { return new Date(BOARD_BASE); } catch (e) { var d = new Date(); d.setHours(0,0,0,0); return d; } }
-  function todayStr() {
-    var d = baseDate();
-    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-  }
-  function fmtDate(ds) {
-    var p = String(ds || '').split('-');
-    if (p.length < 3) return ds || '';
-    var y = +p[0], m = +p[1], d = +p[2];
-    if (!y || !m || !d) return ds;
-    var dt = new Date(y, m - 1, d);
-    var wd = WD[dt.getDay()];
-    var yPrefix = (y !== baseDate().getFullYear()) ? (y + '年') : '';
-    return yPrefix + m + '月' + d + '日(' + wd + ')';
-  }
-  // 'HH:MM','HH:MM' → 'X時間Y分'（利用時間）
-  function fmtDur(s, e) {
-    var a = String(s || '').split(':'), b = String(e || '').split(':');
-    if (a.length < 2 || b.length < 2) return '';
-    var mins = (+b[0] * 60 + +b[1]) - (+a[0] * 60 + +a[1]);
-    if (!(mins > 0)) return '';
-    var h = Math.floor(mins / 60), mm = mins % 60;
-    return (h ? h + '時間' : '') + (mm ? mm + '分' : '');
-  }
-  function recName(r) { return (r && r.info && r.info.name) ? r.info.name : (r ? r.name : ''); }
-  function salonLabel(s) { return s === 'woodstock' ? 'WOODSTOCK' : (s === 'janis' ? 'JANIS' : String(s || '').toUpperCase()); }
-  function isSalonOrigin(r) { return r && !r.fromBoard && (r.salon === 'woodstock' || r.salon === 'janis'); }
-  function fmtClock(ts) {
-    var d = new Date(ts);
-    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-  }
-  function escapeHtml(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-
-  // ---- 端末別・園別 状態 ----
-  function load(g) {
-    try {
-      var raw = localStorage.getItem(KEY_PREFIX + g);
-      if (!raw) return { seen: [], unread: [], log: [], seeded: false };
-      var o = JSON.parse(raw);
-      return { seen: o.seen || [], unread: o.unread || [], log: o.log || [], seeded: !!o.seeded };
-    } catch (e) { return { seen: [], unread: [], log: [], seeded: false }; }
-  }
-  function save(g, st) { try { localStorage.setItem(KEY_PREFIX + g, JSON.stringify(st)); } catch (e) {} }
-
-  // ---- CSS 注入 ----
-  function injectCSS() {
-    if (document.getElementById('sfNotifyStyle')) return;
-    var css = ''
-      + '.sf-nb{position:fixed;top:14px;left:50%;transform:translateX(-50%) translateY(-8px);z-index:9999;'
-      + 'display:none;align-items:center;gap:14px;max-width:92vw;padding:11px 16px;border-radius:14px;'
-      + 'background:rgba(255,255,255,0.97);box-shadow:0 8px 30px rgba(0,0,0,0.18);border:1px solid rgba(201,169,97,0.35);'
-      + 'font-family:var(--serif-jp,serif);opacity:0;transition:opacity .25s ease, transform .25s ease;}'
-      + '.sf-nb.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0);}'
-      + '.sf-nb.flash{animation:sfNbFlash .55s ease 4;}'
-      + '@keyframes sfNbFlash{0%,100%{box-shadow:0 8px 30px rgba(0,0,0,0.18);border-color:rgba(201,169,97,0.35);}'
-      + '50%{box-shadow:0 0 0 5px rgba(74,201,182,0.55),0 10px 34px rgba(0,0,0,0.28);border-color:rgba(74,201,182,0.9);}}'
-      + '.sf-nb-bell{font-size:18px;line-height:1;}'
-      + '.sf-nb-bell.ring{animation:sfBell .6s ease 3;transform-origin:50% 0;}'
-      + '@keyframes sfBell{0%,100%{transform:rotate(0);}20%{transform:rotate(16deg);}40%{transform:rotate(-13deg);}60%{transform:rotate(8deg);}80%{transform:rotate(-4deg);}}'
-      + '.sf-nb-main{display:flex;flex-direction:column;line-height:1.25;cursor:pointer;}'
-      + '.sf-nb-eyebrow{font-family:var(--serif-en,serif);font-style:italic;font-size:10px;letter-spacing:.14em;color:var(--tiffany-deep,#2aa);}'
-      + '.sf-nb-title{font-size:14px;font-weight:600;color:var(--ink,#2b2b2b);}'
-      + '.sf-nb-title b{color:var(--gold-deep,#9a7b2e);font-size:15px;}'
-      + '.sf-nb-ack{font-family:var(--serif-jp,serif);font-size:12px;font-weight:600;color:#fff;background:var(--tiffany,#4ac9b6);'
-      + 'border:none;border-radius:10px;padding:7px 14px;cursor:pointer;white-space:nowrap;}'
-      + '.sf-nb-ack:active{transform:scale(.97);}'
-      + '.sf-log{position:fixed;top:66px;left:50%;transform:translateX(-50%);z-index:9998;display:none;'
-      + 'width:min(460px,93vw);max-height:56vh;overflow:auto;background:#fff;border-radius:16px;'
-      + 'box-shadow:0 16px 44px rgba(0,0,0,0.24);border:1px solid rgba(0,0,0,0.06);padding:6px 0;}'
-      + '.sf-log.show{display:block;}'
-      + '.sf-log-h{font-family:var(--serif-en,serif);font-style:italic;font-size:11px;letter-spacing:.12em;color:var(--gold-deep,#9a7b2e);padding:10px 18px 8px;border-bottom:1px solid #f0ece2;}'
-      + '.sf-log-row{display:flex;gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid #f6f6f6;font-family:var(--serif-jp,serif);}'
-      + '.sf-log-row:last-child{border-bottom:none;}'
-      + '.sf-log-row.unread{background:linear-gradient(90deg,rgba(74,201,182,0.12),rgba(74,201,182,0.03));}'
-      + '.sf-log-at{display:flex;flex-direction:column;align-items:center;min-width:46px;line-height:1.05;}'
-      + '.sf-log-at .at-time{font-family:var(--serif-en,serif);font-size:13px;color:var(--ink,#4a4a4a);font-weight:600;}'
-      + '.sf-log-at .at-label{font-size:8px;color:#bcb39c;letter-spacing:.12em;margin-top:2px;}'
-      + '.sf-log-salon{font-size:9px;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:8px;color:#fff;white-space:nowrap;align-self:center;}'
-      + '.sf-log-salon.woodstock{background:var(--woodstock,#C9A961);}'
-      + '.sf-log-salon.janis{background:var(--janis,#5b8fb0);}'
-      + '.sf-log-main{display:flex;flex-direction:column;min-width:0;gap:3px;}'
-      + '.sf-log-name{font-size:14px;font-weight:600;color:var(--ink,#2b2b2b);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}'
-      + '.sf-log-when{font-size:12px;color:var(--ink-soft,#8a8a8a);}'
-      + '.sf-log-when .day{color:var(--tiffany-deep,#2f9e8e);font-weight:600;margin-right:6px;}'
-      + '.sf-log-when .dur{color:#b7ad95;margin-left:5px;}'
-      + '.sf-log-empty{padding:20px 16px;text-align:center;color:#bbb;font-family:var(--serif-jp,serif);font-size:13px;}'
-      + '.booking-bar.sf-new{box-shadow:0 0 0 2px #fff, 0 0 0 4px var(--tiffany,#4ac9b6);}'
-      + '.sf-new-badge{display:inline-block;background:var(--tiffany,#4ac9b6);color:#fff;'
-      + 'font-family:var(--serif-en,serif);font-size:8px;font-weight:700;letter-spacing:.06em;padding:1px 4px;border-radius:5px;'
-      + 'margin-right:4px;flex-shrink:0;line-height:1.4;box-shadow:0 1px 3px rgba(0,0,0,0.22);}';
-    var el = document.createElement('style'); el.id = 'sfNotifyStyle'; el.textContent = css;
-    document.head.appendChild(el);
-  }
-
-  // ---- バナー/ログ DOM ----
-  var bannerEl, logEl, countEl, bellEl;
-  function injectDOM() {
-    if (document.getElementById('sfNotifyBanner')) return;
-    bannerEl = document.createElement('div');
-    bannerEl.className = 'sf-nb'; bannerEl.id = 'sfNotifyBanner';
-    bannerEl.innerHTML =
-      '<span class="sf-nb-bell" id="sfNbBell">🔔</span>'
-      + '<div class="sf-nb-main" id="sfNbMain">'
-      + '  <span class="sf-nb-eyebrow">NEW RESERVATION</span>'
-      + '  <span class="sf-nb-title">サロンから新規予約 <b><span id="sfNbCount">0</span></b> 件</span>'
-      + '</div>'
-      + '<button class="sf-nb-ack" id="sfNbAck">全部確認</button>';
-    document.body.appendChild(bannerEl);
-    logEl = document.createElement('div'); logEl.className = 'sf-log'; logEl.id = 'sfNotifyLog';
-    document.body.appendChild(logEl);
-    countEl = document.getElementById('sfNbCount');
-    bellEl = document.getElementById('sfNbBell');
-    document.getElementById('sfNbMain').addEventListener('click', toggleLog);
-    document.getElementById('sfNbAck').addEventListener('click', function (e) { e.stopPropagation(); markAllRead(); });
-    document.addEventListener('click', function (e) {
-      if (logEl.classList.contains('show') && !logEl.contains(e.target) && !bannerEl.contains(e.target)) logEl.classList.remove('show');
-    });
-  }
-  function toggleLog() { renderLog(); logEl.classList.toggle('show'); }
-  function renderLog() {
-    var st = load(curGarden());
-    var unread = new Set(st.unread);
-    var rows = (st.log || []).map(function (e) {
-      var cls = unread.has(e.id) ? ' unread' : '';
-      var dur = fmtDur(e.start, e.end);
-      return '<div class="sf-log-row' + cls + '">'
-        + '<span class="sf-log-at"><span class="at-time">' + fmtClock(e.at) + '</span><span class="at-label">受信</span></span>'
-        + '<span class="sf-log-salon ' + e.salon + '">' + salonLabel(e.salon) + '</span>'
-        + '<div class="sf-log-main">'
-        + '  <div class="sf-log-name">' + escapeHtml(e.name) + '</div>'
-        + '  <div class="sf-log-when"><span class="day">' + fmtDate(e.date) + '</span>' + e.start + '〜' + e.end + (dur ? '<span class="dur">（' + dur + '）</span>' : '') + '</div>'
-        + '</div></div>';
-    }).join('');
-    logEl.innerHTML = '<div class="sf-log-h">SALON RESERVATIONS — 着信ログ（この端末）</div>'
-      + (rows || '<div class="sf-log-empty">まだ通知はありません</div>');
-  }
-
-  // ---- 通知音（サロン専用：三角波3音アルペジオ）＋自動再生対策 ----
-  var _actx = null;
-  function ensureAudio() {
-    try { var Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return null;
-      if (!_actx) _actx = new Ctx();
-      if (_actx.state === 'suspended' && _actx.resume) _actx.resume();
-      return _actx;
-    } catch (e) { return null; }
-  }
-  function chime() {
-    var c = ensureAudio(); if (!c) return;
-    try {
-      function tone(freq, start, dur) {
-        var o = c.createOscillator(), g = c.createGain();
-        o.type = 'triangle'; o.frequency.value = freq; o.connect(g); g.connect(c.destination);
-        var t = c.currentTime + start;
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(0.16, t + 0.015);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-        o.start(t); o.stop(t + dur + 0.02);
-      }
-      // ドミソ↑（三角波3音）＝お迎えアプリの正弦2音と耳で明確に区別
-      tone(1047, 0.00, 0.26);  // C6
-      tone(1319, 0.12, 0.26);  // E6
-      tone(1568, 0.24, 0.44);  // G6
-    } catch (e) {}
-  }
-
-  // ---- 検知 ----
-  var _lastGarden = null;
-  function scan(arr) {
-    if (!Array.isArray(arr)) { try { arr = SF_MIRROR; } catch (e) { arr = []; } }
-    var g = curGarden(); _lastGarden = g;
-    var today = todayStr();
-    var recs = arr.filter(function (r) {
-      return isSalonOrigin(r)
-        && (typeof normGarden === 'function' ? normGarden(r.gardenId) : r.gardenId) === g
-        && String(r.date || '') >= today;
-    });
-    var st = load(g); var seen = new Set(st.seen); var firstLoad = !st.seeded; var arrived = 0;
-    recs.forEach(function (r) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id); st.seen.push(r.id);
-        if (!firstLoad) {
-          st.unread.push(r.id);
-          st.log.unshift({ id: r.id, at: Date.now(), salon: r.salon, name: recName(r), start: r.start, end: r.end, date: r.date || today });
-          arrived++;
-        }
-      }
-    });
-    var present = new Set(recs.map(function (r) { return r.id; }));
-    st.unread = st.unread.filter(function (id) { return present.has(id); });
-    if (st.log.length > LOG_CAP) st.log = st.log.slice(0, LOG_CAP);
-    if (st.seen.length > 1000) st.seen = st.seen.slice(-1000); /* seen 上限（無制限増加を防ぐ） */
-    st.seeded = true; save(g, st);
-    renderBanner(); decorate();
-    if (arrived > 0) { flash(); chime(); }
-  }
-  function flash() {
-    if (!bannerEl) return;
-    bannerEl.classList.remove('flash'); void bannerEl.offsetWidth; bannerEl.classList.add('flash');
-    if (bellEl) { bellEl.classList.remove('ring'); void bellEl.offsetWidth; bellEl.classList.add('ring'); }
-  }
-  function renderBanner() {
-    if (!bannerEl) return;
-    var n = load(curGarden()).unread.length;
-    if (countEl) countEl.textContent = String(n);
-    if (n > 0) bannerEl.classList.add('show'); else { bannerEl.classList.remove('show'); if (logEl) logEl.classList.remove('show'); }
-  }
-  function decorate() {
-    if (_lastGarden !== null && curGarden() !== _lastGarden) { scan(); return; }
-    var unread; try { unread = new Set(load(curGarden()).unread); } catch (e) { return; }
-    var bars = document.querySelectorAll('.booking-bar[data-idx]');
-    bars.forEach(function (bar) {
-      var idx = parseInt(bar.dataset.idx, 10);
-      var b = (typeof bookings !== 'undefined' && bookings) ? bookings[idx] : null;
-      var isNew = b && b.sfId && unread.has(b.sfId);
-      bar.classList.toggle('sf-new', !!isNew);
-      var badge = bar.querySelector('.sf-new-badge');
-      var line1 = bar.querySelector('.bar-line1');
-      if (isNew && !badge && line1) line1.insertAdjacentHTML('afterbegin', '<span class="sf-new-badge">NEW</span>');
-      else if (!isNew && badge) badge.remove();
-    });
-  }
-  function markAllRead() {
-    var g = curGarden(); var st = load(g); st.unread = []; save(g, st);
-    renderBanner(); decorate(); renderLog();
-  }
-
-  // ---- 既存関数のラップ ----
-  function wrap() {
-    if (typeof window.sfApplySnapshot === 'function') {
-      var _apply = window.sfApplySnapshot;
-      window.sfApplySnapshot = function (arr) {
-        var r = _apply.apply(this, arguments);
-        try { scan(arr); } catch (e) { console.error('[sfNotify scan]', e); }
-        return r;
-      };
-    }
-    if (typeof window.renderBoard === 'function') {
-      var _render = window.renderBoard;
-      window.renderBoard = function () {
-        var r = _render.apply(this, arguments);
-        try { decorate(); } catch (e) { console.error('[sfNotify decorate]', e); }
-        return r;
-      };
-    }
-  }
-
-  function boot() {
-    injectCSS(); injectDOM(); wrap();
-    ['click', 'touchstart', 'keydown'].forEach(function (ev) { document.addEventListener(ev, ensureAudio, { passive: true }); });
-    try { scan(); } catch (e) {}
-    renderBanner();
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-})();
-</script>
-<script>
-/* SF-INAPP-DIALOG-20260711 — ブラウザ標準の alert/confirm をアプリ内ダイアログに置換。
-   window.sfAlert(msg) / window.sfConfirm(msg, opts) を提供（Promise）。
-   位置: iPad/PC=中央・スマホ(幅640px以下)=上部。デザインは Tiffany/serif に合わせる。既存コードは不変。 */
-(function () {
-  'use strict';
-  if (window.__sfInAppDialog) return; window.__sfInAppDialog = true;
-
-  var ov, box, titleEl, msgEl, btns, okBtn, cancelBtn, built = false;
-
-  function injectCSS() {
-    if (document.getElementById('sfdStyle')) return;
-    var css = ''
-      + '.sfd-ov{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;'
-      + 'background:rgba(20,22,26,0.34);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);padding:20px;}'
-      + '.sfd-ov.show{display:flex;}'
-      + '@media (max-width:640px){.sfd-ov{align-items:flex-start;padding-top:42px;}}'
-      + '.sfd-box{background:#fff;border-radius:18px;box-shadow:0 22px 64px rgba(0,0,0,0.30);max-width:400px;width:100%;'
-      + 'padding:26px 24px 20px;font-family:var(--serif-jp,serif);text-align:center;animation:sfdIn .18s ease;}'
-      + '@keyframes sfdIn{from{opacity:0;transform:translateY(-8px) scale(.98);}to{opacity:1;transform:none;}}'
-      + '.sfd-title{font-family:var(--serif-en,serif);font-style:italic;font-size:11px;letter-spacing:.14em;color:var(--gold-deep,#9a7b2e);margin-bottom:9px;}'
-      + '.sfd-msg{font-size:15px;color:var(--ink,#2b2b2b);line-height:1.65;white-space:pre-wrap;word-break:break-word;margin-bottom:20px;}'
-      + '.sfd-btns{display:flex;gap:10px;justify-content:center;}'
-      + '.sfd-btn{font-family:var(--serif-jp,serif);font-size:14px;font-weight:600;border-radius:11px;padding:11px 22px;cursor:pointer;border:none;min-width:104px;transition:transform .08s ease;}'
-      + '.sfd-btn:active{transform:scale(.97);}'
-      + '.sfd-ok{background:var(--tiffany,#4ac9b6);color:#fff;}'
-      + '.sfd-ok.danger{background:#c0392b;}'
-      + '.sfd-cancel{background:#f0efe9;color:var(--ink-soft,#7a7a7a);}';
-    var el = document.createElement('style'); el.id = 'sfdStyle'; el.textContent = css;
-    (document.head || document.documentElement).appendChild(el);
-  }
-
-  function build() {
-    if (built) return;
-    injectCSS();
-    ov = document.createElement('div'); ov.className = 'sfd-ov'; ov.id = 'sfdOverlay';
-    box = document.createElement('div'); box.className = 'sfd-box';
-    titleEl = document.createElement('div'); titleEl.className = 'sfd-title';
-    msgEl = document.createElement('div'); msgEl.className = 'sfd-msg';
-    btns = document.createElement('div'); btns.className = 'sfd-btns';
-    cancelBtn = document.createElement('button'); cancelBtn.className = 'sfd-btn sfd-cancel'; cancelBtn.type = 'button';
-    okBtn = document.createElement('button'); okBtn.className = 'sfd-btn sfd-ok'; okBtn.type = 'button';
-    btns.appendChild(cancelBtn); btns.appendChild(okBtn);
-    box.appendChild(titleEl); box.appendChild(msgEl); box.appendChild(btns);
-    ov.appendChild(box);
-    (document.body || document.documentElement).appendChild(ov);
-    built = true;
-  }
-
-  function open(o) {
-    return new Promise(function (resolve) {
-      build();
-      msgEl.textContent = o.message == null ? '' : String(o.message);
-      titleEl.textContent = o.title || '';
-      titleEl.style.display = o.title ? '' : 'none';
-      okBtn.textContent = o.okText || 'OK';
-      okBtn.classList.toggle('danger', !!o.danger);
-      cancelBtn.textContent = o.cancelText || 'キャンセル';
-      cancelBtn.style.display = o.cancel ? '' : 'none';
-      function done(v) {
-        ov.classList.remove('show');
-        okBtn.onclick = null; cancelBtn.onclick = null; ov.onclick = null;
-        document.removeEventListener('keydown', onKey, true);
-        resolve(v);
-      }
-      function onKey(e) {
-        if (e.key === 'Enter') { e.preventDefault(); done(true); }
-        else if (e.key === 'Escape') { e.preventDefault(); done(o.cancel ? false : true); }
-      }
-      okBtn.onclick = function () { done(true); };
-      cancelBtn.onclick = function () { done(false); };
-      ov.onclick = function (e) { if (e.target === ov) done(o.cancel ? false : true); };
-      document.addEventListener('keydown', onKey, true);
-      ov.classList.add('show');
-      try { okBtn.focus(); } catch (e) {}
-    });
-  }
-
-  window.sfAlert = function (msg, opts) {
-    opts = opts || {};
-    return open({ message: msg, cancel: false, okText: opts.okText || 'OK', title: opts.title == null ? 'お知らせ' : opts.title });
-  };
-  window.sfConfirm = function (msg, opts) {
-    opts = opts || {};
-    return open({ message: msg, cancel: true, okText: opts.okText || 'OK', cancelText: opts.cancelText || 'キャンセル',
-      danger: !!opts.danger, title: opts.title == null ? '確認' : opts.title });
-  };
-})();
 </script>
 </body>
 </html>

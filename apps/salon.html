@@ -701,6 +701,9 @@ function kanaRowOf(c){ const f=toKata(c.kana).charAt(0); for(const r of KANA_ROW
 
 let selectedAge = '1';
 let selectedMonths = 2; // 0歳/1歳/2歳のときの月齢（2〜11ヶ月。お預かりは2ヶ月から）
+/* SF-AGEMONTH-3PLUS-20260722 : 表示専用の実年齢・実月齢（判定には使わない） */
+let selectedRealAge = null;
+let selectedRealMonths = null;
 
 // ===== ステップ1: 年齢 =====
 function renderAgeRow() { buildBirthSelectors(); syncAgeFromBirth(); }
@@ -724,25 +727,31 @@ function getBirthYM() {
   return { by: (y && y.value) ? parseInt(y.value, 10) : null, bm: (m && m.value) ? parseInt(m.value, 10) : null };
 }
 function ageMonthsFromYM(by, bm) {
-  if (!by || !bm) return { age: null, months: null };
+  if (!by || !bm) return { age: null, months: null, realAge: null, realMonths: null };
   const ref = new Date(); ref.setHours(0,0,0,0);
   let months = (ref.getFullYear() - by) * 12 + (ref.getMonth() - (bm - 1));
   if (months < 0) months = 0;
   const age = Math.floor(months / 12);
-  return { age: String(Math.min(age, 3)), months: age >= 3 ? null : (months % 12) };
+  /* SF-AGEMONTH-3PLUS-20260722 : 判定キー(age)は従来どおり3で丸めるが、
+     表示用に実年齢(realAge)と実月齢(realMonths)も返す。3歳以上でも「◯歳◯ヶ月」を出せるようにする。 */
+  return { age: String(Math.min(age, 3)), months: age >= 3 ? null : (months % 12),
+           realAge: age, realMonths: months % 12 };
 }
 function updateAgePreview() {
   const el = document.getElementById('agePreviewVal'); if (!el) return;
   const ym = getBirthYM(); const r = ageMonthsFromYM(ym.by, ym.bm);
-  if (r.age == null) el.textContent = '—';
-  else if (r.age === '3') el.textContent = '3歳〜';
-  else el.textContent = r.age + '歳' + (r.months != null ? r.months + 'ヶ月' : '');
+  /* SF-AGEMONTH-3PLUS-20260722 : 実年齢＋月齢で表示（3歳以上も「◯歳◯ヶ月」）。判定は selectedAge(丸め)で別途。 */
+  if (r.realAge == null) el.textContent = '—';
+  else el.textContent = r.realAge + '歳' + (r.realMonths != null ? r.realMonths + 'ヶ月' : '');
 }
 // 生年月から selectedAge/selectedMonths を導出（下流の空き判定・保存は従来どおり丸めage＝層2は別途）
 function syncAgeFromBirth() {
   const ym = getBirthYM(); const r = ageMonthsFromYM(ym.by, ym.bm);
   selectedAge = (r.age == null) ? '1' : r.age;
   selectedMonths = (r.months == null) ? 0 : r.months;
+  /* SF-AGEMONTH-3PLUS-20260722 : 表示専用の実年齢・実月齢。判定(selectedAge/selectedMonths)には使わない。 */
+  selectedRealAge = (r.realAge == null) ? null : r.realAge;
+  selectedRealMonths = (r.realMonths == null) ? null : r.realMonths;
   updateAgePreview(); updateAcceptInfo();
 }
 function onBirthChange() {
@@ -751,14 +760,20 @@ function onBirthChange() {
   checkAvailability();
 }
 // 年齢＋月齢の表示用ラベル（例：0歳3ヶ月 / 3歳〜）
-function ageMonthLabel(age, months) {
+/* SF-AGEMONTH-3PLUS-20260722 : realAge/realMonths が渡されればそれで「◯歳◯ヶ月」を作る（3歳以上も月齢表示）。
+   渡されない場合のみ従来の丸め表示（3→3歳〜）にフォールバック（後方互換）。 */
+function ageMonthLabel(age, months, realAge, realMonths) {
+  if (realAge != null) {
+    const rm = (realMonths == null) ? 0 : realMonths;
+    return `${realAge}歳${rm}ヶ月`;
+  }
   if (age === '3') return '3歳〜';
   const m = (months == null) ? 0 : months;
   return `${age}歳${m}ヶ月`;
 }
 function updateAcceptInfo() {
   const a = ACCEPT[selectedAge];
-  const ageJp = ageMonthLabel(selectedAge, selectedMonths);
+  const ageJp = ageMonthLabel(selectedAge, selectedMonths, selectedRealAge, selectedRealMonths);
   document.getElementById('acceptInfo').innerHTML =
     `${ageJp}のお預かり受付時間：<span class="hl">${a.open} 〜 ${a.close}</span> ／ 同時に <span class="hl">${a.cap}名</span>まで`;
 }
@@ -888,7 +903,7 @@ function findAlternatives(slots, dur, aroundIdx) {
 let pendingStart = '', pendingEnd = '';
 function openReserve(start, end) {
   pendingStart = start; pendingEnd = end;
-  const ageJp = ageMonthLabel(selectedAge, selectedMonths);
+  const ageJp = ageMonthLabel(selectedAge, selectedMonths, selectedRealAge, selectedRealMonths);
   const isBook = reserveMode === 'book';
   // モーダルのモード別表示切替
   document.getElementById('bookFields').style.display = isBook ? '' : 'none';
@@ -994,7 +1009,11 @@ function renderMyBookings() {
   const list = document.getElementById('mbList');
   if (!arr.length) { list.innerHTML = '<div class="mb-empty">本日の予約はまだありません。</div>'; return; }
   list.innerHTML = arr.map(b => {
-    const ageLabel = ageMonthLabel(b.age, b.months);
+    /* SF-AGEMONTH-3PLUS-20260722 : 保存済み予約は birthY/birthM から実年齢・実月齢を復元して表示（3歳以上も月齢表示）。
+       birthY/birthM が無い古い予約は従来の丸め表示にフォールバック。 */
+    let _rA = null, _rM = null;
+    if (b.birthY && b.birthM) { const _r = ageMonthsFromYM(b.birthY, b.birthM); _rA = _r.realAge; _rM = _r.realMonths; }
+    const ageLabel = ageMonthLabel(b.age, b.months, _rA, _rM);
     const lunch = needsLunch(b) ? '<span class="mb-lunch" title="昼食をお持ちください">🍙</span>' : '';
     // 新規（仮）でまだ受付未登録ならバッジ。受付済みなら正式氏名を表示。
     const displayName = (b.info && b.info.name) ? b.info.name : b.name;

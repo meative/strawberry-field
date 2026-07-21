@@ -279,6 +279,7 @@ body {
     .cap-block-lane .lane-head { display: flex; align-items: center; padding-left: 12px; }
     .cap-block-lane .lane-head .en { font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--tiffany); }
     .cap-block-lane .lane-head .jp { font-family: var(--serif-jp); font-size: 11px; color: var(--line); margin-left: 6px; }
+    .cap-band-spacer { border-left-color: transparent !important; cursor: default !important; pointer-events: none; }
     .cap-block-band { position: absolute; top: 3px; bottom: 3px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-family: var(--serif-jp); font-size: 11px; font-weight: 600; overflow: hidden; white-space: nowrap; box-sizing: border-box; }
     .cap-block-band.block-full { background: rgba(214,90,90,0.16); border: 1px solid rgba(214,90,90,0.55); color: #b14a4a; }
     .cap-block-band.block-limit { background: rgba(214,176,70,0.18); border: 1px solid rgba(214,176,70,0.6); color: #a4801f; }
@@ -1475,7 +1476,11 @@ function renderCapBlockBand() {
   if (!bands) return '';
   return '<div class="cap-block-lane">'
        + '<div class="lane-head"><span class="en">Blocked</span><span class="jp">制限時間帯</span></div>'
-       + '<div class="lane-track">' + bands + '</div>'
+       + '<div class="lane-track">'
+       /* SF-CAPBAND-WIDTHFIX-20260722 : 予約レーンと同数の透明スロットを敷いて時間軸幅(=SLOTS数×min-width)を確保。
+          子セルが無いとlane-trackがflex:1でビューポート幅に潰れ、狭い画面(iPad)で帯が時間軸より短く見えるため。 */
+       + SLOTS.map(function(){ return '<div class="slot cap-band-spacer"></div>'; }).join('')
+       + bands + '</div>'
        + '</div>';
 }
 
@@ -1651,7 +1656,10 @@ function renderBoard() {
         const endIdx = ei < 0 ? N : ei;
         const left = (si / N) * 100;
         const width = ((endIdx - si) / N) * 100;
-        const ageLabel = b.age === '3' ? '3歳〜' : (b.months != null ? `${b.age}歳${b.months}ヶ月` : `${b.age}歳`);
+        /* SF-AGEMONTH-3PLUS-20260722 : birthY/birthM があれば実年齢・実月齢で表示（3歳以上も月齢）。無い古い予約は従来表示。 */
+        let ageLabel;
+        if (b.birthY && b.birthM) { const _r = ageMonthsFromYM(b.birthY, b.birthM); ageLabel = `${_r.realAge}歳${_r.realMonths != null ? _r.realMonths : 0}ヶ月`; }
+        else ageLabel = b.age === '3' ? '3歳〜' : (b.months != null ? `${b.age}歳${b.months}ヶ月` : `${b.age}歳`);
         const gidx = bookings.indexOf(b);
         const lunch = needsLunch(b) ? '<span class="lunch-mark" title="昼食・軽食をお持ちください">🍙</span>' : '';
         const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
@@ -1856,12 +1864,15 @@ function ageMonthsFromBirth(by, bm, bd) {
 }
 /* PHASE_A_BIRTH_YM v1 — 生年(西暦)＋誕生月から月齢/年齢を算出（日は取らない＝学年フェーズで追加）。基準日 BOARD_BASE 時点。ageMonthsFromBirth と同形の戻り値。 */
 function ageMonthsFromYM(by, bm) {
-  if (!by || !bm) return { age: null, months: null };
+  if (!by || !bm) return { age: null, months: null, realAge: null, realMonths: null };
   const ref = new Date(BOARD_BASE);
   let months = (ref.getFullYear() - by) * 12 + (ref.getMonth() - (bm - 1));
   if (months < 0) months = 0;
   const age = Math.floor(months / 12);
-  return { age: String(Math.min(age, 3)), months: age >= 3 ? null : (months % 12) };
+  /* SF-AGEMONTH-3PLUS-20260722 : 判定キー(age)は従来どおり3で丸めるが、
+     表示用に実年齢(realAge)と実月齢(realMonths)も返す。3歳以上でも「◯歳◯ヶ月」を出せるようにする。 */
+  return { age: String(Math.min(age, 3)), months: age >= 3 ? null : (months % 12),
+           realAge: age, realMonths: months % 12 };
 }
 // TimelySchool受付内容を新規（仮）予約に取り込む
 function syncFromTimelySchool() {
@@ -1971,9 +1982,9 @@ function updateAgePreview() {
   if (!el) return;
   const ym = getBirthYM();
   const r = ageMonthsFromYM(ym.by, ym.bm);
-  if (r.age == null) el.textContent = '—';                 // 生年月が未選択
-  else if (r.age === '3') el.textContent = '3歳〜';        // 36ヶ月以上は集約表示
-  else el.textContent = r.age + '歳' + (r.months != null ? r.months + 'ヶ月' : '');
+  /* SF-AGEMONTH-3PLUS-20260722 : 実年齢＋月齢で表示（3歳以上も「◯歳◯ヶ月」）。判定は age(丸め)で別途。 */
+  if (r.realAge == null) el.textContent = '—';                 // 生年月が未選択
+  else el.textContent = r.realAge + '歳' + (r.realMonths != null ? r.realMonths + 'ヶ月' : '');
 }
 // saveBooking はこの2つを従来どおり呼ぶ（生年月→age/months に変換して返す）
 function getAge() { const ym = getBirthYM(); return ageMonthsFromYM(ym.by, ym.bm).age; }
@@ -2441,6 +2452,7 @@ function importSharedBookings() {
     const lane = findFreeLane(zone, r.start, r.end); // 既に積んだ分も考慮して採番
     bookings.push({ zone, lane, gardenId: normGarden(r.gardenId),
       name: (r.info && r.info.name) ? r.info.name : r.name, kana: r.kana, age: r.age, months: r.months,
+      birthY: r.birthY, birthM: r.birthM, /* SF-AGEMONTH-3PLUS-20260722 : バー表示で実年齢・実月齢を出すため生年月も引き継ぐ */
       start: r.start, end: r.end, date: r.date || curDate, memo: r.memo || '', sfId: r.id,
       provisional: r.provisional, info: r.info || null, affiliation: r.affiliation });
   });
