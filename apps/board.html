@@ -501,7 +501,8 @@ body {
     .kinder-empty { font-size:11px; color:var(--mut,#8a8a8a);
       font-style:italic; }
     /* ===== end SF-KINDER-BOARD-STEP23-20260630 CSS ===== */
-    </style>
+    .booking-bar .class0-chip { display:inline-block; background:#FCEBEB; color:#A32D2D; border:0.5px solid #E24B4A; font-size:10px; font-weight:600; padding:0 5px; border-radius:8px; margin-left:4px; line-height:1.5; white-space:nowrap; }
+</style>
 
 <!-- ===== Firebase / Firestore（共有予約データの本番ストレージ） ===== -->
 <!-- localStorage から Firestore へ移行（ミラーリング方式）。
@@ -1660,6 +1661,9 @@ function renderBoard() {
         let ageLabel;
         if (b.birthY && b.birthM) { const _r = ageMonthsFromYM(b.birthY, b.birthM); ageLabel = `${_r.realAge}歳${_r.realMonths != null ? _r.realMonths : 0}ヶ月`; }
         else ageLabel = b.age === '3' ? '3歳〜' : (b.months != null ? `${b.age}歳${b.months}ヶ月` : `${b.age}歳`);
+        /* SF-CLASS0-20260721 : 0歳児クラス該当ならチップに「0歳児（○月）」バッジ */
+        let class0Chip = '';
+        if (b.birthY && b.birthM) { const _ci = class0FromBoard(b.birthY, b.birthM); if (_ci.is0) class0Chip = `<span class="class0-chip">${_ci.label}</span>`; }
         const gidx = bookings.indexOf(b);
         const lunch = needsLunch(b) ? '<span class="lunch-mark" title="昼食・軽食をお持ちください">🍙</span>' : '';
         const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
@@ -1668,7 +1672,7 @@ function renderBoard() {
         html += `<div class="booking-bar ${zone.key} ${(b.provisional && !(b.info&&b.info.name))?'is-prov':''}" data-idx="${gidx}" title="${escapeHtml(b.name)}（${ageLabel}）${b.start}〜${b.end}" style="left:${left}%; width:calc(${width}% - 4px); margin-left:2px;">
           <span class="bar-handle bar-handle-l" data-idx="${gidx}" data-edge="l"></span>
           <span class="bar-body" onclick="onBarTap(${gidx})">
-            <span class="bar-lines"><span class="bar-line1"><span class="bar-name">${escapeHtml(b.name)}</span>${lunch}${affilBadge}</span><span class="bar-line2"><span class="age-chip">${ageLabel}</span>${provMark}${memo}</span></span>
+            <span class="bar-lines"><span class="bar-line1"><span class="bar-name">${escapeHtml(b.name)}</span>${lunch}${affilBadge}</span><span class="bar-line2"><span class="age-chip">${ageLabel}</span>${class0Chip}${provMark}${memo}</span></span>
           </span>
           <span class="bar-handle bar-handle-r" data-idx="${gidx}" data-edge="r"></span>
         </div>`;
@@ -2320,6 +2324,21 @@ function showNotify(body, title) {
 let dayOffset = 0;
 const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const BOARD_BASE = new Date(); BOARD_BASE.setHours(0,0,0,0); // 実時刻の今日（深夜0時基準・3画面統一）
+// SF-CLASS0-20260721 : 0歳児クラス判定＋バッジ文字列（サロン・ボード共通）。予約日が属する年度の4/1時点で満0歳=前年4/2〜当年4/1生まれ。日は使わず月で判定、年度も4月基準。
+function class0Info(birthY, birthM, resvY, resvM) {
+  if (!birthY || !birthM) return { is0: false, label: '' };
+  var fiscal = (resvM >= 4) ? resvY : resvY - 1;
+  var lo = (fiscal - 1) * 12 + 4;
+  var hi = fiscal * 12 + 3;
+  var bm = birthY * 12 + birthM;
+  var is0 = (lo <= bm && bm <= hi);
+  return { is0: is0, label: is0 ? ('0歳児（' + birthM + '月）') : '' };
+}
+function class0FromBoard(birthY, birthM) {
+  // ボード表示中の日付(boardDateStr)を利用日として判定
+  try { var s = boardDateStr(); var y = parseInt(s.slice(0,4),10); var m = parseInt(s.slice(5,7),10); return class0Info(birthY, birthM, y, m); }
+  catch (e) { var n = new Date(); return class0Info(birthY, birthM, n.getFullYear(), n.getMonth() + 1); }
+}
 function boardDateStr() {
   const d = new Date(BOARD_BASE); d.setDate(d.getDate()+dayOffset);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

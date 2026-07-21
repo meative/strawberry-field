@@ -161,6 +161,12 @@ button:active { opacity: 0.7; }
 .month-chip { font-family: var(--serif-jp); font-size: 12px; color: var(--ink); background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 8px 4px; cursor: pointer; transition: all var(--transition); text-align: center; white-space: nowrap; }
 .month-chip:hover { border-color: var(--salon); }
 .month-chip.active { background: var(--salon); color: var(--white); border-color: var(--salon); font-weight: 600; }
+.birth-row { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+.birth-sel { flex: 1; font-family: var(--serif-jp); font-size: 15px; color: var(--ink); background: var(--white); border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px; cursor: pointer; }
+.birth-sel:focus { outline: none; border-color: var(--salon); }
+.age-preview { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-family: var(--serif-jp); }
+.age-preview .ap-lbl { font-family: var(--serif-en); font-style: italic; font-size: 11px; color: var(--salon-deep, #9a7b2e); letter-spacing: 0.04em; }
+.age-preview .ap-val { font-size: 20px; font-weight: 700; color: var(--salon); }
 .cust-type-tabs { display: flex; gap: 0; background: var(--ivory); border: 1px solid var(--line); border-radius: 24px; padding: 3px; margin-bottom: 16px; }
 .ct-tab { flex: 1; background: transparent; border: none; border-radius: 20px; padding: 9px; font-family: var(--serif-jp); font-size: 13px; color: var(--ink-soft); cursor: pointer; transition: all var(--transition); }
 .ct-tab.active { background: var(--salon); color: var(--white); font-weight: 600; }
@@ -258,6 +264,9 @@ button:active { opacity: 0.7; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .proto-note { background: var(--tiffany-soft); padding: 8px 24px; font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); text-align: center; flex-shrink: 0; }
 .proto-note strong { color: var(--tiffany-deep); }
+.ap-class0 { display:inline-block; margin-left:10px; background:#FCEBEB; color:#A32D2D; border:0.5px solid #E24B4A; font-size:12px; font-weight:600; padding:3px 10px; border-radius:20px; vertical-align:2px; font-family:var(--serif-jp,'Noto Serif JP',serif); }
+.age-preview.is-class0 .ap-val { color:#A32D2D !important; }
+.mb-class0 { display:inline-block; background:#FCEBEB; color:#A32D2D; border:0.5px solid #E24B4A; font-size:10px; font-weight:600; padding:1px 7px; border-radius:10px; margin-left:4px; }
 </style>
 
 <!-- ===== Firebase / Firestore（共有予約データの本番ストレージ） ===== -->
@@ -314,35 +323,6 @@ button:active { opacity: 0.7; }
     }, (e) => console.error('[onSnapshot capacity] subscribe failed', e));
   }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
-<style id="sp-mobile-css">
-/* ===== SP(スマホ)最適化 SF-SALON-SP-20260703 ===== */
-@media (max-width: 640px){
-  .app-header{flex-wrap:wrap;gap:10px;padding:12px 14px}
-  .header-left{width:100%}
-  .header-right{width:100%}
-  .salon-switch{display:flex;width:100%;gap:8px}
-  .salon-switch button{flex:1;min-height:46px;font-size:12.5px;letter-spacing:.08em;padding:8px 4px;line-height:1.3}
-  .main{padding:14px 12px}
-  .date-bar{gap:8px}
-  .date-nav{min-height:48px;min-width:64px;font-size:13px}
-  .date-display{font-size:19px}
-  .mode-tabs{width:100%}
-  .mode-tab{flex:1;min-height:46px;font-size:14px}
-  .age-row{display:flex;flex-wrap:wrap;gap:10px}
-  .age-big{flex:1 1 44%;min-height:66px;font-size:16px}
-  .month-chips{gap:8px}
-  .month-chip{min-height:46px;font-size:14px;flex:1 1 44%}
-  .want-row{gap:8px;flex-wrap:wrap}
-  .want-row button, .want-row .time{min-height:46px;font-size:15px;flex:1 1 30%}
-  .result-time{font-size:20px}
-  .book-btn, .btn-primary{width:100%;min-height:54px;font-size:16px;letter-spacing:.08em}
-  .kana-index{gap:6px}
-  .kana-btn{min-height:44px;min-width:44px}
-  input, select, textarea{font-size:16px}  /* iOSの自動ズーム防止 */
-  .modal{width:94vw;max-width:94vw;padding:18px 14px}
-  .cal-day{min-height:42px}
-}
-</style>
 </head>
 <body>
 
@@ -404,11 +384,11 @@ button:active { opacity: 0.7; }
     <!-- ステップ1: 年齢 -->
     <div class="step">
       <div class="step-label"><span class="step-num">1</span><span class="step-text">お子様の年齢を選ぶ</span></div>
-      <div class="age-row" id="ageRow"></div>
-      <div class="month-row" id="monthRow" style="display:none;">
-        <div class="month-label" id="monthLabel">月齢を選ぶ</div>
-        <div class="month-chips" id="monthChips"></div>
+      <div class="birth-row">
+        <select id="sBirthYear" class="birth-sel" onchange="onBirthChange()"></select>
+        <select id="sBirthMonth" class="birth-sel" onchange="onBirthChange()"></select>
       </div>
+      <div class="age-preview" id="agePreview"><span class="ap-lbl">年齢（自動）</span><span class="ap-val" id="agePreviewVal">—</span><span id="agePreviewClass0" class="ap-class0" style="display:none;"></span></div>
       <div class="accept-info" id="acceptInfo"></div>
     </div>
 
@@ -494,7 +474,8 @@ button:active { opacity: 0.7; }
 </div>
 
 <div class="toast" id="toast"></div>
-<div class="proto-note">◆ <strong>サロン側 予約画面プロトタイプ v2</strong>（サンプル表示）。年齢→希望時間を選ぶと、予約できる時間が自動で出ます。満員なら近い空き時間を提案します。</div>
+<!-- SF-PROD-READY-20260715: prototype label removed for production -->
+<div class="proto-note">◆ 年齢→希望時間を選ぶと、予約できる時間が自動で出ます。満員なら近い空き時間を提案します。</div>
 
 <script>
 // ===== 共有ストレージ（3画面連携：サロン予約・予約管理・通知モデル） =====
@@ -509,7 +490,7 @@ const GARDENS = {
   shiraishi:  { name:'白石園',       salons:['woodstock','janis'] }, // データ識別子は woodstock/janis 共通。表示名/色は GARDEN_SALON で出し分け
 };
 // 現在運用中の園：URL の ?garden= から決定（無指定/未知は tsukisamu）。データ識別子(salon)は園に依らず woodstock/janis。
-const CURRENT_GARDEN = 'tsukisamu'; /* SF-SALON-SP-FIX-20260703: 園を固定(URL・ブラウザ不問) */
+const CURRENT_GARDEN = 'tsukisamu'; /* SF-SALON-SP-FIX-20260703: 園を固定(URL・ブラウザ不問)。生年月プルダウン版(salon.html)ベース */
 // gardenId が無い既存レコードは月寒園として扱う（補完）
 function normGarden(g) {
   // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
@@ -570,6 +551,26 @@ function normAge(a) {
   if (isNaN(n) || n < 0) return null;
   return String(Math.min(n, 3));
 }
+// SF-SALON-CSLOT-20260711: board減員と同一の消費枠写像。≤18ヶ月は0・1両枠を消費
+function totalMonths(age, months) {
+  if (age === '3') return 36;
+  var a = parseInt(age, 10);
+  if (isNaN(a)) return null;
+  return a * 12 + (months != null ? months : 0);
+}
+function consumedSlots(months) {
+  if (months == null || isNaN(months) || months < 0) return [];
+  if (months <= 18) return ['0','1'];
+  if (months < 24) return ['1'];
+  if (months < 36) return ['2'];
+  return ['3'];
+}
+// 選択中の子が消費する枠（生年月→月齢→消費枠）。未確定時は丸めageにフォールバック
+function selConsumedSlots() {
+  const s = consumedSlots(totalMonths(selectedAge, selectedMonths));
+  if (s.length) return s;
+  const n = normAge(selectedAge); return (n != null) ? [n] : [];
+}
 // 実効定員を解決：日別例外 → 基本設定 → 未設定(null=無制限) の順
 function capEffective(garden, age, date) {
   const g = normGarden(garden); const a = String(age);
@@ -580,17 +581,21 @@ function capEffective(garden, age, date) {
   return null; // 未設定＝無制限
 }
 // その日・その園・その年齢区分の予約数（temp/woodstock/janis、仮予約も数える、ext・年齢不明除外）
-function countReservations(garden, age, date) {
-  const g = normGarden(garden); const a = String(age);
+function countReservations(garden, slot, date) {
+  const g = normGarden(garden); const s = String(slot);
   let c = 0;
   sfLoad().forEach(r => {
     if (!r || !COUNTED_ZONES.has(r.salon)) return;
     if (normGarden(r.gardenId) !== g) return;
     if (r.date !== date) return;
-    if (normAge(r.age) !== a) return;
+    if (consumedSlots(totalMonths(r.age, r.months)).indexOf(s) === -1) return; // その枠を消費する予約か（≤18ヶ月は0/1両方・不明除外）
     c++;
   });
   return c;
+}
+// その日、消費枠のいずれかが1日定員に達しているか（board part-aと整合）
+function dayCapFull(slots, date) {
+  return slots.some(s => { const cap = capEffective(CURRENT_GARDEN, s, date); return (cap != null) && countReservations(CURRENT_GARDEN, s, date) >= cap; });
 }
 // onSnapshot（module側）から呼ばれる：定員マップを丸ごと置換（salon は読み取り専用・再描画不要）
 window.capApplySnapshot = function(map) {
@@ -634,7 +639,24 @@ let used = {};
 AGES.forEach(a => used[a.key] = new Array(N).fill(0));
 // サンプルで一部埋める
 function seed(age, start, end) { for (let i=slotIdx(start); i<slotIdx(end); i++) if(i>=0) used[age][i]++; }
-seed('0','10:00','11:30'); seed('0','13:00','14:00');
+// used グリッドを実データ(sf_bookings)から消費枠ベースで再構築（サンプルseed廃止）。checkAvailability の都度呼ぶ
+function rebuildUsed() {
+  const g = normGarden(CURRENT_GARDEN);
+  const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+  const ds = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+  const grid = {}; AGES.forEach(a => grid[a.key] = new Array(N).fill(0));
+  sfLoad().forEach(r => {
+    if (!r || !COUNTED_ZONES.has(r.salon)) return;
+    if (normGarden(r.gardenId) !== g) return;
+    if (r.date !== ds) return;
+    const slots = consumedSlots(totalMonths(r.age, r.months));
+    if (!slots.length) return;
+    const si = slotIdx(r.start), ei = slotIdx(r.end);
+    for (let i = si; i < ei; i++) { if (i < 0) continue; slots.forEach(s => { if (grid[s]) grid[s][i]++; }); }
+  });
+  used = grid;
+}
+
 seed('1','09:00','12:00'); seed('1','13:00','14:30');
 seed('2','11:00','13:00');
 seed('3','15:00','17:00');
@@ -679,49 +701,102 @@ function kanaRowOf(c){ const f=toKata(c.kana).charAt(0); for(const r of KANA_ROW
 
 let selectedAge = '1';
 let selectedMonths = 2; // 0歳/1歳/2歳のときの月齢（2〜11ヶ月。お預かりは2ヶ月から）
+/* SF-AGEMONTH-3PLUS-20260722 : 表示専用の実年齢・実月齢（判定には使わない） */
+let selectedRealAge = null;
+let selectedRealMonths = null;
 
 // ===== ステップ1: 年齢 =====
-function renderAgeRow() {
-  document.getElementById('ageRow').innerHTML = AGES.map(a =>
-    `<div class="age-big ${a.key===selectedAge?'active':''}" role="button" tabindex="0" onclick="selectAge('${a.key}')">${a.jp}<span class="en">${a.en}</span></div>`
-  ).join('');
-  renderMonthRow();
-  updateAcceptInfo();
-}
-// 月齢セレクター（0歳/1歳/2歳のみ表示。3歳以上は非表示）
-function renderMonthRow() {
-  const row = document.getElementById('monthRow');
-  if (selectedAge === '3') { row.style.display = 'none'; return; }
-  row.style.display = '';
-  const yr = selectedAge;
-  document.getElementById('monthLabel').textContent = `${yr}歳  — 何ヶ月ですか？`;
-  let html = '';
-  for (let m = 2; m <= 11; m++) {
-    html += `<div class="month-chip ${m===selectedMonths?'active':''}" role="button" tabindex="0" onclick="selectMonth(${m})">${m}ヶ月</div>`;
+function renderAgeRow() { buildBirthSelectors(); syncAgeFromBirth(); }
+function buildBirthSelectors() {
+  const yEl = document.getElementById('sBirthYear');
+  const mEl = document.getElementById('sBirthMonth');
+  if (yEl && !yEl.dataset.built) {
+    const cy = new Date().getFullYear();
+    let h = '<option value="">—</option>';
+    for (let y = cy; y >= cy - 5; y--) h += '<option value="' + y + '">' + y + '年</option>';
+    yEl.innerHTML = h; yEl.dataset.built = '1';
   }
-  document.getElementById('monthChips').innerHTML = html;
+  if (mEl && !mEl.dataset.built) {
+    let h = '<option value="">—</option>';
+    for (let m = 1; m <= 12; m++) h += '<option value="' + m + '">' + m + '月</option>';
+    mEl.innerHTML = h; mEl.dataset.built = '1';
+  }
 }
-function selectMonth(m) {
-  selectedMonths = m;
-  renderMonthRow();
-  updateAcceptInfo();
+function getBirthYM() {
+  const y = document.getElementById('sBirthYear'), m = document.getElementById('sBirthMonth');
+  return { by: (y && y.value) ? parseInt(y.value, 10) : null, bm: (m && m.value) ? parseInt(m.value, 10) : null };
 }
-function selectAge(key) {
-  selectedAge = key;
-  selectedMonths = 2; // 年齢を変えたら月齢は2ヶ月にリセット（お預かりは2ヶ月から）
-  renderAgeRow();
+// SF-CLASS0-20260721 : 0歳児クラス判定＋バッジ文字列（サロン・ボード共通）。予約日が属する年度の4/1時点で満0歳=前年4/2〜当年4/1生まれ。日は使わず月で判定、年度も4月基準。
+function class0Info(birthY, birthM, resvY, resvM) {
+  if (!birthY || !birthM) return { is0: false, label: '' };
+  var fiscal = (resvM >= 4) ? resvY : resvY - 1;
+  var lo = (fiscal - 1) * 12 + 4;
+  var hi = fiscal * 12 + 3;
+  var bm = birthY * 12 + birthM;
+  var is0 = (lo <= bm && bm <= hi);
+  return { is0: is0, label: is0 ? ('0歳児（' + birthM + '月）') : '' };
+}
+function class0FromResv(birthY, birthM) {
+  try { var d = currentDate(); return class0Info(birthY, birthM, d.getFullYear(), d.getMonth() + 1); }
+  catch (e) { var n = new Date(); return class0Info(birthY, birthM, n.getFullYear(), n.getMonth() + 1); }
+}
+function ageMonthsFromYM(by, bm) {
+  if (!by || !bm) return { age: null, months: null, realAge: null, realMonths: null };
+  const ref = new Date(); ref.setHours(0,0,0,0);
+  let months = (ref.getFullYear() - by) * 12 + (ref.getMonth() - (bm - 1));
+  if (months < 0) months = 0;
+  const age = Math.floor(months / 12);
+  /* SF-AGEMONTH-3PLUS-20260722 : 判定キー(age)は従来どおり3で丸めるが、
+     表示用に実年齢(realAge)と実月齢(realMonths)も返す。3歳以上でも「◯歳◯ヶ月」を出せるようにする。 */
+  return { age: String(Math.min(age, 3)), months: age >= 3 ? null : (months % 12),
+           realAge: age, realMonths: months % 12 };
+}
+function updateAgePreview() {
+  const el = document.getElementById('agePreviewVal'); if (!el) return;
+  const ym = getBirthYM(); const r = ageMonthsFromYM(ym.by, ym.bm);
+  /* SF-AGEMONTH-3PLUS-20260722 : 実年齢＋月齢で表示（3歳以上も「◯歳◯ヶ月」）。判定は selectedAge(丸め)で別途。 */
+  if (r.realAge == null) el.textContent = '—';
+  else el.textContent = r.realAge + '歳' + (r.realMonths != null ? r.realMonths + 'ヶ月' : '');
+  /* SF-CLASS0-20260721 : 0歳児クラス該当なら赤字＋「0歳児（○月）」バッジ */
+  var _c0 = document.getElementById('agePreviewClass0');
+  var _wrap = document.getElementById('agePreview');
+  if (_c0 && _wrap) {
+    var ym2 = getBirthYM();
+    var ci = class0FromResv(ym2.by, ym2.bm);
+    if (ci.is0) { _c0.textContent = ci.label; _c0.style.display = ''; _wrap.classList.add('is-class0'); }
+    else { _c0.textContent = ''; _c0.style.display = 'none'; _wrap.classList.remove('is-class0'); }
+  }
+}
+// 生年月から selectedAge/selectedMonths を導出（下流の空き判定・保存は従来どおり丸めage＝層2は別途）
+function syncAgeFromBirth() {
+  const ym = getBirthYM(); const r = ageMonthsFromYM(ym.by, ym.bm);
+  selectedAge = (r.age == null) ? '1' : r.age;
+  selectedMonths = (r.months == null) ? 0 : r.months;
+  /* SF-AGEMONTH-3PLUS-20260722 : 表示専用の実年齢・実月齢。判定(selectedAge/selectedMonths)には使わない。 */
+  selectedRealAge = (r.realAge == null) ? null : r.realAge;
+  selectedRealMonths = (r.realMonths == null) ? null : r.realMonths;
+  updateAgePreview(); updateAcceptInfo();
+}
+function onBirthChange() {
+  syncAgeFromBirth();
   buildStartOptions();
   checkAvailability();
 }
 // 年齢＋月齢の表示用ラベル（例：0歳3ヶ月 / 3歳〜）
-function ageMonthLabel(age, months) {
+/* SF-AGEMONTH-3PLUS-20260722 : realAge/realMonths が渡されればそれで「◯歳◯ヶ月」を作る（3歳以上も月齢表示）。
+   渡されない場合のみ従来の丸め表示（3→3歳〜）にフォールバック（後方互換）。 */
+function ageMonthLabel(age, months, realAge, realMonths) {
+  if (realAge != null) {
+    const rm = (realMonths == null) ? 0 : realMonths;
+    return `${realAge}歳${rm}ヶ月`;
+  }
   if (age === '3') return '3歳〜';
   const m = (months == null) ? 0 : months;
   return `${age}歳${m}ヶ月`;
 }
 function updateAcceptInfo() {
   const a = ACCEPT[selectedAge];
-  const ageJp = ageMonthLabel(selectedAge, selectedMonths);
+  const ageJp = ageMonthLabel(selectedAge, selectedMonths, selectedRealAge, selectedRealMonths);
   document.getElementById('acceptInfo').innerHTML =
     `${ageJp}のお預かり受付時間：<span class="hl">${a.open} 〜 ${a.close}</span> ／ 同時に <span class="hl">${a.cap}名</span>まで`;
 }
@@ -739,18 +814,28 @@ function buildStartOptions() {
 //   slotTime がその age 向けに制限されていれば、該当 block の limit 最小値を返す。なければ null
 //   age は rangeAvailable から文字列で渡るため Number() で正規化（_blocks.ages は数値配列）
 function blockedAt(garden, age, slotTime) {
-  const base = CAP_MIRROR.base && CAP_MIRROR.base[normGarden(garden)];
-  if (!base || !Array.isArray(base._blocks)) return null;
+  /* SF-SALON-DAYBLOCK-20260706 : 基本(毎日)＋その予約日の日別、両方の _blocks を見る（厳しい方が勝つ） */
+  const g = normGarden(garden);
   const a = Number(age);
+  // 予約日：checkAvailability/confirmReserve の判定日と同一式（new Date()+dayOffset）
+  const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+  const _ds = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
   let lim = null;
-  base._blocks.forEach(b => {
-    if (!b || !Array.isArray(b.ages)) return;
-    if (slotTime < b.from || slotTime >= b.to) return;
-    if (b.ages.map(Number).indexOf(a) === -1) return;
-    const L = Number(b.limit);
-    const v = isNaN(L) ? 0 : L;
-    if (lim === null || v < lim) lim = v;
-  });
+  const _scan = (blocks) => {
+    if (!Array.isArray(blocks)) return;
+    blocks.forEach(b => {
+      if (!b || !Array.isArray(b.ages)) return;
+      if (slotTime < b.from || slotTime >= b.to) return;
+      if (b.ages.map(Number).indexOf(a) === -1) return;
+      const L = Number(b.limit);
+      const v = isNaN(L) ? 0 : L;
+      if (lim === null || v < lim) lim = v;
+    });
+  };
+  const base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  if (base) _scan(base._blocks);            // 基本(毎日)の制限（現状は空でも将来のため残す）
+  const day = CAP_MIRROR[_ds] && CAP_MIRROR[_ds][g];
+  if (day) _scan(day._blocks);              // その予約日だけの制限
   return lim;
 }
 
@@ -773,6 +858,8 @@ function checkAvailability() {
   const dur = parseInt(document.getElementById('wantDur').value);
   const area = document.getElementById('resultArea');
   if (!start) { area.innerHTML = ''; return; }
+  rebuildUsed();
+  const _slots = selConsumedSlots();
   const a = ACCEPT[selectedAge];
   const sIdx = slotIdx(start);
   const slotsNeeded = dur / SLOT_MIN;
@@ -784,8 +871,7 @@ function checkAvailability() {
   // 日付は予約書き込みと同一式（new Date() + dayOffset）で算出し、判定日と予約日を一致させる
   const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
   const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
-  const _cap = capEffective(CURRENT_GARDEN, selectedAge, _capDate);
-  if (_cap != null && countReservations(CURRENT_GARDEN, selectedAge, _capDate) >= _cap) {
+  if (dayCapFull(_slots, _capDate)) {
     area.innerHTML = `<div class="result-ng">
       <div class="result-headline">この日 ${ageJp} は満員です</div>
       <div class="result-detail">申し訳ございません。${ageJp}のこの日のお預かりは満員でございます。別の日でご相談くださいませ。</div>
@@ -793,7 +879,7 @@ function checkAvailability() {
     return;
   }
 
-  if (rangeAvailable(selectedAge, sIdx, eIdx)) {
+  if (_slots.every(s => rangeAvailable(s, sIdx, eIdx))) {
     // 予約可能
     area.innerHTML = `<div class="result-ok">
       <div class="result-headline">◎ お預かりできます</div>
@@ -805,7 +891,7 @@ function checkAvailability() {
     </div>`;
   } else {
     // 予約不可 → 同じ長さで入れる近い時間を探す
-    const alts = findAlternatives(selectedAge, dur, sIdx);
+    const alts = findAlternatives(_slots, dur, sIdx);
     let altHtml;
     if (alts.length) {
       altHtml = `<div class="alt-title">近い時間で、以下が空いています：</div>
@@ -825,11 +911,11 @@ function checkAvailability() {
 }
 
 // 同じ長さで入れる代替時間（最大4件）
-function findAlternatives(age, dur, aroundIdx) {
+function findAlternatives(slots, dur, aroundIdx) {
   const slotsNeeded = dur / SLOT_MIN;
   const candidates = [];
   for (let s = 0; s + slotsNeeded <= N; s++) {
-    if (rangeAvailable(age, s, s + slotsNeeded)) candidates.push(s);
+    if (slots.every(_s => rangeAvailable(_s, s, s + slotsNeeded))) candidates.push(s);
   }
   // aroundIdxに近い順
   candidates.sort((x,y) => Math.abs(x-aroundIdx) - Math.abs(y-aroundIdx));
@@ -840,7 +926,7 @@ function findAlternatives(age, dur, aroundIdx) {
 let pendingStart = '', pendingEnd = '';
 function openReserve(start, end) {
   pendingStart = start; pendingEnd = end;
-  const ageJp = ageMonthLabel(selectedAge, selectedMonths);
+  const ageJp = ageMonthLabel(selectedAge, selectedMonths, selectedRealAge, selectedRealMonths);
   const isBook = reserveMode === 'book';
   // モーダルのモード別表示切替
   document.getElementById('bookFields').style.display = isBook ? '' : 'none';
@@ -883,7 +969,7 @@ function confirmReserve() {
     let arr = recs.filter(r => !(r.fromNextOf === rec.id));
     arr.push({
       id: 'fut_' + rec.id + '_' + Date.now(),
-      gardenId: normGarden(rec.gardenId), salon: rec.salon, name: rec.name, age: selectedAge,
+      gardenId: normGarden(rec.gardenId), salon: rec.salon, name: rec.name, age: selectedAge, birthY: getBirthYM().by, birthM: getBirthYM().bm,
       start: pendingStart, end: pendingEnd, date: dateStr,
       nextReservation: null, fromNextOf: rec.id, memo: menu ? `次回予約（${menu}）` : '次回予約'
     });
@@ -910,8 +996,7 @@ function confirmReserve() {
   {
     const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
     const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
-    const _cap = capEffective(CURRENT_GARDEN, selectedAge, _capDate);
-    if (_cap != null && countReservations(CURRENT_GARDEN, selectedAge, _capDate) >= _cap) {
+    if (dayCapFull(selConsumedSlots(), _capDate)) {
       showToast(`申し訳ございません。${AGES.find(a => a.key === selectedAge).jp}のこの日のお預かりは満員でございます`);
       return;
     }
@@ -924,7 +1009,7 @@ function confirmReserve() {
   // 共有ストレージへ書き込み → 予約管理システム・通知モデルに自動反映
   const today = new Date(); today.setHours(0,0,0,0); today.setDate(today.getDate()+dayOffset);
   const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-  const saved = sfAdd({ gardenId: CURRENT_GARDEN, salon, name, kana, age: selectedAge, months, start: pendingStart, end: pendingEnd, date: dateStr, nextReservation: null, provisional, info: null });
+  const saved = sfAdd({ gardenId: CURRENT_GARDEN, salon, name, kana, age: selectedAge, months, birthY: getBirthYM().by, birthM: getBirthYM().bm, start: pendingStart, end: pendingEnd, date: dateStr, nextReservation: null, provisional, info: null });
   closeModal();
   renderMyBookings();
   buildStartOptions();
@@ -947,7 +1032,13 @@ function renderMyBookings() {
   const list = document.getElementById('mbList');
   if (!arr.length) { list.innerHTML = '<div class="mb-empty">本日の予約はまだありません。</div>'; return; }
   list.innerHTML = arr.map(b => {
-    const ageLabel = ageMonthLabel(b.age, b.months);
+    /* SF-AGEMONTH-3PLUS-20260722 : 保存済み予約は birthY/birthM から実年齢・実月齢を復元して表示（3歳以上も月齢表示）。
+       birthY/birthM が無い古い予約は従来の丸め表示にフォールバック。 */
+    let _rA = null, _rM = null;
+    if (b.birthY && b.birthM) { const _r = ageMonthsFromYM(b.birthY, b.birthM); _rA = _r.realAge; _rM = _r.realMonths; }
+    const ageLabel = ageMonthLabel(b.age, b.months, _rA, _rM);
+    let _c0b = '';
+    if (b.birthY && b.birthM) { const _ci = class0FromResv(b.birthY, b.birthM); if (_ci.is0) _c0b = ' <span class="mb-class0">' + _ci.label + '</span>'; }
     const lunch = needsLunch(b) ? '<span class="mb-lunch" title="昼食をお持ちください">🍙</span>' : '';
     // 新規（仮）でまだ受付未登録ならバッジ。受付済みなら正式氏名を表示。
     const displayName = (b.info && b.info.name) ? b.info.name : b.name;
@@ -958,7 +1049,7 @@ function renderMyBookings() {
     return `<div class="mb-item">
       <div class="mb-time">${b.start} 〜 ${b.end}</div>
       <div class="mb-main"><div class="mb-name">${displayName}${lunch}${provBadge}</div><div class="mb-meta">${meta}</div></div>
-      <span class="mb-age">${ageLabel}</span>
+      <span class="mb-age">${ageLabel}</span>${_c0b}
     </div>`;
   }).join('');
 }

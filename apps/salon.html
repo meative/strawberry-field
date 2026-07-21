@@ -264,6 +264,9 @@ button:active { opacity: 0.7; }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .proto-note { background: var(--tiffany-soft); padding: 8px 24px; font-family: var(--serif-jp); font-size: 11px; color: var(--ink-soft); text-align: center; flex-shrink: 0; }
 .proto-note strong { color: var(--tiffany-deep); }
+.ap-class0 { display:inline-block; margin-left:10px; background:#FCEBEB; color:#A32D2D; border:0.5px solid #E24B4A; font-size:12px; font-weight:600; padding:3px 10px; border-radius:20px; vertical-align:2px; font-family:var(--serif-jp,'Noto Serif JP',serif); }
+.age-preview.is-class0 .ap-val { color:#A32D2D !important; }
+.mb-class0 { display:inline-block; background:#FCEBEB; color:#A32D2D; border:0.5px solid #E24B4A; font-size:10px; font-weight:600; padding:1px 7px; border-radius:10px; margin-left:4px; }
 </style>
 
 <!-- ===== Firebase / Firestore（共有予約データの本番ストレージ） ===== -->
@@ -385,7 +388,7 @@ button:active { opacity: 0.7; }
         <select id="sBirthYear" class="birth-sel" onchange="onBirthChange()"></select>
         <select id="sBirthMonth" class="birth-sel" onchange="onBirthChange()"></select>
       </div>
-      <div class="age-preview" id="agePreview"><span class="ap-lbl">年齢（自動）</span><span class="ap-val" id="agePreviewVal">—</span></div>
+      <div class="age-preview" id="agePreview"><span class="ap-lbl">年齢（自動）</span><span class="ap-val" id="agePreviewVal">—</span><span id="agePreviewClass0" class="ap-class0" style="display:none;"></span></div>
       <div class="accept-info" id="acceptInfo"></div>
     </div>
 
@@ -726,6 +729,20 @@ function getBirthYM() {
   const y = document.getElementById('sBirthYear'), m = document.getElementById('sBirthMonth');
   return { by: (y && y.value) ? parseInt(y.value, 10) : null, bm: (m && m.value) ? parseInt(m.value, 10) : null };
 }
+// SF-CLASS0-20260721 : 0歳児クラス判定＋バッジ文字列（サロン・ボード共通）。予約日が属する年度の4/1時点で満0歳=前年4/2〜当年4/1生まれ。日は使わず月で判定、年度も4月基準。
+function class0Info(birthY, birthM, resvY, resvM) {
+  if (!birthY || !birthM) return { is0: false, label: '' };
+  var fiscal = (resvM >= 4) ? resvY : resvY - 1;
+  var lo = (fiscal - 1) * 12 + 4;
+  var hi = fiscal * 12 + 3;
+  var bm = birthY * 12 + birthM;
+  var is0 = (lo <= bm && bm <= hi);
+  return { is0: is0, label: is0 ? ('0歳児（' + birthM + '月）') : '' };
+}
+function class0FromResv(birthY, birthM) {
+  try { var d = currentDate(); return class0Info(birthY, birthM, d.getFullYear(), d.getMonth() + 1); }
+  catch (e) { var n = new Date(); return class0Info(birthY, birthM, n.getFullYear(), n.getMonth() + 1); }
+}
 function ageMonthsFromYM(by, bm) {
   if (!by || !bm) return { age: null, months: null, realAge: null, realMonths: null };
   const ref = new Date(); ref.setHours(0,0,0,0);
@@ -743,6 +760,15 @@ function updateAgePreview() {
   /* SF-AGEMONTH-3PLUS-20260722 : 実年齢＋月齢で表示（3歳以上も「◯歳◯ヶ月」）。判定は selectedAge(丸め)で別途。 */
   if (r.realAge == null) el.textContent = '—';
   else el.textContent = r.realAge + '歳' + (r.realMonths != null ? r.realMonths + 'ヶ月' : '');
+  /* SF-CLASS0-20260721 : 0歳児クラス該当なら赤字＋「0歳児（○月）」バッジ */
+  var _c0 = document.getElementById('agePreviewClass0');
+  var _wrap = document.getElementById('agePreview');
+  if (_c0 && _wrap) {
+    var ym2 = getBirthYM();
+    var ci = class0FromResv(ym2.by, ym2.bm);
+    if (ci.is0) { _c0.textContent = ci.label; _c0.style.display = ''; _wrap.classList.add('is-class0'); }
+    else { _c0.textContent = ''; _c0.style.display = 'none'; _wrap.classList.remove('is-class0'); }
+  }
 }
 // 生年月から selectedAge/selectedMonths を導出（下流の空き判定・保存は従来どおり丸めage＝層2は別途）
 function syncAgeFromBirth() {
@@ -1014,6 +1040,8 @@ function renderMyBookings() {
     let _rA = null, _rM = null;
     if (b.birthY && b.birthM) { const _r = ageMonthsFromYM(b.birthY, b.birthM); _rA = _r.realAge; _rM = _r.realMonths; }
     const ageLabel = ageMonthLabel(b.age, b.months, _rA, _rM);
+    let _c0b = '';
+    if (b.birthY && b.birthM) { const _ci = class0FromResv(b.birthY, b.birthM); if (_ci.is0) _c0b = ' <span class="mb-class0">' + _ci.label + '</span>'; }
     const lunch = needsLunch(b) ? '<span class="mb-lunch" title="昼食をお持ちください">🍙</span>' : '';
     // 新規（仮）でまだ受付未登録ならバッジ。受付済みなら正式氏名を表示。
     const displayName = (b.info && b.info.name) ? b.info.name : b.name;
@@ -1024,7 +1052,7 @@ function renderMyBookings() {
     return `<div class="mb-item">
       <div class="mb-time">${b.start} 〜 ${b.end}</div>
       <div class="mb-main"><div class="mb-name">${displayName}${lunch}${provBadge}</div><div class="mb-meta">${meta}</div></div>
-      <span class="mb-age">${ageLabel}</span>
+      <span class="mb-age">${ageLabel}</span>${_c0b}
     </div>`;
   }).join('');
 }
