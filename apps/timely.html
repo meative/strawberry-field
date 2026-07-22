@@ -5545,6 +5545,20 @@
   const auth = getAuth(app);
   const COL = 'sf_bookings'; // board/salon/notify と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
 
+  /* SF-TL-CLOUDSYNC-20260722 : 受付アプリの業務データ(visits/customers/students)を Firestore と同期 */
+  const TL_COLS = { visits: 'sf_visits', customers: 'sf_customers', students: 'sf_students' };
+  // tlReconcile から呼ぶ：arr を「あるべき全件」として反映し、deletedIds は削除する。
+  window.fbReconcileTl = async (kind, arr, deletedIds) => {
+    const col = TL_COLS[kind];
+    if (!col) return;
+    try {
+      const batch = writeBatch(db);
+      (arr || []).forEach(r => { if (r && r.id) batch.set(doc(db, col, String(r.id)), r); });
+      (deletedIds || []).forEach(id => { if (id) batch.delete(doc(db, col, String(id))); });
+      await batch.commit();
+    } catch (e) { console.error('[fbReconcileTl] write failed', kind, e); }
+  };
+
   // sfSaveShared から呼ぶ：arr を「あるべき全件」として Firestore に反映。
   // deletedIds（写しから消えた id）は削除する。writeBatch で一括コミット。
   window.fbReconcile = async (arr, deletedIds) => {
@@ -5565,6 +5579,13 @@
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
       if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
     }, (e) => console.error('[onSnapshot] subscribe failed', e));
+    /* SF-TL-CLOUDSYNC-20260722 : 3コレクションを購読。ルールは認証必須なので signInAnonymously の内側に置く */
+    Object.keys(TL_COLS).forEach((kind) => {
+      onSnapshot(collection(db, TL_COLS[kind]), (snap) => {
+        const rows = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        if (typeof window.tlApplySnapshot === 'function') window.tlApplySnapshot(kind, rows);
+      }, (e) => console.error('[onSnapshot] subscribe failed', kind, e));
+    });
   }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
 </head>
@@ -8238,7 +8259,52 @@ function loadData() {
   }
 }
 
-function saveData(data) {
+/* ===== SF-TL-CLOUDSYNC-20260722 : 業務データのクラウド同期 =====
+   settings は端末ごとの園設定なので同期しない。
+   reservations は sf_bookings からの派生データなので同期しない。 */
+var TL_KINDS = ['visits', 'customers', 'students'];
+var TL_MIRROR = { visits: [], customers: [], students: [] };   // クラウドの既知状態の写し
+var TL_SNAP_SEEN = { visits: false, customers: false, students: false };
+var __tlApplying = false;   // スナップショット適用中フラグ（書き戻しループ防止）
+
+// 移行前の localStorage を一度だけ退避しておく（事故時にこのキーから復元できる）
+(function tlPreMigrationBackup() {
+  try {
+    var bk = STORAGE_KEY + '_premig_20260722';
+    if (localStorage.getItem(bk) === null) {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw !== null) {
+        localStorage.setItem(bk, raw);
+        console.log('[tlPreMigrationBackup] 移行前データを ' + bk + ' に退避しました');
+      }
+    }
+  } catch (e) { console.error('[tlPreMigrationBackup]', e); }
+})();
+
+function tlIdSet(arr) {
+  var s = {};
+  (arr || []).forEach(function (x) { if (x && x.id) s[x.id] = 1; });
+  return s;
+}
+
+// DATA[kind] を「あるべき全件」としてクラウドへ反映する。
+// 写し(TL_MIRROR)と比較して消えた id を削除対象に含める。
+function tlReconcile(kind, arr) {
+  var next = Array.isArray(arr) ? arr : [];
+  var nextIds = tlIdSet(next);
+  var deletedIds = (TL_MIRROR[kind] || [])
+    .filter(function (x) { return x && x.id && !nextIds[x.id]; })
+    .map(function (x) { return x.id; });
+  TL_MIRROR[kind] = next.slice();   // 楽観更新
+  if (typeof window.fbReconcileTl === 'function') {
+    window.fbReconcileTl(kind, next, deletedIds);
+  } else {
+    console.warn('[tlReconcile] fbReconcileTl 未準備（起動直後）。ローカルのみ保存しました。', kind);
+  }
+}
+
+// localStorage だけに保存する（クラウドへ書き戻さない経路）
+function saveDataLocalOnly(data) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     return true;
@@ -8247,6 +8313,68 @@ function saveData(data) {
     return false;
   }
 }
+
+function saveData(data) {
+  if (!saveDataLocalOnly(data)) return false;
+  if (__tlApplying) return true;              // スナップショット適用中は書き戻さない
+  try {
+    TL_KINDS.forEach(function (kind) {
+      // 初回スナップショット受信前は送らない（空配列でクラウドを全消しするのを防ぐ）
+      if (!TL_SNAP_SEEN[kind]) return;
+      tlReconcile(kind, data[kind] || []);
+    });
+  } catch (e) { console.error('[saveData] cloud sync error:', e); }
+  return true;
+}
+
+// module 側の onSnapshot から呼ばれる
+window.tlApplySnapshot = function (kind, rows) {
+  if (TL_KINDS.indexOf(kind) < 0) return;
+  var cloud = Array.isArray(rows) ? rows : [];
+  __tlApplying = true;
+  try {
+    if (!TL_SNAP_SEEN[kind]) {
+      // 初回だけ：置換ではなく id での和集合マージ。
+      // この端末にしか無い記録（未アップロードの会計履歴など）を消さないため。
+      TL_SNAP_SEEN[kind] = true;
+      var cloudIds = tlIdSet(cloud);
+      var localOnly = (DATA[kind] || []).filter(function (x) {
+        return x && x.id && !cloudIds[x.id];
+      });
+      DATA[kind] = cloud.concat(localOnly);
+      TL_MIRROR[kind] = cloud.slice();
+      saveDataLocalOnly(DATA);
+      console.log('[tlApplySnapshot] 初回マージ ' + kind +
+                  ': クラウド' + cloud.length + '件 + この端末のみ' + localOnly.length + '件');
+      if (localOnly.length && typeof window.fbReconcileTl === 'function') {
+        window.fbReconcileTl(kind, localOnly, []);   // 端末固有分だけ上げる（削除は送らない）
+        TL_MIRROR[kind] = DATA[kind].slice();
+      }
+    } else {
+      DATA[kind] = cloud;
+      TL_MIRROR[kind] = cloud.slice();
+      saveDataLocalOnly(DATA);
+    }
+  } catch (e) {
+    console.error('[tlApplySnapshot] error', kind, e);
+  } finally {
+    __tlApplying = false;
+  }
+  tlRerender();
+};
+
+// 一覧画面だけ再描画する。
+// 入力中の画面（new/visit/payment/receipt）は作り直すと入力が飛ぶので触らない。
+function tlRerender() {
+  var s = (typeof _currentScreen !== 'undefined') ? _currentScreen : '';
+  try {
+    if (s === 'paymentList' && typeof renderPaymentList === 'function') renderPaymentList();
+    else if (s === 'reservation' && typeof renderReservationList === 'function') renderReservationList();
+    else if (s === 'admin' && typeof renderAdminLists === 'function') renderAdminLists();
+    else if (s === 'internal' && typeof renderInternalStudentList === 'function') renderInternalStudentList();
+  } catch (e) { /* 描画失敗はデータ同期を止めない */ }
+}
+/* ===== SF-TL-CLOUDSYNC-20260722 ここまで ===== */
 
 let DATA = loadData();
 let currentCustomer = null;  // 来園入力時に選択された顧客
@@ -9414,7 +9542,7 @@ function submitNewCustomer() {
   const allergyItems = Array.from(document.querySelectorAll('input[name="allergyItems"]:checked')).map(i => i.value);
   
   const customer = {
-    id: 'C' + Date.now(),
+    id: 'C' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     branch: DATA.settings.branch,
     createdAt: new Date().toISOString(),
     childName, childKana, gender,
@@ -10032,7 +10160,7 @@ function submitVisit() {
   }
   
   const visit = {
-    id: 'V' + Date.now(),
+    id: 'V' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     customerId: currentCustomer.id,
     childName: currentCustomer.childName,
     branch: DATA.settings.branch,
@@ -10911,7 +11039,7 @@ function saveStudent() {
   } else {
     // 新規追加
     const student = {
-      id: 'S' + Date.now(),
+      id: 'S' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
       branch: DATA.settings.branch,
       childName, childKana, className, note,
       createdAt: new Date().toISOString()
@@ -12867,7 +12995,7 @@ function submitInternalUsage() {
     childKana = hiraToKata(childKana);
     if (!DATA.students) DATA.students = [];
     const newStudent = {
-      id: 'S' + Date.now(),
+      id: 'S' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
       branch: DATA.settings.branch,
       childName,
       childKana,
@@ -12883,7 +13011,7 @@ function submitInternalUsage() {
   
   // 来園記録として保存
   const visit = {
-    id: 'V' + Date.now(),
+    id: 'V' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     customerId: null,
     studentId: studentId,
     childName,
