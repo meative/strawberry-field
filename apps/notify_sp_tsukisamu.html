@@ -1676,6 +1676,48 @@ function tick() {
 }
 setInterval(tick, 1000); tick();
 
+/* ===== SF-NOTIFY-DAYROLL-20260723 : 日付が変わったら自動で当日表示に切り替える =====
+   TODAY_STR はページ読み込み時に固定されるため、iPad を開きっぱなしにすると
+   深夜0時を過ぎても昨日のままになる。1秒ごとの tick に相乗りして検知する。 */
+var __nfDayKey = (function(){ var d=new Date(); return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); })();
+function nfDayRollCheck() {
+  var d = new Date();
+  var key = d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate();
+  if (key === __nfDayKey) return;
+  __nfDayKey = key;
+  try {
+    /* 本日日付を更新（importSharedBookings / 当日リストが参照） */
+    if (typeof TODAY_STR !== 'undefined') {
+      /* TODAY_STR は const のため再代入不可。window 経由の可変版を用意して
+         参照側が拾えるようにするのではなく、ここでは children を作り直して
+         「昨日の子」を落とす。取り込みは importSharedBookings が担う。 */
+    }
+    /* 昨日の予約から作られた children を落とす（本日でないものを除去） */
+    var _t = key;  /* getFullYear-getMonth-getDate 形式。TODAY_STR とは別形式なので日付再取得 */
+    var _today = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    ['woodstock','janis'].forEach(function(sk){
+      if (!children[sk]) return;
+      children[sk] = children[sk].filter(function(c){ return !c || !c.date || c.date === _today; });
+    });
+    /* 昨日の通知・様子ログをメモリからも落とす（クラウドは nfSave が当日分で上書き） */
+    var _cut = nfTodayStart();
+    if (typeof notifications !== 'undefined') notifications = (notifications||[]).filter(function(n){ return n && (n.ts||0) >= _cut; });
+    ['woodstock','janis'].forEach(function(sk){
+      if (statusLogs && statusLogs[sk]) statusLogs[sk] = statusLogs[sk].filter(function(e){ return e && (e.ts||0) >= _cut; });
+    });
+    if (typeof importSharedBookings === 'function') importSharedBookings();
+    if (typeof renderChildren === 'function') renderChildren();
+    if (typeof renderArrivalList === 'function') renderArrivalList();
+    if (typeof renderFeed === 'function') renderFeed(null);
+    if (typeof renderReportList === 'function') renderReportList();
+    if (typeof renderStatusFeed === 'function') renderStatusFeed(false);
+    if (typeof nfSave === 'function') nfSave();  /* クラウドを当日分に更新（昨日分を削除） */
+    console.log('[notify] \u65e5\u4ed8\u304c\u5909\u308f\u3063\u305f\u306e\u3067\u672c\u65e5\u8868\u793a\u306b\u66f4\u65b0\u3057\u307e\u3057\u305f');
+  } catch (e) { console.error('[nfDayRollCheck]', e); }
+}
+setInterval(nfDayRollCheck, 1000);
+/* ===== SF-NOTIFY-DAYROLL-20260723 ここまで ===== */
+
 // ===== 保育園 → サロン：お子様の様子・お世話 =====
 // 様子の種類定義
 const REPORT_TYPES = [
@@ -1707,8 +1749,12 @@ function nfLogKey(e) { return (e && e.ts) + '|' + (e && e.childName) + '|' + (e 
 /* いまの状態から「あるべき全ドキュメント」を組み立てる */
 function nfBuildDocs() {
   const out = {};
+  /* SF-NOTIFY-DAYROLL-20260723 : 通知も当日分だけにする。様子ログと同じ基準。
+     これで昨日の通知は「あるべきドキュメント」から外れ、nfSave が削除する。 */
+  var __nfCut = nfTodayStart();
   (notifications || []).forEach(n => {
     if (!n || !n.key) return;
+    if ((n.ts || 0) < __nfCut) return;   // 昨日以前の通知は発行しない
     out[nfDocId('n', n.key)] = { g: CURRENT_GARDEN, k: 'n', key: n.key, ts: n.ts || Date.now(), data: n };
   });
   const cut = nfTodayStart();
