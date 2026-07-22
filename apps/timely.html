@@ -8737,6 +8737,14 @@ function navigate(screenName) {
   // homeに戻ったら履歴クリア
   if (screenName === 'home') {
     _navHistory = [];
+    /* SF-SALON-REFERRAL-IDENTITY-20260723 :
+       予約リストから選ぶと window._pendingResSfId が立つが、解除は submitVisit() の中だけだった。
+       登録を途中でやめてホームに戻ると立ちっぱなしになり、次に別のお子様を登録したときに
+       (1) その予約のサロン割引を拾い (2) その予約を予約リストから消し
+       (3) 共有レコードに tlDone を立てて氏名まで上書きしてしまう。
+       ホームに戻った時点で受付フローは中断とみなして解除する。
+       正常フローは new -> visit と進みホームを経由しないため影響しない。 */
+    window._pendingResSfId = null;
   }
   
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -10272,14 +10280,38 @@ function submitVisit() {
     if (matchedRes && matchedRes.salon) salonReferral = matchedRes.salon;
   }
   // ボード由来（顧客未紐付け）の予約からも検索
+  /* SF-SALON-REFERRAL-IDENTITY-20260723 :
+     従来はここが「同じ日・同じ開始時刻」だけで一致していた。氏名も顧客IDも見ないため、
+     同時刻に来園した別のお子様がサロン割引を拾い、請求が黙って0円になりうる状態だった。
+     （会計画面の initDiscountUI が v.salon を見て全額割引を自動セットするため）
+     氏名（漢字またはカナ）の一致を必須にする。予約レコードは guestName / guestKana を
+     自分で持っているので追加のデータは要らない。名寄せできない場合は自動適用せず、
+     必要ならスタッフが会計画面で明示的に割引を選ぶ。 */
   if (!salonReferral) {
+    const _sriNorm = (s) => String(s == null ? '' : s).replace(/[\s\u3000]/g, '');
+    const _sriKana = (s) => hiraToKata(_sriNorm(s));
+    const _sriName = _sriNorm(currentCustomer && currentCustomer.childName);
+    const _sriKana2 = _sriKana(currentCustomer && currentCustomer.childKana);
     const boardRes = DATA.reservations.find(r =>
-      r.fromBoard && 
+      r.fromBoard &&
       r.reservationDate === visitDate &&
       r.reservationStart === visitStart &&
-      r.salon
+      r.salon &&
+      ((_sriName && _sriNorm(r.guestName) === _sriName) ||
+       (_sriKana2 && _sriKana(r.guestKana) === _sriKana2))
     );
-    if (boardRes && boardRes.salon) salonReferral = boardRes.salon;
+    if (boardRes && boardRes.salon) {
+      salonReferral = boardRes.salon;
+    } else {
+      /* 時刻は一致したが本人と確認できなかった場合は、拾わずに記録だけ残す */
+      const _sriClash = DATA.reservations.find(r =>
+        r.fromBoard && r.reservationDate === visitDate &&
+        r.reservationStart === visitStart && r.salon
+      );
+      if (_sriClash) {
+        console.warn('[salonReferral] ' + MSG_SRI_SKIP + ' ' + (_sriClash.guestName || _sriClash.guestKana || ''));
+      }
+    }
   }
   
   const visit = {
@@ -10600,6 +10632,8 @@ const KANA_ROW_MAP = {
   'わ': ['ワ', 'ヲ', 'ン']
 };
 
+/* SF-SALON-REFERRAL-IDENTITY-20260723 : 割引を自動適用しなかったときの警告文言 */
+var MSG_SRI_SKIP = '\u540c\u6642\u523b\u306e\u30b5\u30ed\u30f3\u4e88\u7d04\u304c\u3042\u308a\u307e\u3059\u304c\u3001\u6c0f\u540d\u304c\u4e00\u81f4\u3057\u306a\u3044\u305f\u3081\u5272\u5f15\u3092\u81ea\u52d5\u9069\u7528\u3057\u307e\u305b\u3093\u3067\u3057\u305f:';
 // ひらがな→カタカナ変換
 function hiraToKata(str) {
   return (str || '').replace(/[\u3041-\u3096]/g, ch => 
