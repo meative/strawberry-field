@@ -13258,12 +13258,14 @@ const HANDOVER_CATEGORIES = [
 ];
 
 // 食事の量の選択肢（軽食・離乳食・おやつ共通）
+/* SF-MEAL-3STATE-20260722 : 4択 → 3択に整理。詳細は特記事項へ記入する運用 */
 const MEAL_AMOUNT_OPTIONS = [
-  { value: '完食',         label: '完食' },
-  { value: '半分以上',     label: '半分以上' },
-  { value: '半分以下',     label: '半分以下' },
-  { value: '食べていない', label: '食べていない' },
+  { value: '食べた',   label: '食べた' },
+  { value: '残した',   label: '残した' },
+  { value: '食べてない', label: '食べてない' },
 ];
+/* 旧選択肢（過去レコードに保存済み。修正画面で消さないために保持する） */
+const MEAL_AMOUNT_LEGACY = ['完食', '半分以上', '半分以下', '食べていない'];
 
 // 食事対象の持ち物 → 表示ラベル
 const MEAL_ITEMS = [
@@ -13886,9 +13888,18 @@ function renderMealsSection(existingMeals, mealItems, existingMilk, milkBottleRe
   const existing = existingMeals || {};
   const optionsHtml = (selected) => {
     let html = '<option value="">選択</option>';
+    let matched = false;
     MEAL_AMOUNT_OPTIONS.forEach(o => {
-      html += `<option value="${o.value}"${selected === o.value ? ' selected' : ''}>${o.label}</option>`;
+      const isSel = (selected === o.value);
+      if (isSel) matched = true;
+      html += `<option value="${o.value}"${isSel ? ' selected' : ''}>${o.label}</option>`;
     });
+    /* SF-MEAL-3STATE-20260722 : 現行の選択肢に無い値（旧「半分以上」等）が保存されている場合、
+       その値を選択肢として残す。これが無いと修正画面で「選択」に戻り、
+       保存した瞬間に過去の記録が消えてしまう。 */
+    if (selected && !matched) {
+      html += `<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)}（旧記録）</option>`;
+    }
     return html;
   };
   
