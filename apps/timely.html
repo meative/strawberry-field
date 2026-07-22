@@ -2165,6 +2165,13 @@
   }
   
   /* ============ 確認モーダル ============ */
+  /* SF-DELETE-CONFIRM-FIX-20260722 : 確認ダイアログを常に最前面に置く。
+     .confirm-modal は5要素(confirmModal / resDetailModal / reservationModal /
+     customerEditModal / studentEditModal)が z-index:5000 を共有しており、
+     #confirmModal はDOM順で最初＝最背面だった。そのため編集モーダルから
+     確認を出すと、開いているのに見えないという状態になっていた。 */
+  #confirmModal { z-index: 5100; }
+
   .confirm-modal {
     position: fixed;
     top: 0;
@@ -5559,6 +5566,20 @@
     } catch (e) { console.error('[fbReconcileTl] write failed', kind, e); }
   };
 
+  /* SF-ROSTER-PUBLISH-20260722 : サロン向けの軽量名簿を1ドキュメントで発行する。
+     住所・電話・署名・アレルギーは載せない。サロンは別会社の端末なので個人情報を渡さない。
+     単一ドキュメントなので、サロン側の読み取りは1セッションあたり1リードで済む。 */
+  const ROSTER_COL = 'sf_roster', ROSTER_DOC = 'all';
+  window.fbPublishRoster = async (items) => {
+    try {
+      await setDoc(doc(db, ROSTER_COL, ROSTER_DOC), {
+        items: items || [],
+        count: (items || []).length,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (e) { console.error('[fbPublishRoster] write failed', e); }
+  };
+
   // sfSaveShared から呼ぶ：arr を「あるべき全件」として Firestore に反映。
   // deletedIds（写しから消えた id）は削除する。writeBatch で一括コミット。
   window.fbReconcile = async (arr, deletedIds) => {
@@ -8378,6 +8399,8 @@ function saveData(data) {
       if (!TL_SNAP_SEEN[kind]) return;
       tlReconcile(kind, data[kind] || []);
     });
+    /* SF-ROSTER-PUBLISH-20260722 : 顧客が増減したらサロン向け名簿も更新する */
+    rosterPublishIfChanged();
   } catch (e) { console.error('[saveData] cloud sync error:', e); }
   return true;
 }
@@ -8415,6 +8438,9 @@ window.tlApplySnapshot = function (kind, rows) {
   } finally {
     __tlApplying = false;
   }
+  /* SF-ROSTER-PUBLISH-20260722 : Firebaseコンソールでの直接削除など、
+     ローカル保存を伴わない変更にも名簿を追従させる */
+  if (kind === 'customers') rosterPublishIfChanged();
   tlRerender();
 };
 
@@ -8429,6 +8455,45 @@ function tlRerender() {
     else if (s === 'internal' && typeof renderInternalStudentList === 'function') renderInternalStudentList();
   } catch (e) { /* 描画失敗はデータ同期を止めない */ }
 }
+/* ===== SF-ROSTER-PUBLISH-20260722 : サロン向け軽量名簿の発行 =====
+   DATA.customers から表示に必要な項目だけを抜き、sf_roster/all に書く。
+   年齢は持たせない。サロン側が birthY/birthM から都度算出するため、
+   固定値のように時間経過で古びることがない。 */
+var _rosterLastSig = null;
+
+function rosterBuild(customers) {
+  return (customers || [])
+    .filter(function (c) { return c && c.id && (c.childName || c.childKana); })
+    .map(function (c) {
+      return {
+        id: String(c.id),
+        name: String(c.childName || ''),
+        kana: String(c.childKana || ''),
+        birthY: Number(c.birthY) || null,
+        birthM: Number(c.birthM) || null,
+        branch: String(c.branch || ''),
+      };
+    });
+}
+
+function rosterPublishIfChanged() {
+  // 初回スナップショット受信前は発行しない（空配列でクラウドの名簿を消さないため）
+  if (!TL_SNAP_SEEN.customers) return;
+  if (typeof window.fbPublishRoster !== 'function') return;
+  try {
+    var items = rosterBuild(DATA.customers);
+    var sig = JSON.stringify(items);
+    if (sig === _rosterLastSig) return;   // 中身が変わっていなければ書かない
+    if (sig.length > 900000) {
+      console.warn('[roster] 名簿が Firestore の1MB上限に近づいています: ' + sig.length + ' bytes');
+    }
+    _rosterLastSig = sig;
+    window.fbPublishRoster(items);
+    console.log('[roster] 名簿を発行しました: ' + items.length + '件');
+  } catch (e) { console.error('[rosterPublishIfChanged]', e); }
+}
+/* ===== SF-ROSTER-PUBLISH-20260722 ここまで ===== */
+
 /* ===== SF-TL-CLOUDSYNC-20260722 ここまで ===== */
 
 let DATA = loadData();
@@ -10850,11 +10915,15 @@ function saveCustomerEdit() {
 
 function deleteCustomer() {
   if (!_editingCustomerId) return;
-  const customer = DATA.customers.find(c => c.id === _editingCustomerId);
+  /* SF-DELETE-CONFIRM-FIX-20260722 : action は setTimeout で50ms後に走る。
+     その間に closeCustomerEditModal() が _editingCustomerId を null にするため、
+     遅延実行の中で読まず、ここで対象を確定させる。 */
+  const targetId = _editingCustomerId;
+  const customer = DATA.customers.find(c => c.id === targetId);
   if (!customer) return;
   
   // 関連する来園記録があるか確認
-  const relatedVisits = DATA.visits.filter(v => v.customerId === _editingCustomerId);
+  const relatedVisits = DATA.visits.filter(v => v.customerId === targetId);
   const visitCount = relatedVisits.length;
   
   let message = `${customer.childName} さんの顧客情報を削除しますか?`;
@@ -10869,9 +10938,17 @@ function deleteCustomer() {
     okLabel: '削除する',
     cancelLabel: 'キャンセル',
     action: () => {
-      DATA.customers = DATA.customers.filter(c => c.id !== _editingCustomerId);
-      DATA.visits = DATA.visits.filter(v => v.customerId !== _editingCustomerId);
-      DATA.reservations = (DATA.reservations || []).filter(r => r.customerId !== _editingCustomerId);
+      const _before = DATA.customers.length;
+      DATA.customers = DATA.customers.filter(c => c.id !== targetId);
+      DATA.visits = DATA.visits.filter(v => v.customerId !== targetId);
+      DATA.reservations = (DATA.reservations || []).filter(r => r.customerId !== targetId);
+
+      /* SF-DELETE-CONFIRM-FIX-20260722 : 1件も減っていなければ保存せず失敗として伝える。
+         以前は消えていなくても成功トーストが出ていた。 */
+      if (DATA.customers.length === _before) {
+        toast('削除できませんでした', true);
+        return;
+      }
       
       if (!saveData(DATA)) {
         toast('削除に失敗しました', true);
@@ -11133,7 +11210,9 @@ function saveStudent() {
 
 function deleteStudent() {
   if (!_editingStudentId) return;
-  const s = (DATA.students || []).find(x => x.id === _editingStudentId);
+  /* SF-DELETE-CONFIRM-FIX-20260722 : deleteCustomer と同型。対象をここで確定させる。 */
+  const targetId = _editingStudentId;
+  const s = (DATA.students || []).find(x => x.id === targetId);
   if (!s) return;
   
   showConfirmModal({
@@ -11142,7 +11221,13 @@ function deleteStudent() {
     okLabel: '削除する',
     cancelLabel: 'キャンセル',
     action: () => {
-      DATA.students = DATA.students.filter(x => x.id !== _editingStudentId);
+      const _before = (DATA.students || []).length;
+      DATA.students = DATA.students.filter(x => x.id !== targetId);
+      /* SF-DELETE-CONFIRM-FIX-20260722 : 減っていなければ失敗として伝える */
+      if (DATA.students.length === _before) {
+        toast('削除できませんでした', true);
+        return;
+      }
       if (!saveData(DATA)) {
         toast('削除に失敗しました', true);
         return;
