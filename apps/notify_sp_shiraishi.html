@@ -1462,6 +1462,7 @@ function sendNotify(type, childIdx, lateMin) {
     expectedEnd = (prev && prev.expectedEnd) ? prev.expectedEnd : c.end;
   }
   const entry = { key, type, badge, headline, detail, salon: SALON_JP[salon], salonKey: salon, childIdx,
+    sfId: (c.sfId || null),   /* SF-NOTIFY-CHILD-IDENTITY-20260723 */
     childName: c.name, time: `${hh}:${mm}`, ts: now.getTime(),
     start: c.start, end: c.end, expectedStart: (c.expectedStart || c.start), expectedEnd, lateMin: effLateMin,
     nextReservation: (type === 'coming' ? c.nextReservation : null) };
@@ -1509,8 +1510,8 @@ function renderFeed(flashKey) {
       return `
     <div class="feed-item call salon-${n.salonKey} ${flashKey===n.key?'flash':''}">
       <div class="feed-call-actions">
-        <button class="feed-done" onclick="markArrived('${n.salonKey}',${n.childIdx})">✓ 預かり完了</button>
-        <button class="feed-ack" onclick="ackCall('${n.salonKey}',${n.childIdx})">確認しました</button>
+        <button class="feed-done" onclick="markArrived('${n.salonKey}',${n.childIdx},'${n.sfId||''}')">✓ 預かり完了</button>
+        <button class="feed-ack" onclick="ackCall('${n.salonKey}',${n.childIdx},'${n.sfId||''}')">確認しました</button>
       </div>
       <div class="feed-salon-tag salon-${n.salonKey}">${n.salon}</div>
       <div class="feed-top">
@@ -1534,7 +1535,7 @@ function renderFeed(flashKey) {
     if (n.type === 'cancel') {
       return `
     <div class="feed-item cancel salon-${n.salonKey} ${flashKey===n.key?'flash':''}">
-      <button class="feed-ack" onclick="ackCancel('${n.salonKey}',${n.childIdx})">確認しました</button>
+      <button class="feed-ack" onclick="ackCancel('${n.salonKey}',${n.childIdx},'${n.sfId||''}')">確認しました</button>
       <div class="feed-salon-tag salon-${n.salonKey}">${n.salon}</div>
       <div class="feed-top">
         <span class="feed-badge cancel">${n.badge}</span>
@@ -1569,7 +1570,7 @@ function renderFeed(flashKey) {
     }
     return `
     <div class="feed-item ${n.type} salon-${n.salonKey} ${flashKey===n.key?'flash':''}">
-      <button class="feed-done" onclick="markPickedUp('${n.salonKey}',${n.childIdx})">お迎え完了 ✓</button>
+      <button class="feed-done" onclick="markPickedUp('${n.salonKey}',${n.childIdx},'${n.sfId||''}')">お迎え完了 ✓</button>
       <div class="feed-salon-tag salon-${n.salonKey}">${n.salon}</div>
       <div class="feed-top">
         <span class="feed-badge ${n.type}">${n.badge}</span>
@@ -1791,10 +1792,10 @@ function renderArrivalList() {
     // アクションボタン（下段に横並び・幅を分け合う）
     let btns = '';
     if (c.status === 'cancelled') {
-      btns = `<button class="arr-btn arr-ack" onclick="ackCancel('${salonKey}',${idx})">確認しました</button>`;
+      btns = `<button class="arr-btn arr-ack" onclick="ackCancel('${salonKey}',${idx},'${c.sfId||''}')">確認しました</button>`;
     } else if (c.status === 'reserved' || c.status === 'no-show' || c.status === 'late-hold') {
       // メイン：預かり完了（広め）／サブ：○○に確認（控えめ・ブランドカラー）
-      btns = `<button class="arr-btn arr-done" onclick="markArrived('${salonKey}',${idx})">✓ 預かり完了</button>`
+      btns = `<button class="arr-btn arr-done" onclick="markArrived('${salonKey}',${idx},'${c.sfId||''}')">✓ 預かり完了</button>`
            + `<button class="arr-btn arr-ask ask-${salonKey}" onclick="askSalon('${salonKey}',${idx})">${SALON_NAME_EN[salonKey]} に確認</button>`;
     } else if (c.status === 'waiting') {
       btns = `<span class="arr-waiting-note">お迎え通知をお待ちください</span>`;
@@ -1838,8 +1839,22 @@ function renderArrivalList() {
 }
 
 // 保育園がキャンセルを確認 → 受信ボードから消える（記録として done で残る）
-function ackCancel(salonKey, idx) {
-  const c = children[salonKey][idx];
+/* SF-NOTIFY-CHILD-IDENTITY-20260723 : 通知から子を引くときは sfId を優先する。
+   childIdx は children[salon] の添字なので、予約を別の日に移して配列が縮むとずれる。
+   sfId は sf_bookings のドキュメントIDで、配列の増減でも端末が変わっても不変。 */
+function nfChild(salonKey, idx, sfId) {
+  const arr = children[salonKey] || [];
+  if (sfId) {
+    const hit = arr.find(c => c && c.sfId === sfId);
+    if (hit) return hit;
+  }
+  return arr[idx] || null;
+}
+
+function ackCancel(salonKey, idx, sfId) {
+  /* SF-NOTIFY-CHILD-IDENTITY-20260723 */
+  const c = nfChild(salonKey, idx, sfId);
+  if (!c) return;
   c.status = 'done';
   // 受信ボードのキャンセル通知を消す
   const key = `${salonKey}|${c.name}`;
@@ -1851,8 +1866,10 @@ function ackCancel(salonKey, idx) {
 }
 
 // 保育園が電話確認の内容を確認 → 受信ボードから下げる（来園待ちは継続・予約リストに残る）
-function ackCall(salonKey, idx) {
-  const c = children[salonKey][idx];
+function ackCall(salonKey, idx, sfId) {
+  /* SF-NOTIFY-CHILD-IDENTITY-20260723 */
+  const c = nfChild(salonKey, idx, sfId);
+  if (!c) return;
   // ステータスは late-hold（来園予定）のまま。受信ボードの通知だけ消す。
   const key = `${salonKey}|${c.name}`;
   notifications = notifications.filter(x => !(x.key === key && x.type === 'call'));
@@ -1863,8 +1880,10 @@ function ackCall(salonKey, idx) {
 }
 
 // 預かり完了 → waitingに。美容室へ「お預かりしました」通知＋予約表ポップアップ
-function markArrived(salonKey, idx) {
-  const c = children[salonKey][idx];
+function markArrived(salonKey, idx, sfId) {
+  /* SF-NOTIFY-CHILD-IDENTITY-20260723 */
+  const c = nfChild(salonKey, idx, sfId);
+  if (!c) return;
   c.status = 'waiting';
   // 電話確認・キャンセルの受信ボード通知が残っていれば消す（来園してお預かり確定したため）
   const key = `${salonKey}|${c.name}`;
@@ -1886,8 +1905,10 @@ function markArrived(salonKey, idx) {
 }
 
 // お迎え完了 → done。受信ボードの通知も消して一連の流れを締める
-function markPickedUp(salonKey, idx) {
-  const c = children[salonKey][idx];
+function markPickedUp(salonKey, idx, sfId) {
+  /* SF-NOTIFY-CHILD-IDENTITY-20260723 */
+  const c = nfChild(salonKey, idx, sfId);
+  if (!c) return;
   c.status = 'done';
   // 受信ボード（お迎え通知）からこの子のカードを消す
   const key = `${salonKey}|${c.name}`;
@@ -1993,6 +2014,7 @@ function confirmCall(kind, lateMin) {
   }
   notifications.unshift({
     key, type: 'call', salon: SALON_JP[salonKey], salonKey, childIdx: idx,
+    sfId: (c.sfId || null),   /* SF-NOTIFY-CHILD-IDENTITY-20260723 */
     childName: c.name, time: `${hh}:${mm}`, ts: now.getTime(),
     start: c.start, end: c.end,
     expectedStart: (late > 0 ? addMinToTime(c.start, late) : c.start),
@@ -2040,6 +2062,7 @@ function confirmCancel() {
   notifications = notifications.filter(x => x.key !== key);
   notifications.unshift({
     key, type: 'cancel', salon: SALON_JP[salonKey], salonKey, childIdx: pendingCancel.idx,
+    sfId: (c.sfId || null),   /* SF-NOTIFY-CHILD-IDENTITY-20260723 */
     childName: c.name, time: c.cancelTime, ts: c.cancelTs,
     start: c.start, end: c.end, expectedEnd: c.end, lateMin: 0,
     badge: '🚫 本日キャンセル',
