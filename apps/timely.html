@@ -14718,33 +14718,38 @@ function formatHandoverLines(handover) {
   if (!handover) return [];
   const lines = [];
   
-  // ミルク
-  if (handover.milk && Array.isArray(handover.milk) && handover.milk.length > 0) {
-    const milkText = handover.milk.map(m => {
-      const t = m.time ? `<span class="time">${escapeHtml(m.time)}</span>` : '';
-      const a = m.amount ? `${escapeHtml(m.amount)}ml` : '';
-      return `${t}${a}`;
-    }).filter(Boolean).join(' / ');
-    if (milkText) lines.push({ label: 'ミルク', labelEn: 'Milk', html: milkText });
-  } else if (handover.milk === 'none') {
-    lines.push({ label: 'ミルク', labelEn: 'Milk', value: 'なかった' });
+  /* SF-RECEIPT-HANDOVER-FIX-20260722 : 保存形は [{time,amount}]。「なかった」は time:'none' で入る */
+  if (Array.isArray(handover.milk) && handover.milk.length > 0) {
+    const realMilk = handover.milk.filter(m => m && m.time && m.time !== 'none');
+    if (realMilk.length === 0) {
+      lines.push({ label: 'ミルク', labelEn: 'Milk', value: 'なし' });
+    } else {
+      const milkText = realMilk.map(m => {
+        const t = `<span class="time">${escapeHtml(m.time)}</span>`;
+        const a = m.amount ? `${escapeHtml(m.amount)}ml` : '';
+        return `${t}${a}`;
+      }).join(' / ');
+      lines.push({ label: 'ミルク', labelEn: 'Milk', html: milkText });
+    }
   }
   
-  // 便
-  if (handover.poop && Array.isArray(handover.poop) && handover.poop.length > 0) {
-    const poopText = handover.poop.map(p => {
-      const t = p.time ? `<span class="time">${escapeHtml(p.time)}</span>` : '';
-      const s = p.state ? escapeHtml(p.state) : '排便あり';
-      return `${t}${s}`;
-    }).filter(Boolean).join(' / ');
-    if (poopText) lines.push({ label: '便', labelEn: 'Bowel', html: poopText });
-  } else if (handover.poop === 'none') {
-    lines.push({ label: '便', labelEn: 'Bowel', value: 'なかった' });
+  /* SF-RECEIPT-HANDOVER-FIX-20260722 : 保存形は時刻文字列の配列。「なかった」は ['none'] で入る */
+  if (Array.isArray(handover.poop) && handover.poop.length > 0) {
+    const realPoop = handover.poop.filter(p => p && p !== 'none');
+    if (realPoop.length === 0) {
+      lines.push({ label: '便', labelEn: 'Bowel', value: 'なし' });
+    } else {
+      const poopText = realPoop
+        .map(p => `<span class="time">${escapeHtml(String(p))}</span>`)
+        .join(' / ');
+      lines.push({ label: '便', labelEn: 'Bowel', html: poopText });
+    }
   }
   
   // 午睡
   if (handover.sleep === 'none') {
-    lines.push({ label: '午睡', labelEn: 'Nap', value: '午睡なし' });
+    /* SF-RECEIPT-HANDOVER-FIX-20260722 : 「午睡なし」→「なし」に表記統一 */
+    lines.push({ label: '午睡', labelEn: 'Nap', value: 'なし' });
   } else if (handover.sleep && typeof handover.sleep === 'object' && handover.sleep.start) {
     const start = handover.sleep.start;
     const end = handover.sleep.end || '';
@@ -14754,8 +14759,19 @@ function formatHandoverLines(handover) {
     lines.push({ label: '午睡', labelEn: 'Nap', html });
   }
   
-  // 食事
-  if (handover.meal && Array.isArray(handover.meal) && handover.meal.length > 0) {
+  /* SF-RECEIPT-HANDOVER-FIX-20260722 : 保存形は meals = {品目: 量} のオブジェクト。
+     従来ここは単数形 handover.meal を読んでいたため食事が一切表示されていなかった。
+     古いレコード用に meal 配列のフォールバックも残す。 */
+  const mealsObj = (handover.meals && typeof handover.meals === 'object' && !Array.isArray(handover.meals))
+    ? handover.meals : null;
+  if (mealsObj) {
+    const mealEntries = Object.keys(mealsObj)
+      .filter(k => mealsObj[k])
+      .map(k => `${escapeHtml(k)} ${escapeHtml(String(mealsObj[k]))}`);
+    if (mealEntries.length > 0) {
+      lines.push({ label: '食事', labelEn: 'Meal', value: mealEntries.join(' / ') });
+    }
+  } else if (Array.isArray(handover.meal) && handover.meal.length > 0) {
     const mealText = handover.meal.map(m => {
       const t = m.time ? `(${escapeHtml(m.time)})` : '';
       const type = m.type ? escapeHtml(m.type) : '';
