@@ -908,7 +908,9 @@ function checkAvailability() {
   const slotsNeeded = dur / SLOT_MIN;
   const eIdx = sIdx + slotsNeeded;
   const endTime = minToTime(timeToMin(start) + dur);
-  const ageJp = AGES.find(x=>x.key===selectedAge).jp;
+  /* SF-AGEMONTH-RESULT-20260723 : 空き案内も月齢表示に統一（3歳以上を「3歳〜」でなく「◯歳◯ヶ月」に）。
+     受付時間の案内(updateAcceptInfo)と同一の式。selectedRealAge/Months は生年月から設定済み。 */
+  const ageJp = ageMonthLabel(selectedAge, selectedMonths, selectedRealAge, selectedRealMonths);
 
   // 年齢別1日定員の満員チェック（confirmReserve のガードと同一ロジック）。満員なら時間帯判定の前に専用表示
   // 日付は予約書き込みと同一式（new Date() + dayOffset）で算出し、判定日と予約日を一致させる
