@@ -8074,6 +8074,36 @@ const GARDEN_BRANCH = {
   factory:   'サッポロファクトリー園',
   shiseikan: '資生館園',
 };
+/* SF-SALON-INTAKE-20260722 : サロン識別子 → 表示名。識別子は woodstock/janis のまま、
+   園によって表示だけ変える（Method X）。 */
+function sfSalonLabel(salonKey) {
+  if (!salonKey) return null;
+  const branch = (DATA && DATA.settings) ? DATA.settings.branch : '';
+  if (branch === '白石園') {
+    if (salonKey === 'woodstock') return 'BUDDY BROWN';
+    if (salonKey === 'janis') return 'JANIS白石';
+  } else {
+    if (salonKey === 'woodstock') return 'WOODSTOCK';
+    if (salonKey === 'janis') return 'JANIS';
+  }
+  return null;
+}
+/* SF-AGEMONTH-3PLUS-TIMELY-20260722 : 生年月から実年齢・実月齢のラベルを作る。
+   board.html の ageMonthsFromYM と同じ計算。判定キー(age/months)は変えず表示専用。
+   生年月が無い古い予約は従来表示にフォールバックする。 */
+function sfRealAgeLabel(birthY, birthM, fallbackAge, fallbackMonths, refDateStr) {
+  if (birthY && birthM) {
+    const ref = refDateStr ? new Date(refDateStr + 'T00:00:00') : new Date();
+    if (!isNaN(ref.getTime())) {
+      let months = (ref.getFullYear() - Number(birthY)) * 12 + (ref.getMonth() - (Number(birthM) - 1));
+      if (months < 0) months = 0;
+      return Math.floor(months / 12) + '歳' + (months % 12) + 'ヶ月';
+    }
+  }
+  if (fallbackAge == null || fallbackAge === '') return '';
+  if (String(fallbackAge) === '3') return '3歳〜';
+  return fallbackAge + '歳' + (fallbackMonths != null ? fallbackMonths + 'ヶ月' : '');
+}
 // 園ごとの電話番号（領収書に表示）
 const BRANCH_TEL = {
   '月寒園':         '011-836-6868',
@@ -8175,7 +8205,10 @@ function importBoardReservations() {
   if (!DATA.reservations) DATA.reservations = [];
   let changed = false;
   shared.forEach(r => {
-    if (!r || !r.fromBoard) return;                 // ボード由来の予約のみ対象
+    if (!r) return;
+    /* SF-SALON-INTAKE-20260722 : サロン発（bk_接頭辞・fromBoard 無し）も取り込む。
+       受付アプリはサロン割引の自動適用まで実装済みで、取り込み口だけが塞がっていた。 */
+    if (r.tlDone) return;                           // 受付済み（当日入力に取り込み済み）は出さない
     if (gardenIdToBranch(r.gardenId) !== branch) return; // 現在の園のものだけ
     /* SF-KINDER-TIMELY-HIDE-STEP4-V6-20260702 : 幼稚舎児の早朝/延長は TimelySchool に出さない */
     if (r.affiliation === 'youchisha' && (r.salon === 'ext_am' || r.salon === 'ext_pm')) return;
@@ -8184,13 +8217,28 @@ function importBoardReservations() {
     if (exists) {
       // 既存を最新内容に同期（時刻・氏名の変更を反映）
       const cur = DATA.reservations.find(x => x.sfId === r.id);
+      /* SF-AGEMONTH-SYNC-FIX-20260722 : 発火条件に生年月とサロンを追加。
+         これが無いと、生年月を運ばない版で取り込まれた予約が
+         永久に更新されず、3歳以上が「3歳〜」のまま残る。 */
+      const _by = (r.birthY != null ? r.birthY : null);
+      const _bm = (r.birthM != null ? r.birthM : null);
+      const _sal = (r.salon || null);
       if (cur && (cur.reservationDate !== r.date || cur.reservationStart !== r.start ||
                   cur.reservationEnd !== r.end || cur.guestName !== r.name ||
                   cur.affiliation !== r.affiliation ||
-                  cur.guestMonths !== (r.months != null ? r.months : null))) {
+                  cur.guestMonths !== (r.months != null ? r.months : null) ||
+                  (cur.birthY != null ? cur.birthY : null) !== _by ||
+                  (cur.birthM != null ? cur.birthM : null) !== _bm ||
+                  (cur.salon || null) !== _sal)) {
         cur.reservationDate = r.date; cur.reservationStart = r.start;
         cur.reservationEnd = r.end; cur.guestName = r.name;
         cur.guestKana = r.kana || ''; cur.guestAge = r.age; cur.guestMonths = (r.months != null ? r.months : null);
+        /* SF-AGEMONTH-SYNC-FIX-20260722 : 生年月（3歳以上の実月齢表示に必要）とサロン（会計割引の自動適用に必要） */
+        cur.birthY = _by;
+        cur.birthM = _bm;
+        cur.salon = _sal;
+        cur.salonOrigin = !r.fromBoard;
+        cur.provisional = !!r.provisional;
         if (r.affiliation !== undefined) cur.affiliation = r.affiliation;
         cur.updatedAt = new Date().toISOString();
         changed = true;
@@ -8205,13 +8253,17 @@ function importBoardReservations() {
       reservationEnd: r.end,
       addedAt: new Date().toISOString(),
       sfId: r.id,                       // 共有レコードとの対応キー（重複防止）
-      fromBoard: true,                  // 予約管理由来フラグ（バッジ表示用）
+      fromBoard: true,                  // 共有由来フラグ（顧客未紐付け表示・バッジ用。サロン発も含む）
+      salonOrigin: !r.fromBoard,        /* SF-SALON-INTAKE-20260722 : サロンアプリ発かどうか */
+      provisional: !!r.provisional,     // カタカナ仮予約（受付で正式登録する）
       salon: r.salon || null,           // サロン経由判定（woodstock/janis/null）
       affiliation: r.affiliation || branchToGardenId(branch),  // 所属（幼稚舎判定用）
       guestName: r.name || '',          // 予約レコード自身に氏名を保持
       guestKana: r.kana || '',
       guestAge: r.age,
       guestMonths: (r.months != null ? r.months : null),
+      birthY: (r.birthY != null ? r.birthY : null),   /* SF-AGEMONTH-3PLUS-TIMELY-20260722 : 3歳以上の実月齢表示に必要 */
+      birthM: (r.birthM != null ? r.birthM : null),
     });
     changed = true;
   });
@@ -8219,7 +8271,10 @@ function importBoardReservations() {
   // ただし初回スナップショット受信前（SF_MIRROR が空の起動直後）は、空ミラーで全 fromBoard
   // 予約を誤削除・保存してしまうため、このパスをスキップする（ガード）。
   if (window.__sfSnapshotReceived) {
-    const sharedIds = new Set(shared.filter(r => r && r.fromBoard).map(r => r.id));
+    /* SF-SALON-INTAKE-20260722 : サロン発も取り込むため、fromBoard での絞り込みをやめる。
+       tlDone（受付済み）を除外することで、当日入力に取り込んだ予約が
+       全端末の予約リストから消える。 */
+    const sharedIds = new Set(shared.filter(r => r && r.id && !r.tlDone).map(r => r.id));
     const before = DATA.reservations.length;
     DATA.reservations = DATA.reservations.filter(x => !(x.fromBoard && x.sfId && !sharedIds.has(x.sfId)));
     if (DATA.reservations.length !== before) changed = true;
@@ -8822,14 +8877,12 @@ function openResDetail(sfId) {
   document.getElementById('resDetailName').textContent = r.guestName || '(氏名未登録)';
 
   // バッジ：ふりがな・年齢（月齢）・予約管理より
-  const ageLabel = (r.guestAge != null && r.guestAge !== '')
-    ? (String(r.guestAge) === '3'
-        ? '3歳〜'
-        : r.guestAge + '歳' + (r.guestMonths != null ? r.guestMonths + 'ヶ月' : ''))
-    : '';
+  /* SF-AGEMONTH-3PLUS-TIMELY-20260722 : 3歳以上も「◯歳◯ヶ月」で表示する */
+  const ageLabel = sfRealAgeLabel(r.birthY, r.birthM, r.guestAge, r.guestMonths, r.reservationDate);
   let badges = '';
   if (ageLabel) badges += `<span class="res-result-age">${escapeHtml(ageLabel)}</span>`;
-  badges += `<span class="res-board-badge">予約管理より</span>`;
+  /* SF-SALON-INTAKE-20260722 : サロン発はサロン名を出す */
+  badges += `<span class="res-board-badge">${escapeHtml(sfSalonLabel(r.salon) || '予約管理より')}</span>`;
   document.getElementById('resDetailBadges').innerHTML = badges;
 
   // 区分（一時預かり / サロン等）。共有レコードの salon から判定
@@ -10138,8 +10191,13 @@ function submitVisit() {
     if (nt || na) nextMilk = { time: nt, amount: na };
   }
   
-  // 予約からサロン情報を引き継ぐ（サロン経由予約の判定用）
+  /* SF-SALON-INTAKE-20260722 : 予約IDが分かっている場合は日付・時刻の一致ではなく直接引く */
   let salonReferral = null;
+  if (window._pendingResSfId) {
+    const _r = (DATA.reservations || []).find(r => r.sfId === window._pendingResSfId && r.salon);
+    if (_r && _r.salon) salonReferral = _r.salon;
+  }
+  // 予約からサロン情報を引き継ぐ（サロン経由予約の判定用）
   if (currentCustomer && currentCustomer.id) {
     const matchedRes = DATA.reservations.find(r => 
       r.customerId === currentCustomer.id && 
@@ -10184,6 +10242,26 @@ function submitVisit() {
   // 予約リストに該当があれば自動削除
   if (currentCustomer && currentCustomer.id) {
     removeFromReservationByCustomerId(currentCustomer.id);
+  }
+  /* SF-SALON-INTAKE-20260722 : 予約から来た場合、その予約を sfId で消費する。
+     取り込み予約は customerId が null なので上の顧客ID一致では消えない。 */
+  if (window._pendingResSfId) {
+    const _sid = window._pendingResSfId;
+    window._pendingResSfId = null;
+    DATA.reservations = (DATA.reservations || []).filter(r => r.sfId !== _sid);
+    try {
+      const _shared = sfLoadShared();
+      const _rec = _shared.find(r => r && r.id === _sid);
+      if (_rec) {
+        _rec.tlDone = true;                 // 受付済みの印（全端末の予約リストから消える）
+        _rec.tlVisitId = visit.id;
+        // カタカナ仮予約 → 受付で登録した正式表記を書き戻す（ボードの表示も直る）
+        if (currentCustomer.childName) _rec.name = currentCustomer.childName;
+        if (currentCustomer.childKana) _rec.kana = currentCustomer.childKana;
+        _rec.provisional = false;
+        sfUpsertShared(_rec);
+      }
+    } catch (e) { console.error('[SF-SALON-INTAKE-20260722] 共有レコードの更新に失敗', e); }
   }
   if (!saveData(DATA)) {
     return toast('保存に失敗しました', true);
@@ -11842,6 +11920,10 @@ function selectFromReservation(reservationKey) {
       visitStart: reservation.reservationStart,
       visitEnd: reservation.reservationEnd
     };
+    /* SF-SALON-INTAKE-20260722 : 予約IDを保持する。新規登録を挟むと currentCustomer.id では
+       元の予約を特定できず（取り込み予約は customerId が null）、
+       登録後に予約が残って二重に見えてしまうため。 */
+    window._pendingResSfId = sfId;
     // 新規登録画面へ遷移し、氏名・ふりがなをプリセット
     isJustRegistered = false;
     currentCustomer = null;
@@ -11919,8 +12001,9 @@ function renderReservationList() {
     const isPast = (r.reservationDate || '') < todayStr;
     // ボード由来（顧客未紐付け）は sfId をキーにする
     const key = r.fromBoard && r.sfId ? `sf:${r.sfId}` : `${r.customerId}|${r.reservationDate}`;
+    /* SF-SALON-INTAKE-20260722 : サロン発は「予約管理より」ではなくサロン名を出す */
     const boardBadge = r.fromBoard
-      ? `<span class="res-board-badge">予約管理より</span>`
+      ? `<span class="res-board-badge">${escapeHtml(sfSalonLabel(r.salon) || '予約管理より')}</span>`
       : '';
 
     if (!customer) {
@@ -11928,11 +12011,8 @@ function renderReservationList() {
       if (r.fromBoard) {
         const gName = escapeHtml(r.guestName || '(氏名未登録)');
         const gKana = escapeHtml(r.guestKana || '');
-        const gAge = (r.guestAge != null && r.guestAge !== '')
-          ? (String(r.guestAge) === '3'
-              ? '3歳〜'
-              : r.guestAge + '歳' + (r.guestMonths != null ? r.guestMonths + 'ヶ月' : ''))
-          : '';
+        /* SF-AGEMONTH-3PLUS-TIMELY-20260722 : 3歳以上も「◯歳◯ヶ月」で表示する */
+        const gAge = sfRealAgeLabel(r.birthY, r.birthM, r.guestAge, r.guestMonths, r.reservationDate);
         const openBtn = isToday
           ? `<button class="res-item-open" onclick="selectFromReservation('${key}')">
               当日入力を開く
@@ -13260,12 +13340,13 @@ const HANDOVER_CATEGORIES = [
 // 食事の量の選択肢（軽食・離乳食・おやつ共通）
 /* SF-MEAL-3STATE-20260722 : 4択 → 3択に整理。詳細は特記事項へ記入する運用 */
 const MEAL_AMOUNT_OPTIONS = [
-  { value: '食べた',   label: '食べた' },
+  { value: '完食',     label: '完食' },   /* SF-MEAL-LABEL-KANSHOKU-20260722 */
   { value: '残した',   label: '残した' },
   { value: '食べてない', label: '食べてない' },
 ];
 /* 旧選択肢（過去レコードに保存済み。修正画面で消さないために保持する） */
-const MEAL_AMOUNT_LEGACY = ['完食', '半分以上', '半分以下', '食べていない'];
+/* SF-MEAL-LABEL-KANSHOKU-20260722 : 「完食」は現行の選択肢に戻したので旧扱いから外す */
+const MEAL_AMOUNT_LEGACY = ['半分以上', '半分以下', '食べていない'];
 
 // 食事対象の持ち物 → 表示ラベル
 const MEAL_ITEMS = [
@@ -13491,6 +13572,53 @@ function renderHandoverItems(existing) {
   document.querySelectorAll('.handover-item[data-category="milk"] .handover-row select.time-select').forEach(sel => {
     syncMilkRowState(sel);
   });
+  /* SF-MEAL-COLLECT-RETURN-20260722 : 食事の選択に応じて返却欄を出し分ける（初期表示） */
+  applyMealReturnRule();
+}
+
+/* SF-MEAL-COLLECT-RETURN-20260722 : 軽食・離乳食などは、食べ切ると容器が残らないため返却という行為自体が無い。
+   食べた（旧データの「完食」も含む）→ 返却チェックを隠す
+   残した / 食べてない など          → 返却チェックを出す
+   隠した項目は収集・バリデーションの対象からも外れる。 */
+/* SF-MEAL-LABEL-KANSHOKU-20260722 : 「食べた」はローカル検証中のみ使われた値。保存済みレコードが
+   あっても正しく扱えるよう、判定には両方を残す。 */
+var MEAL_EATEN_VALUES = ['完食', '食べた'];
+function applyMealReturnRule() {
+  document.querySelectorAll('.handover-row-changed[data-meal-item]').forEach(row => {
+    const item = row.dataset.mealItem || '';
+    if (!item) return;
+    const amount = row.querySelector('.meal-amount')?.value || '';
+    const eaten = MEAL_EATEN_VALUES.indexOf(amount) >= 0;
+    document.querySelectorAll('.return-toggle').forEach(tg => {
+      if ((tg.dataset.returnItem || '') !== item) return;
+      if (eaten) {
+        tg.setAttribute('hidden', '');
+        tg.style.display = 'none';
+        const cb = tg.querySelector('.return-checked');
+        if (cb) cb.checked = false;
+        tg.classList.remove('is-returned');
+      } else {
+        tg.removeAttribute('hidden');
+        tg.style.display = '';
+      }
+    });
+  });
+  /* SF-RETURN-EMPTY-HIDE-20260722 : 返す物が1つも残らなければ、セクションごと隠す。
+     見出しと「すべて返却済にする」だけが残った空のセクションを出さないため。 */
+  const _sec = document.querySelector('.handover-item[data-category="returnedItems"]');
+  if (_sec) {
+    const _visible = Array.prototype.filter.call(
+      _sec.querySelectorAll('.return-toggle'),
+      function (tg) { return !tg.hasAttribute('hidden'); }
+    ).length;
+    if (_visible === 0) {
+      _sec.setAttribute('hidden', '');
+      _sec.style.display = 'none';
+    } else {
+      _sec.removeAttribute('hidden');
+      _sec.style.display = '';
+    }
+  }
 }
 
 // ----- ミルク -----
@@ -13908,7 +14036,7 @@ function renderMealsSection(existingMeals, mealItems, existingMilk, milkBottleRe
         <div class="handover-row-changed" data-meal-item="${escapeHtml(m.item)}">
           <span class="clothing-label">${m.icon} ${escapeHtml(m.label)}</span>
           <span class="handover-row-inline-label">食べた量:</span>
-          <select class="meal-amount">${optionsHtml(existing[m.item] || '')}</select>
+          <select class="meal-amount" onchange="applyMealReturnRule()">${optionsHtml(existing[m.item] || '')}</select>
         </div>
       `).join('')
     : '';
@@ -13993,7 +14121,12 @@ function toggleReturnedState(btn) {
 function toggleAllReturned() {
   const section = document.querySelector('.handover-item[data-category="returnedItems"]');
   if (!section) return;
-  const btns = section.querySelectorAll('.return-toggle');
+  const btns = Array.prototype.filter.call(
+    section.querySelectorAll('.return-toggle'),
+    /* SF-RETURN-EMPTY-HIDE-20260722 : 食べ切って返却対象から外れた項目は一括処理の対象外。
+       これが無いと「完食なのに返却済」という矛盾した状態が作られる。 */
+    function (b) { return !b.hasAttribute('hidden'); }
+  );
   let anyUnchecked = false;
   btns.forEach(b => {
     const cb = b.querySelector('.return-checked');
@@ -14084,19 +14217,21 @@ function getHandoverItemsFromForm() {
   }
 
   // 食事
-  const mealsItem = document.querySelector('.handover-item[data-category="meals"]');
-  if (mealsItem) {
-    mealsItem.querySelectorAll('.handover-row-changed').forEach(row => {
-      const item = row.dataset.mealItem || '';
-      const amount = row.querySelector('.meal-amount')?.value || '';
-      if (item) result.meals[item] = amount;
-    });
-  }
+  /* SF-MEAL-COLLECT-RETURN-20260722 : 描画側の data-category は "meals-wrapper" で、
+     従来の '[data-category="meals"]' は常に null だった。そのため食事の量が
+     一度も保存されていなかった。セレクタ名に依存せず食事行を直接引く。 */
+  document.querySelectorAll('.handover-row-changed[data-meal-item]').forEach(row => {
+    const item = row.dataset.mealItem || '';
+    const amount = row.querySelector('.meal-amount')?.value || '';
+    if (item) result.meals[item] = amount;
+  });
 
   // 持ち物の返却確認 (新デザイン: .return-toggle)
   const returnItem = document.querySelector('.handover-item[data-category="returnedItems"]');
   if (returnItem) {
     returnItem.querySelectorAll('.return-toggle').forEach(row => {
+      /* SF-MEAL-COLLECT-RETURN-20260722 : 食べ切って返却対象から外れた項目は記録しない */
+      if (row.hasAttribute('hidden')) return;
       const item = row.dataset.returnItem || '';
       const checked = !!row.querySelector('.return-checked')?.checked;
       if (item) result.returnedItems[item] = checked;
@@ -14194,9 +14329,9 @@ function validateHandoverItems() {
   }
 
   // 食事: セクションが表示されていれば各メニュー選択必須
-  const mealsItem = document.querySelector('.handover-item[data-category="meals"]');
-  if (mealsItem) {
-    const rows = mealsItem.querySelectorAll('.handover-row-changed');
+  /* SF-MEAL-COLLECT-RETURN-20260722 : 同上。従来はセレクタが空振りして未選択でも素通りしていた。 */
+  {
+    const rows = document.querySelectorAll('.handover-row-changed[data-meal-item]');
     for (const row of rows) {
       const item = row.dataset.mealItem || '';
       const amount = row.querySelector('.meal-amount')?.value || '';
@@ -14212,6 +14347,8 @@ function validateHandoverItems() {
     const rows = returnItem.querySelectorAll('.return-toggle');
     const unchecked = [];
     rows.forEach(row => {
+      /* SF-MEAL-COLLECT-RETURN-20260722 : 食べ切って返却対象から外れた項目は必須チェックの対象外 */
+      if (row.hasAttribute('hidden')) return;
       const item = row.dataset.returnItem || '';
       const checked = !!row.querySelector('.return-checked')?.checked;
       if (!checked) unchecked.push(item);
