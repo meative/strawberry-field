@@ -321,6 +321,14 @@ button:active { opacity: 0.7; }
       snap.docs.forEach(d => { map[d.id] = d.data(); });
       if (typeof window.capApplySnapshot === 'function') window.capApplySnapshot(map);
     }, (e) => console.error('[onSnapshot capacity] subscribe failed', e));
+    /* SF-SALON-ROSTER-20260722 : 受付アプリ(TimelySchool)が発行する軽量名簿を購読する。
+       sf_customers を直接見ないのは、あちらに保護者の住所・電話・署名画像が入っており、
+       サロンは別会社の端末なので渡せないため。単一ドキュメントなので1リードで済む。 */
+    onSnapshot(doc(db, 'sf_roster', 'all'), (snap) => {
+      const d = snap.exists() ? snap.data() : null;
+      const items = (d && Array.isArray(d.items)) ? d.items : [];
+      if (typeof window.rosterApplySnapshot === 'function') window.rosterApplySnapshot(items);
+    }, (e) => console.error('[onSnapshot roster] subscribe failed', e));
   }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
 </head>
@@ -689,14 +697,49 @@ let myBookings = {
   woodstock: SEED_BOOKINGS.woodstock.map(b=>({...b})),
   janis: SEED_BOOKINGS.janis.map(b=>({...b})),
 };
-const REGISTERED = [
-  { name:'森 はると', kana:'モリ ハルト', age:'1' }, { name:'渡辺 みなと', kana:'ワタナベ ミナト', age:'0' },
-  { name:'岡田 あゆみ', kana:'オカダ アユミ', age:'1' }, { name:'西村 ゆい', kana:'ニシムラ ユイ', age:'1' },
-  { name:'藤井 れん', kana:'フジイ レン', age:'1' }, { name:'三浦 さくら', kana:'ミウラ サクラ', age:'2' },
-  { name:'横山 ひろと', kana:'ヨコヤマ ヒロト', age:'3' }, { name:'青山 ことね', kana:'アオヤマ コトネ', age:'0' },
-  { name:'佐藤 ゆうと', kana:'サトウ ユウト', age:'2' }, { name:'田村 みお', kana:'タムラ ミオ', age:'1' },
-  { name:'中川 はな', kana:'ナカガワ ハナ', age:'2' }, { name:'長谷川 そら', kana:'ハセガワ ソラ', age:'3' },
-];
+/* SF-SALON-ROSTER-20260722 : 受付アプリが発行する名簿（sf_roster/all）で埋まる。
+   以前はデモ用の12件が直書きされており、受付で何人登録してもサロンに反映されなかった。
+   起動直後とFirestore未接続時は空。その場合は全員が新規＝カタカナ一時預かり扱いになる
+   （安全側に倒れる。受付で正式登録されれば次回から名簿に載る）。 */
+let REGISTERED = [];
+let ROSTER_LOADED = false;
+
+/* 受付アプリ由来の値をHTMLに入れる前にエスケープする */
+function rosterEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/* 年齢は名簿に持たせず生年月から都度算出する。固定値だと時間経過で古びるため。
+   生年月が無い古いレコードは年齢を出さない（「null歳」の誤表示を防ぐ）。 */
+function rosterAgeLabel(c) {
+  return (c && c.realAge != null) ? (c.realAge + '\u6b73') : '\u2014';
+}
+
+window.rosterApplySnapshot = function (items) {
+  REGISTERED = (items || [])
+    .filter(function (r) { return r && (r.name || r.kana); })
+    .map(function (r) {
+      var a = ageMonthsFromYM(r.birthY, r.birthM);
+      return {
+        id: r.id || '',
+        name: String(r.name || r.kana || ''),
+        kana: String(r.kana || r.name || ''),
+        birthY: r.birthY || null,
+        birthM: r.birthM || null,
+        age: a.age,           // 判定用（0/1/2/3 に丸めた値）
+        realAge: a.realAge,   // 表示用（3歳以上もそのまま）
+      };
+    });
+  ROSTER_LOADED = true;
+  console.log('[roster] \u540d\u7c3f\u3092\u53d7\u4fe1: ' + REGISTERED.length);
+  // 入力中の内容を消さないため、モーダルが閉じているときだけ索引を描き直す
+  try {
+    var m = document.getElementById('modal');
+    if (m && !m.classList.contains('show') && document.getElementById('kanaIndex')) renderKanaIndex();
+  } catch (e) {}
+};
 const KANA_ROWS = { 'ア':['ア','イ','ウ','エ','オ'],'カ':['カ','キ','ク','ケ','コ','ガ','ギ','グ','ゲ','ゴ'],'サ':['サ','シ','ス','セ','ソ','ザ','ジ','ズ','ゼ','ゾ'],'タ':['タ','チ','ツ','テ','ト','ダ','ヂ','ヅ','デ','ド'],'ナ':['ナ','ニ','ヌ','ネ','ノ'],'ハ':['ハ','ヒ','フ','ヘ','ホ','バ','ビ','ブ','ベ','ボ','パ','ピ','プ','ペ','ポ'],'マ':['マ','ミ','ム','メ','モ'],'ヤ':['ヤ','ユ','ヨ'],'ラ':['ラ','リ','ル','レ','ロ'],'ワ':['ワ','ヲ','ン'] };
 const KANA_ROW_KEYS = ['ア','カ','サ','タ','ナ','ハ','マ','ヤ','ラ','ワ'];
 function toKata(s){ return (s||'').replace(/[\u3041-\u3096]/g,c=>String.fromCharCode(c.charCodeAt(0)+0x60)); }
@@ -1079,12 +1122,21 @@ function onNameInput() {
 function isKatakanaName(s) {
   return /^[ァ-ヶー]+[\s　]+[ァ-ヶー]+$/.test(s) || /^[ァ-ヶー]{2,}$/.test(s);
 }
+/* SF-SALON-ROSTER-20260722 : 名簿が受付アプリの入力値になったので、
+   表示はエスケープし、onclick には値ではなく名簿の添字を渡す
+   （氏名にクォートが含まれても onclick が壊れないようにするため）。 */
 function suggestHtml(c) {
-  const ageLabel = c.age==='3'?'3歳〜':c.age+'歳';
-  return `<div class="suggest-item" role="button" tabindex="0" onclick="pickCustomer('${c.name}','${c.age}')">
-    <div class="suggest-avatar">${c.name.charAt(0)}</div>
-    <div class="suggest-info"><div class="suggest-name">${c.name}</div><div class="suggest-kana">${c.kana}</div></div>
+  const i = REGISTERED.indexOf(c);
+  const ageLabel = rosterAgeLabel(c);
+  return `<div class="suggest-item" role="button" tabindex="0" onclick="pickCustomerAt(${i})">
+    <div class="suggest-avatar">${rosterEsc(String(c.name || '').charAt(0))}</div>
+    <div class="suggest-info"><div class="suggest-name">${rosterEsc(c.name)}</div><div class="suggest-kana">${rosterEsc(c.kana)}</div></div>
     <span class="suggest-age">${ageLabel}</span></div>`;
+}
+function pickCustomerAt(i) {
+  const c = REGISTERED[i];
+  if (!c) return;
+  pickCustomer(c.name, c.age);
 }
 function pickCustomer(name, age) {
   document.getElementById('mName').value = name;
@@ -1108,6 +1160,23 @@ function resetNameSearch() {
   document.getElementById('nameSuggest').innerHTML = '';
   document.getElementById('kanaResult').innerHTML = '';
   renderKanaIndex();
+  /* SF-SALON-ROSTER-20260722 : 名簿の状態を明示する。黙って空だと、登録済みの
+     お客様まで新規として一時予約されてしまう。「未受信」と「受信したが0件」は
+     原因も対処も違うので分けて出す。 */
+  var _msg = null;
+  if (!ROSTER_LOADED) {
+    // Firestore からまだ応答が無い（通信中／接続失敗）
+    _msg = '\u304a\u5ba2\u69d8\u540d\u7c3f\u3092\u8aad\u307f\u8fbc\u3093\u3067\u3044\u307e\u3059\u2026';
+  } else if (!REGISTERED.length) {
+    // 応答はあったが名簿が空（受付アプリ側が未発行、または登録者がまだいない）
+    _msg = '\u767b\u9332\u6e08\u307f\u306e\u304a\u5ba2\u69d8\u306f\u307e\u3060\u3044\u307e\u305b\u3093\u3002'
+         + '\u30ab\u30bf\u30ab\u30ca\u306e\u304a\u540d\u524d\u3067\u3054\u4e88\u7d04\u304f\u3060\u3055\u3044\u3002';
+  }
+  if (_msg) {
+    document.getElementById('kanaResult').innerHTML =
+      '<div style="font-family:var(--serif-jp); font-size:12px; color:var(--ink-soft); padding:6px 0;">'
+      + _msg + '</div>';
+  }
 }
 
 // ===== 店舗切替 =====
