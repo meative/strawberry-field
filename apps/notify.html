@@ -1505,6 +1505,10 @@ function sendNotify(type, childIdx, lateMin) {
     c.sentComing = true;
     renderChildren();
   }
+  /* SF-NOTIFY-SENDSYNC-20260723 : この関数の renderChildren は
+     if (type === 'coming') の中にあるため、late / early / soon は
+     nfSave に到達していなかった。ここで明示的に同期する。 */
+  nfSave();
   renderFeed(key);
   playSound(type);
   flashAlert();
@@ -1522,6 +1526,9 @@ function elapsedText(ts) {
 
 // ===== 保育園: フィード描画（子ごとに1カード） =====
 function renderFeed(flashKey) {
+  /* SF-NOTIFY-SENDSYNC-20260723 : 通知の増減後は必ずここを通る。
+     差分方式なので、変化が無ければ1件も書かない。 */
+  nfSave();
   const feed = document.getElementById('feed');
   if (notifications.length === 0) {
     feed.innerHTML = '<div class="feed-empty">対応が必要なお子様はいません<span class="en">All clear — no pending pick-ups</span></div>';
