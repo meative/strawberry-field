@@ -459,6 +459,17 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
     } catch (e) { console.error('[fbReconcile] write failed', e); }
   };
 
+  /* SF-NOTIFY-CLOUD-20260723 : 変わったドキュメントだけを書き、消えたものを削除する */
+  const NFCOL = 'sf_notify';
+  window.nfWrite = async (puts, dels) => {
+    try {
+      const batch = writeBatch(db);
+      (puts || []).forEach(d => { if (d && d.id) batch.set(doc(db, NFCOL, String(d.id)), d); });
+      (dels || []).forEach(id => { if (id) batch.delete(doc(db, NFCOL, String(id))); });
+      await batch.commit();
+    } catch (e) { console.error('[nfWrite] write failed', e); }
+  };
+
   // 匿名サインイン完了後に購読を開始する。
   // ステップ3で Firestore ルールを「認証必須」に厳格化しても、サインイン済みの状態で
   // 購読が始まるため permission-denied で落ちない。
@@ -468,6 +479,12 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
       if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
     }, (e) => console.error('[onSnapshot] subscribe failed', e));
+
+    /* SF-NOTIFY-CLOUD-20260723 : 受信ボード・様子ログ・子の状態を端末間で共有する */
+    onSnapshot(collection(db, NFCOL), (snap) => {
+      const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      if (typeof window.nfApplySnapshot === 'function') window.nfApplySnapshot(arr);
+    }, (e) => console.error('[onSnapshot sf_notify] subscribe failed', e));
   }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
 </head>
@@ -968,6 +985,9 @@ function estimateLineHtml(c) {
 
 // ===== サロン: 子リスト描画 =====
 function renderChildren() {
+  /* SF-NOTIFY-CLOUD-20260723 : 状態を変える11関数はいずれかの再描画を必ず呼ぶ。
+     nfSave は差分方式なので、変化が無ければ1件も書かない。 */
+  nfSave();
   const list = document.getElementById('childList');
   const arr = children[salon];
   list.innerHTML = arr.map((c, i) => {
@@ -1663,6 +1683,141 @@ const REPORT_TYPES = [
 // サロン別の受信した様子ログ
 let statusLogs = { woodstock: [], janis: [] };
 
+/* ===== SF-NOTIFY-CLOUD-20260723 : 通知・様子ログ・子の状態の端末間共有 =====
+   従来はすべてメモリ上だけで、サロンiPadと保育園iPadで互いに見えなかった。 */
+let NF_MIRROR = {};        // docId -> ドキュメント（Firestore の写し）
+let NF_SNAP_SEEN = false;  // 初回スナップショット受信済みか
+let __nfApplying = false;  // 受信適用中はクラウドへ書かない（往復ループ防止）
+
+const NF_SALONS = ['woodstock', 'janis'];
+const NF_CHILD_FIELDS = ['status', 'lateMin', 'expectedEnd', 'sentComing', 'lastLateTime',
+                         'callConfirmed', 'callLateMin', 'cancelTs', 'cancelTime', 'cancelled'];
+
+function nfDocId(kind, key) {
+  // ドキュメントIDに使えない文字（/ など）を避ける
+  return CURRENT_GARDEN + '__' + kind + '__' + encodeURIComponent(String(key == null ? '' : key));
+}
+function nfTodayStart() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
+function nfLogKey(e) { return (e && e.ts) + '|' + (e && e.childName) + '|' + (e && e.label); }
+
+/* いまの状態から「あるべき全ドキュメント」を組み立てる */
+function nfBuildDocs() {
+  const out = {};
+  (notifications || []).forEach(n => {
+    if (!n || !n.key) return;
+    out[nfDocId('n', n.key)] = { g: CURRENT_GARDEN, k: 'n', key: n.key, ts: n.ts || Date.now(), data: n };
+  });
+  const cut = nfTodayStart();
+  NF_SALONS.forEach(sk => {
+    const list = (statusLogs[sk] || []).filter(e => e && (e.ts || 0) >= cut).slice(0, 100);
+    out[nfDocId('s', sk)] = { g: CURRENT_GARDEN, k: 's', key: sk, ts: Date.now(), data: list };
+  });
+  NF_SALONS.forEach(sk => {
+    (children[sk] || []).forEach(c => {
+      if (!c || !c.sfId) return;
+      const st = { salonKey: sk, sfId: c.sfId };
+      NF_CHILD_FIELDS.forEach(f => { if (c[f] !== undefined) st[f] = c[f]; });
+      out[nfDocId('c', c.sfId)] = { g: CURRENT_GARDEN, k: 'c', key: c.sfId, ts: Date.now(), data: st };
+    });
+  });
+  return out;
+}
+
+/* 変わったものだけ書く。差分が無ければ1件も書かない。 */
+function nfSave() {
+  if (__nfApplying) return;
+  if (!NF_SNAP_SEEN) return;   // 初回受信前は書かない（空の状態でクラウドを消さないため）
+  if (typeof window.nfWrite !== 'function') return;
+  try {
+    const want = nfBuildDocs();
+    const puts = [], dels = [];
+    Object.keys(want).forEach(id => {
+      const a = JSON.stringify(want[id].data);
+      const b = JSON.stringify((NF_MIRROR[id] || {}).data);
+      if (a !== b) puts.push(Object.assign({ id: id }, want[id]));
+    });
+    Object.keys(NF_MIRROR).forEach(id => {
+      if (!(id in want) && (NF_MIRROR[id] || {}).g === CURRENT_GARDEN) dels.push(id);
+    });
+    if (!puts.length && !dels.length) return;
+    puts.forEach(d => { NF_MIRROR[d.id] = d; });   // 楽観更新
+    dels.forEach(id => { delete NF_MIRROR[id]; });
+    window.nfWrite(puts, dels);
+  } catch (e) { console.error('[nfSave]', e); }
+}
+
+window.nfApplySnapshot = function (arr) {
+  const first = !NF_SNAP_SEEN;
+  NF_MIRROR = {};
+  (arr || []).forEach(d => { if (d && d.id) NF_MIRROR[d.id] = d; });
+  NF_SNAP_SEEN = true;
+  __nfApplying = true;
+  try {
+    const mine = Object.keys(NF_MIRROR).map(k => NF_MIRROR[k])
+      .filter(d => d && d.g === CURRENT_GARDEN);
+
+    /* 通知：クラウドを正として置き換える。和集合にすると、
+       markPickedUp などで消した通知が他端末から復活してしまう。 */
+    const cloudN = mine.filter(d => d.k === 'n').map(d => d.data).filter(Boolean);
+    if (first) {
+      // 初回だけは、受信前にこの端末で作られた通知を取りこぼさないよう合流させる
+      const byKey = {};
+      cloudN.concat(notifications || []).forEach(n => {
+        if (!n || !n.key) return;
+        const cur = byKey[n.key];
+        if (!cur || (n.ts || 0) > (cur.ts || 0)) byKey[n.key] = n;
+      });
+      notifications = Object.keys(byKey).map(k => byKey[k]);
+    } else {
+      notifications = cloudN;
+    }
+    notifications.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+
+    /* 様子ログ：追記のみなので和集合マージ。同時追記でも取りこぼさない。 */
+    const cut = nfTodayStart();
+    NF_SALONS.forEach(sk => {
+      const d = mine.find(x => x.k === 's' && x.key === sk);
+      const remote = (d && Array.isArray(d.data)) ? d.data : [];
+      const seen = {}, merged = [];
+      remote.concat(statusLogs[sk] || []).forEach(e => {
+        if (!e || (e.ts || 0) < cut) return;
+        const k = nfLogKey(e);
+        if (seen[k]) return;
+        seen[k] = 1; merged.push(e);
+      });
+      merged.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      statusLogs[sk] = merged.slice(0, 100);
+    });
+
+    /* 子の状態：sfId で既存の children に重ねる。sf_bookings 由来の項目は触らない。 */
+    const st = {};
+    mine.filter(d => d.k === 'c').forEach(d => {
+      if (d.data && d.data.sfId) st[d.data.sfId] = d.data;
+    });
+    NF_SALONS.forEach(sk => {
+      (children[sk] || []).forEach(c => {
+        const s = (c && c.sfId) ? st[c.sfId] : null;
+        if (!s) return;
+        NF_CHILD_FIELDS.forEach(f => { if (s[f] !== undefined) c[f] = s[f]; });
+      });
+    });
+
+    if (typeof renderFeed === 'function') renderFeed(null);
+    if (typeof renderArrivalList === 'function') renderArrivalList();
+    if (typeof renderChildren === 'function') renderChildren();
+    if (typeof renderReportList === 'function') renderReportList();
+    if (typeof renderStatusFeed === 'function') renderStatusFeed(false);
+  } catch (e) {
+    console.error('[nfApplySnapshot]', e);
+  } finally {
+    __nfApplying = false;
+  }
+  console.log('[notify] 同期を受信: 通知' + (notifications || []).length + '件');
+  if (first) nfSave();   // 初回：この端末にしか無い分をクラウドへ上げる
+};
+/* ===== SF-NOTIFY-CLOUD-20260723 ここまで ===== */
+
+
 // 保育園側：お預かり中（来園してお預かり確定）の子だけ、様子送信ボタンを描画
 function renderReportList() {
   const all = [];
@@ -1709,6 +1864,8 @@ function sendStatus(salonKey, childIdx, reportKey) {
 
 // サロン側：受信した連絡・様子を2レーンに分けて表示（今選択中のサロンのぶん）
 function renderStatusFeed(flash) {
+  /* SF-NOTIFY-CLOUD-20260723 */
+  nfSave();
   const logs = statusLogs[salon] || [];
   // 直前に追加された最新ログの ts（flash対象の特定に使う）
   const newestTs = logs.length ? logs[0].ts : null;
