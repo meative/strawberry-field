@@ -507,6 +507,8 @@ body {
       font-style:italic; }
     /* ===== end SF-KINDER-BOARD-STEP23-20260630 CSS ===== */
     .booking-bar .class0-chip { display:inline-block; background:#FCEBEB; color:#A32D2D; border:0.5px solid #E24B4A; font-size:10px; font-weight:600; padding:0 5px; border-radius:8px; margin-left:4px; line-height:1.5; white-space:nowrap; }
+    /* SF-SALONSPLIT-BOARD-20260724 : 区間グループの印（美容室＋JANIS の続き利用） */
+    .booking-bar .grp-chip { display:inline-block; background:#EAF6F5; color:#0A7C78; border:0.5px solid #0ABAB5; font-size:10px; font-weight:600; padding:0 5px; border-radius:8px; margin-left:4px; line-height:1.5; white-space:nowrap; }
 </style>
 
 <!-- ===== Firebase / Firestore（共有予約データの本番ストレージ） ===== -->
@@ -1762,10 +1764,24 @@ function renderBoard() {
         const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
         const provMark = (b.provisional && !(b.info && b.info.name)) ? '<span class="bar-prov">新規・受付待ち</span>' : '';
         const affilBadge = (b.affiliation === 'youchisha') ? '<span class="affil-badge">幼稚舎</span>' : '';
+        /* SF-SALONSPLIT-BOARD-20260724 : 区間グループの印。①②と、続く先のサロン名を出す。
+           バーの置き場所は zone(サロン)で決まるので、配置そのものは従来のまま2レーンに分かれる。 */
+        let grpChip = '';
+        if (b.groupId) {
+          const _sib = bookings.filter(x => x && x.groupId === b.groupId)
+                               .sort((p, q) => (Number(p.groupSeq) || 1) - (Number(q.groupSeq) || 1));
+          if (_sib.length > 1) {
+            const _me = Number(b.groupSeq) || 1;
+            const _nx = _sib.filter(x => (Number(x.groupSeq) || 1) > _me)[0];
+            const _mk = (_me === 1) ? '①' : ((_me === 2) ? '②' : '(' + _me + ')');
+            grpChip = '<span class="grp-chip">' + _mk +
+                      (_nx ? ' → ' + escapeHtml(zoneJp(_nx.zone)) : ' 最後') + '</span>';
+          }
+        }
         html += `<div class="booking-bar ${zone.key} ${(b.provisional && !(b.info&&b.info.name))?'is-prov':''}" data-idx="${gidx}" title="${escapeHtml(b.name)}（${ageLabel}）${b.start}〜${b.end}" style="left:${left}%; width:calc(${width}% - 4px); margin-left:2px;">
           <span class="bar-handle bar-handle-l" data-idx="${gidx}" data-edge="l"></span>
           <span class="bar-body" onclick="onBarTap(${gidx})">
-            <span class="bar-lines"><span class="bar-line1"><span class="bar-name">${escapeHtml(b.name)}</span>${lunch}${affilBadge}</span><span class="bar-line2"><span class="age-chip">${ageLabel}</span>${class0Chip}${provMark}${memo}</span></span>
+            <span class="bar-lines"><span class="bar-line1"><span class="bar-name">${escapeHtml(b.name)}</span>${lunch}${affilBadge}</span><span class="bar-line2"><span class="age-chip">${ageLabel}</span>${class0Chip}${grpChip}${provMark}${memo}</span></span>
           </span>
           <span class="bar-handle bar-handle-r" data-idx="${gidx}" data-edge="r"></span>
         </div>`;
@@ -2396,14 +2412,41 @@ function findFreeLane(zone, start, end, excludeIdx) {
 
 async function deleteBooking() {
   if (editingIdx < 0) return;
-  if (!(await sfConfirm('この予約を削除しますか？', {okText:'削除する', danger:true}))) return;
   const b = bookings[editingIdx];
+  /* SF-SALONSPLIT-BOARD-20260724 : 区間グループ（美容室＋JANIS の続き利用）の取り消し。
+     「予約ごとやめる」と「片方の施術だけやめる」は別の操作なので、まとめず選ばせる。
+     既定は「すべて」。片割れが取り残されるほうが事故として重いため。
+     Escape・背景タップは何もしない側に倒す。 */
+  var _delMode = 'one';
+  var _sibs = (b && b.groupId && b.sfId)
+    ? sfLoad().filter(function (r) { return r && r.groupId === b.groupId; })
+    : [];
+  if (_sibs.length > 1) {
+    var _c = await sfChoose(
+      'この予約は ' + _sibs.length + ' つの区間に分かれています。\nどちらを取り消しますか。',
+      { okText: 'すべて取り消す', altText: 'この区間だけ', cancelText: 'やめる', danger: true });
+    if (_c === 'cancel') return;
+    _delMode = (_c === 'ok') ? 'all' : 'one';
+  } else {
+    if (!(await sfConfirm('この予約を削除しますか？', {okText:'削除する', danger:true}))) return;
+  }
   // 共有由来（sfId付き）なら共有ストレージからも削除し、サロン・通知・TimelySchool予約から消す
   if (b && b.sfId) {
-    const arr = sfLoad().filter(r => r.id !== b.sfId);
+    const _gid = b.groupId;
+    const arr = sfLoad().filter(function (r) {
+      if (!r) return false;
+      if (_delMode === 'all' && _gid && r.groupId === _gid) return false;
+      return r.id !== b.sfId;
+    });
     sfSave(arr);
   }
-  bookings.splice(editingIdx, 1);
+  /* 画面側も同じ範囲を落とす。スナップショットで自己修復はするが、
+     片方が一瞬残ると取り消せたのか分からず二度押しを誘うため。 */
+  if (_delMode === 'all' && b && b.groupId) {
+    bookings = bookings.filter(function (x) { return !(x && x.groupId === b.groupId); });
+  } else {
+    bookings.splice(editingIdx, 1);
+  }
   closeModal();
   renderBoard();
 }
@@ -3052,7 +3095,7 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
   'use strict';
   if (window.__sfInAppDialog) return; window.__sfInAppDialog = true;
 
-  var ov, box, titleEl, msgEl, btns, okBtn, cancelBtn, built = false;
+  var ov, box, titleEl, msgEl, btns, okBtn, cancelBtn, altBtn, built = false;   /* SF-SALONSPLIT-BOARD-20260724 : altBtn=3つ目の選択肢 */
 
   function injectCSS() {
     if (document.getElementById('sfdStyle')) return;
@@ -3071,7 +3114,11 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
       + '.sfd-btn:active{transform:scale(.97);}'
       + '.sfd-ok{background:var(--tiffany,#4ac9b6);color:#fff;}'
       + '.sfd-ok.danger{background:#c0392b;}'
-      + '.sfd-cancel{background:#f0efe9;color:var(--ink-soft,#7a7a7a);}';
+      + '.sfd-cancel{background:#f0efe9;color:var(--ink-soft,#7a7a7a);}'
+      /* SF-SALONSPLIT-BOARD-20260724 : 3択用。狭い画面では横に並ばないので縦に積む */
+      + '.sfd-alt{background:#faf4e6;color:var(--gold-deep,#9a7b2e);border:1px solid #e3d5ae;}'
+      + '.sfd-btns.three{flex-direction:column;}'
+      + '.sfd-btns.three .sfd-btn{width:100%;}';
     var el = document.createElement('style'); el.id = 'sfdStyle'; el.textContent = css;
     (document.head || document.documentElement).appendChild(el);
   }
@@ -3086,7 +3133,8 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     btns = document.createElement('div'); btns.className = 'sfd-btns';
     cancelBtn = document.createElement('button'); cancelBtn.className = 'sfd-btn sfd-cancel'; cancelBtn.type = 'button';
     okBtn = document.createElement('button'); okBtn.className = 'sfd-btn sfd-ok'; okBtn.type = 'button';
-    btns.appendChild(cancelBtn); btns.appendChild(okBtn);
+    altBtn = document.createElement('button'); altBtn.className = 'sfd-btn sfd-alt'; altBtn.type = 'button';   /* SF-SALONSPLIT-BOARD-20260724 */
+    btns.appendChild(cancelBtn); btns.appendChild(altBtn); btns.appendChild(okBtn);
     box.appendChild(titleEl); box.appendChild(msgEl); box.appendChild(btns);
     ov.appendChild(box);
     (document.body || document.documentElement).appendChild(ov);
@@ -3103,9 +3151,13 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
       okBtn.classList.toggle('danger', !!o.danger);
       cancelBtn.textContent = o.cancelText || 'キャンセル';
       cancelBtn.style.display = o.cancel ? '' : 'none';
+      /* SF-SALONSPLIT-BOARD-20260724 : altText の指定が無ければ従来どおりの2択のまま */
+      altBtn.textContent = o.altText || '';
+      altBtn.style.display = o.altText ? '' : 'none';
+      btns.classList.toggle('three', !!o.altText);
       function done(v) {
         ov.classList.remove('show');
-        okBtn.onclick = null; cancelBtn.onclick = null; ov.onclick = null;
+        okBtn.onclick = null; cancelBtn.onclick = null; altBtn.onclick = null; ov.onclick = null;
         document.removeEventListener('keydown', onKey, true);
         resolve(v);
       }
@@ -3115,6 +3167,7 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
       }
       okBtn.onclick = function () { done(true); };
       cancelBtn.onclick = function () { done(false); };
+      altBtn.onclick = function () { done('alt'); };   /* SF-SALONSPLIT-BOARD-20260724 */
       ov.onclick = function (e) { if (e.target === ov) done(o.cancel ? false : true); };
       document.addEventListener('keydown', onKey, true);
       ov.classList.add('show');
@@ -3125,6 +3178,15 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
   window.sfAlert = function (msg, opts) {
     opts = opts || {};
     return open({ message: msg, cancel: false, okText: opts.okText || 'OK', title: opts.title == null ? 'お知らせ' : opts.title });
+  };
+  /* SF-SALONSPLIT-BOARD-20260724 : 3択。'ok' | 'alt' | 'cancel' を返す。
+     Escape と背景タップは 'cancel'（何もしない側）に倒す。取り消し操作は元に戻せないため。 */
+  window.sfChoose = function (msg, opts) {
+    opts = opts || {};
+    return open({ message: msg, cancel: true, okText: opts.okText || 'OK',
+      altText: opts.altText || '', cancelText: opts.cancelText || 'やめる',
+      danger: !!opts.danger, title: opts.title == null ? '確認' : opts.title })
+      .then(function (v) { return (v === true) ? 'ok' : ((v === 'alt') ? 'alt' : 'cancel'); });
   };
   window.sfConfirm = function (msg, opts) {
     opts = opts || {};
