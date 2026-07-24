@@ -881,6 +881,12 @@ const GARDENS = {
 const GARDEN_KEY = 'sf_board_garden_v1';
 let CURRENT_GARDEN = 'tsukisamu'; /* SF-BOARD-SP-FIX-20260705: 園固定(月寒) */
 // gardenId が無い既存レコードは月寒園として扱う（補完）
+/* SF-VIEWSALON-20260724 : ?view=salon はサロン閲覧用。保育園の定員設定ボタンを隠し、誤操作で定員を変えられないようにする。既定(?view無し)は従来どおり表示。 */
+var SF_VIEW_SALON = false;
+try {
+  SF_VIEW_SALON = (new URLSearchParams(location.search).get('view') === 'salon');
+  if (SF_VIEW_SALON) { var _cob = document.querySelector('.cap-open-btn'); if (_cob) _cob.style.display = 'none'; }
+} catch (e) {}
 function normGarden(g) {
   // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
   if (g == null || g === '') return CURRENT_GARDEN;
@@ -1095,6 +1101,7 @@ function capBlockAdd(val, listId) {
 }
 
 function openCapSettings() {
+  if (SF_VIEW_SALON) return; /* SF-VIEWSALON-20260724 : サロン閲覧では定員設定を開かせない */
   const base = capGetBase();                 // 全園の基本設定
   const g = (base && base[CURRENT_GARDEN]) || {};
   const gl = document.getElementById('capGardenLabel');
