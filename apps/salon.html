@@ -850,7 +850,8 @@ function updateAcceptInfo() {
   const a = ACCEPT[selectedAge];
   const ageJp = ageMonthLabel(selectedAge, selectedMonths, selectedRealAge, selectedRealMonths);
   document.getElementById('acceptInfo').innerHTML =
-    `${ageJp}のお預かり受付時間：<span class="hl">${a.open} 〜 ${a.close}</span> ／ 同時に <span class="hl">${a.cap}名</span>まで`;
+    /* SF-CAP-CONCURRENT-20260724 : 案内の人数も管理設定と揃える（直書き値との食い違いを解消） */
+    `${ageJp}のお預かり受付時間：<span class="hl">${a.open} 〜 ${a.close}</span> ／ 同時に <span class="hl">${capEffAge(selectedAge)}名</span>まで`;
 }
 
 // ===== ステップ2: 開始時刻の選択肢（受付時間内のみ） =====
@@ -892,12 +893,27 @@ function blockedAt(garden, age, slotTime) {
 }
 
 // 指定スロット範囲が全て空いているか（受付時間内＆人数上限内）
+/* SF-CAP-CONCURRENT-20260724 : 実効の同時定員。管理設定(sf_capacity)を優先し、
+   未設定なら従来の直書き ACCEPT[age].cap にフォールバックする。
+   dayOffset は下方で let 宣言されるため、初期化前に呼ばれても落ちないよう try で囲む。 */
+function capEffAge(age) {
+  try {
+    var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + dayOffset);
+    var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    var c = capEffective(CURRENT_GARDEN, age, ds);
+    if (c != null) return Number(c);
+  } catch (e) {}
+  return (ACCEPT[age] ? ACCEPT[age].cap : 0);
+}
+
 function rangeAvailable(age, sIdx, eIdx) {
   const a = ACCEPT[age];
+  /* SF-CAP-CONCURRENT-20260724 : 定員は管理設定を使う（30分スロットごとの判定なので同時人数になる） */
+  const _cap = capEffAge(age);
   for (let i = sIdx; i < eIdx; i++) {
     if (i < 0 || i >= N) return false;
     if (SLOTS[i] < a.open || SLOTS[i] >= a.closeEnd) return false;  // 受付時間外（終了上限17:00）
-    if (used[age][i] >= a.cap) return false;                      // 満員
+    if (used[age][i] >= _cap) return false;                       // 満員（SF-CAP-CONCURRENT-20260724 : 管理設定の同時人数）
     var __bl = blockedAt(CURRENT_GARDEN, age, SLOTS[i]);
     if (__bl != null && used[age][i] >= __bl) return false;   // 時間帯ごとの受け入れ制限
   }
@@ -925,13 +941,9 @@ function checkAvailability() {
   // 日付は予約書き込みと同一式（new Date() + dayOffset）で算出し、判定日と予約日を一致させる
   const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
   const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
-  if (dayCapFull(_slots, _capDate)) {
-    area.innerHTML = `<div class="result-ng">
-      <div class="result-headline">この日 ${ageJp} は満員です</div>
-      <div class="result-detail">申し訳ございません。${ageJp}のこの日のお預かりは満員でございます。別の日でご相談くださいませ。</div>
-    </div>`;
-    return;
-  }
+  /* SF-CAP-CONCURRENT-20260724 : 日単位の満員ブロックを撤去。
+     定員は「同時に何名まで」の意味になり、rangeAvailable が30分スロットごとに
+     判定する。満員でも下の分岐が近い空き時間を提案するため、案内としても改善する。 */
 
   if (_slots.every(s => rangeAvailable(s, sIdx, eIdx))) {
     // 予約可能
@@ -1050,8 +1062,13 @@ function confirmReserve() {
   {
     const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
     const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
-    if (dayCapFull(selConsumedSlots(), _capDate)) {
-      showToast(`申し訳ございません。${AGES.find(a => a.key === selectedAge).jp}のこの日のお預かりは満員でございます`);
+    /* SF-CAP-CONCURRENT-20260724 : 日単位ではなく、予約する時間帯で判定する。
+       checkAvailability と同じ rangeAvailable を使い、判断がぶれないようにする。 */
+    rebuildUsed();
+    var _cSlots = selConsumedSlots();
+    var _cS = slotIdx(pendingStart), _cE = slotIdx(pendingEnd);
+    if (!_cSlots.every(function (s) { return rangeAvailable(s, _cS, _cE); })) {
+      showToast('申し訳ございません。ご希望の時間は満員でございます');
       return;
     }
   }
