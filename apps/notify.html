@@ -959,6 +959,8 @@ function importSharedBookings() {
     }
     children[r.salon].push({
       name: dispName, age: r.age, months: r.months, start: r.start, end: r.end,
+      /* SF-SALONSPLIT-NOTIFY-20260724 : 区間グループの識別子を保持（従来は捨てていた）。持たない予約は null で従来と同一の扱い。 */
+      groupId: r.groupId || null, groupSeq: r.groupSeq || null, groupTotal: r.groupTotal || null,
       status: 'reserved', sfId: r.id, nextReservation: nextStr, nextResvRaw: r.nextReservation || null, provisional: r.provisional, date: r.date || TODAY_STR
     });
     added = true;
@@ -1036,6 +1038,18 @@ function estimateLineHtml(c) {
 }
 
 // ===== サロン: 子リスト描画 =====
+/* SF-SALONSPLIT-NOTIFY-20260724 : 区間グループの受け皿。groupId が無ければ null を返し、既存挙動は不変。 */
+function sfNextSeg(c) {
+  if (!c || !c.groupId || typeof sfLoad !== 'function') return null;
+  var mySeq = Number(c.groupSeq) || 1;
+  var rows = sfLoad().filter(function (r) {
+    return r && r.groupId === c.groupId
+      && (typeof normGarden === 'function' ? normGarden(r.gardenId) : r.gardenId) === CURRENT_GARDEN
+      && (!r.date || r.date === TODAY_STR)
+      && (Number(r.groupSeq) || 1) > mySeq;
+  }).sort(function (a, b) { return (Number(a.groupSeq) || 1) - (Number(b.groupSeq) || 1); });
+  return rows.length ? rows[0] : null;
+}
 function renderChildren() {
   /* SF-NOTIFY-CLOUD-20260723 : 状態を変える11関数はいずれかの再描画を必ず呼ぶ。
      nfSave は差分方式なので、変化が無ければ1件も書かない。 */
@@ -1074,7 +1088,7 @@ function renderChildren() {
         <div class="final-note coming-done">📞 電話確認済み・${c.callLateMin > 0 ? `約${fmtLate(c.callLateMin)}遅れて来園予定（保育園に共有）` : 'ほぼ予定通りに来園予定（保育園に共有）'}</div>
         ` : (c.status === 'waiting' && c.sentComing) ? `
         <!-- もう向かっています送信済み：サロン側の役目は完了 -->
-        <div class="final-note coming-done">🏃 お見送り完了・お客様はお迎えに向かいました</div>
+        <div class="final-note coming-done">${c.handoffTo ? '🔁 ' + c.handoffTo + 'へ引き継ぎ済み・お客様は次のサロンへ移動しました' : '🏃 お見送り完了・お客様はお迎えに向かいました'}</div>
         ` : c.status === 'waiting' ? `
         <!-- お預かり完了後：現在の見込み・連絡状況 -->
         <div class="delay-status ${c.lateMin > 0 ? 'has-late' : (c.lateMin < 0 ? 'has-early' : '')}">
@@ -1083,7 +1097,7 @@ function renderChildren() {
         <!-- お迎え系の連絡 -->
         <button class="nbtn nbtn-soon" onclick="sendNotify('soon',${i})"><span class="ico">⏳</span><span class="nbtn-txt"><span class="nbtn-main">あと10〜15分で終わります</span><span class="nbtn-sub">施術の仕上げ中・準備を始めてください</span></span></button>
         <button class="nbtn nbtn-soon-early" onclick="sendNotify('soon-early',${i})"><span class="ico">⚡</span><span class="nbtn-txt"><span class="nbtn-main">まもなく終わりそう（予定より早め）</span><span class="nbtn-sub">早く片付きそう・準備を少し早めてもらう</span></span></button>
-        <button class="nbtn nbtn-coming" onclick="sendNotify('coming',${i})"><span class="ico">🏃</span><span class="nbtn-txt"><span class="nbtn-main">もう向かっています</span><span class="nbtn-sub">店を出ました・すぐ到着します${c.nextReservation ? '（次回予約あり）' : ''}</span></span></button>
+        ${sfNextSeg(c) ? `<button class="nbtn nbtn-coming" onclick="sendNotify('handoff',${i})"><span class="ico">🔁</span><span class="nbtn-txt"><span class="nbtn-main">${SALON_JP[sfNextSeg(c).salon] || '次のサロン'}へ引き継ぎます</span><span class="nbtn-sub">当店の施術は終了・お客様は次のサロンへ移動します</span></span></button>` : `<button class="nbtn nbtn-coming" onclick="sendNotify('coming',${i})"><span class="ico">🏃</span><span class="nbtn-txt"><span class="nbtn-main">もう向かっています</span><span class="nbtn-sub">店を出ました・すぐ到着します${c.nextReservation ? '（次回予約あり）' : ''}</span></span></button>`}
         <div class="nbtn-late-block">
           <div class="nbtn-late-label"><span class="ico">🟠</span>${c.lateMin > 0 ? '現在の見込みからさらに遅れます：' : '遅れます：'}</div>
           <div class="late-chips">
@@ -1513,6 +1527,12 @@ function sendNotify(type, childIdx, lateMin) {
     headline = `<span class="child">${c.name}</span> さん お客様がもう向かっています`;
     detail = 'お客様が店を出ました。すぐ到着します。最終の準備をお願いします。'
       + (c.nextReservation ? `次回予約も承っています（${c.nextReservation}）。お見送り時に「次回もお待ちしております」とお声がけください。` : '');
+  } else if (type === 'handoff') {
+    var _hn = (typeof sfNextSeg === 'function' && sfNextSeg(c)) ? (SALON_JP[sfNextSeg(c).salon] || '次のサロン') : '次のサロン';
+    badge = '🔁 ' + _hn + 'へ引き継ぎ';
+    headline = `<span class="child">${c.name}</span> さん ${_hn} へ引き継ぎます`;
+    detail = SALON_JP[salon] + ' での施術が終わりました。お客様はこのあと ' + _hn + ' へ移動します。お子様は引き続きお預かりください（お迎えではありません）。';
+    c.handoffTo = _hn;
   } else if (type === 'late') {
     badge = `🟠 遅れます（合計+${fmtLate(totalDiff)}）`;
     headline = `<span class="child">${c.name}</span> さん お迎えが遅れます`;
@@ -1553,7 +1573,7 @@ function sendNotify(type, childIdx, lateMin) {
   }
   notifications.unshift(entry); // 先頭（最新）に
   // 「もう向かっています」を送ったら、サロン側の役目は完了（ボタンを消す）
-  if (type === 'coming') {
+  if (type === 'coming' || type === 'handoff') {
     c.sentComing = true;
     renderChildren();
   }
@@ -1652,7 +1672,7 @@ function renderFeed(flashKey) {
     }
     return `
     <div class="feed-item ${n.type} salon-${n.salonKey} ${flashKey===n.key?'flash':''}">
-      <button class="feed-done" onclick="markPickedUp('${n.salonKey}',${n.childIdx},'${n.sfId||''}')">お迎え完了 ✓</button>
+      ${n.type === 'handoff' ? '' : `<button class="feed-done" onclick="markPickedUp('${n.salonKey}',${n.childIdx},'${n.sfId||''}')">お迎え完了 ✓</button>`}
       <div class="feed-salon-tag salon-${n.salonKey}">${n.salon}</div>
       <div class="feed-top">
         <span class="feed-badge ${n.type}">${n.badge}</span>
