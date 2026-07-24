@@ -172,6 +172,10 @@ body {
 .cap-chip .rem { color:var(--tiffany-deep); }
 .cap-chip.full { background:#F5E3E5; border-color:#D8A7A7; }
 .cap-chip.full .rem { color:#B23E4C; font-weight:600; }
+/* SF-CAPCHIP-PARTIAL-20260724 : 一部の時間だけ満員（受けられる時間が残っている） */
+.cap-chip.partial { background:#FBF1DF; border-color:#DCC08A; }
+.cap-chip.partial .rem { color:#9A6E1F; font-weight:600; }
+.cap-chip .freefrom { margin-left:6px; font-size:11px; color:#9A6E1F; font-weight:600; }
 .cap-chip.unlimited { opacity:0.6; }
 .cap-chip.unlimited .rem { color:var(--ink-soft); }
 
@@ -1266,34 +1270,92 @@ function normAge(a) {
   return String(Math.min(n, 3));
 }
 // その日・その園・その年齢区分の予約数（temp/woodstock/janis、仮予約も数える、ext・年齢不明除外）
-function countReservations(garden, age, date) {
+/* SF-CAP-CONCURRENT-20260724 : 定員を「同時に何名まで」として扱う。
+   start/end を渡すとその時間と重なる予約だけを数える。
+   省略するとその日のピーク（最も重なる瞬間の人数）を返す＝残数チップ用。 */
+function countReservations(garden, age, date, start, end) {
   const g = normGarden(garden); const a = String(age);
-  let c = 0;
+  const rows = [];
   sfLoad().forEach(r => {
     if (!r || !COUNTED_ZONES.has(r.salon)) return;   // 種別ホワイトリスト
     if (normGarden(r.gardenId) !== g) return;        // 園一致
     if (r.date !== date) return;                     // 対象日厳密一致
     if (consumedSlots(totalMonths(r.age, r.months)).indexOf(a) === -1) return; /* SF-DECREMENT-20260710 減員:枠aを消費する予約か（≤18ヶ月は0/1両方・不明除外） */
-    c++;                                             // provisional も数える
+    if (!r.start || !r.end) return;                  // 時間が無い記録は数えられない
+    rows.push(r);                                    // provisional も数える
   });
-  return c;
+  if (start != null && end != null) {
+    var s0 = timeToMin(start), e0 = timeToMin(end), c = 0;
+    for (var i = 0; i < rows.length; i++) {
+      if (e0 > timeToMin(rows[i].start) && s0 < timeToMin(rows[i].end)) c++;  // 時間が重なる
+    }
+    return c;
+  }
+  /* 時間の指定が無い場合はピーク。区間の重なりの最大は必ずどれかの開始時刻で起きるため、
+     各予約の開始時点だけを調べれば十分。 */
+  var peak = 0;
+  for (var p = 0; p < rows.length; p++) {
+    var t = timeToMin(rows[p].start), n = 0;
+    for (var q = 0; q < rows.length; q++) {
+      if (t >= timeToMin(rows[q].start) && t < timeToMin(rows[q].end)) n++;
+    }
+    if (n > peak) peak = n;
+  }
+  return peak;
 }
 // 年齢別の残数チップを描画（対象＝現在園 CURRENT_GARDEN・表示中の日付 boardDateStr()）
 function renderCapSummary() {
   const el = document.getElementById('capSummary');
   if (!el) return;
   const date = boardDateStr();
+  /* ===== SF-CAPCHIP-PARTIAL-20260724 : 受付時間を走査して3段階を出す =====
+     定員は「同時に何名まで」なので、時間帯ごとに満員かどうかが変わる。
+     ピークだけで「満員」と出すと、受けられる時間があるのに断ってしまう。 */
+  var CAPCHIP_OPEN = '09:30', CAPCHIP_CLOSE = '16:00', CAPCHIP_STEP = 30;
+  function capChipScan(age, cap, date) {
+    // returns { state:'ok'|'partial'|'full', left:最小残数, freeFrom:'HH:MM'|null }
+    var s0 = timeToMin(CAPCHIP_OPEN), e0 = timeToMin(CAPCHIP_CLOSE);
+    var minLeft = null, fullAny = false, freeAny = false, freeFrom = null, sawFull = false;
+    for (var t = s0; t < e0; t += CAPCHIP_STEP) {
+      var from = minToTimeStrCC(t), to = minToTimeStrCC(t + CAPCHIP_STEP);
+      var used = countReservations(CURRENT_GARDEN, age, date, from, to);
+      var left = cap - used;
+      if (minLeft == null || left < minLeft) minLeft = left;
+      if (left <= 0) { fullAny = true; sawFull = true; }
+      else {
+        freeAny = true;
+        /* 満員の時間帯より後で最初に空く時刻を拾う（先頭から空いている場合は出さない） */
+        if (sawFull && freeFrom == null) freeFrom = from;
+      }
+    }
+    if (minLeft == null) minLeft = cap;
+    if (!fullAny) return { state:'ok', left:minLeft, freeFrom:null };
+    if (!freeAny) return { state:'full', left:0, freeFrom:null };
+    return { state:'partial', left:0, freeFrom:freeFrom };
+  }
+  function minToTimeStrCC(m) {
+    var h = Math.floor(m / 60), mm = m % 60;
+    return (h < 10 ? '0' + h : '' + h) + ':' + (mm < 10 ? '0' + mm : '' + mm);
+  }
+  /* ===== SF-CAPCHIP-PARTIAL-20260724 ここまで ===== */
+
   let html = '<span class="cap-summary-title">年齢別 空き状況</span>';
   CAP_AGES.forEach(a => {
     const cap = capEffective(CURRENT_GARDEN, a, date);
     let cls = 'cap-chip', rem;
+    var _free = '';   /* SF-CAPCHIP-PARTIAL-20260724 : 空く時刻の併記 */
     if (cap == null) { cls += ' unlimited'; rem = '制限なし'; }
     else {
-      const left = cap - countReservations(CURRENT_GARDEN, a, date);
-      if (left <= 0) { cls += ' full'; rem = '満員'; }
-      else rem = `残り${left}名`;
+      /* SF-CAPCHIP-PARTIAL-20260724 : 受付時間を走査し、終日満員か一部満員かを見分ける */
+      var _sc = capChipScan(a, cap, date);
+      if (_sc.state === 'full') { cls += ' full'; rem = '満員'; }
+      else if (_sc.state === 'partial') {
+        cls += ' partial'; rem = '一部満員';
+        if (_sc.freeFrom) _free = '<span class="freefrom">' + _sc.freeFrom + '〜</span>';
+      }
+      else rem = `残り${_sc.left}名`;
     }
-    html += `<span class="${cls}"><span class="age">${CAP_AGE_LABEL[a]}</span><span class="rem">${rem}</span></span>`;
+    html += `<span class="${cls}"><span class="age">${CAP_AGE_LABEL[a]}</span><span class="rem">${rem}</span>${_free}</span>`;
   });
   el.innerHTML = html;
 }
@@ -2139,7 +2201,8 @@ function sfCapFull(age, start, end, date, months) {
   if (!_newSlots.length) { var _na = normAge(age); if (_na != null) _newSlots = [_na]; }
   for (var _si = 0; _si < _newSlots.length; _si++) {
     var _cap = capEffective(CURRENT_GARDEN, _newSlots[_si], date);
-    if (_cap != null && countReservations(CURRENT_GARDEN, _newSlots[_si], date) >= _cap) return true;
+    /* SF-CAP-CONCURRENT-20260724 : 予約する時間と重なる分だけ数える */
+    if (_cap != null && countReservations(CURRENT_GARDEN, _newSlots[_si], date, start, end) >= _cap) return true;
   }
   /* (b) 予約の時間帯と重なる時間帯制限(_blocks: 基本＋その日)。SF-BLOCKSLOT-20260710: 対象年齢を消費枠(consumedSlots)ベースで判定（≤18ヶ月は0・1両枠を枠ごとに独立判定）。枠の写像は減員(part-a)と同一。数える母集団は従来どおり bookings 全件(ゾーン非フィルタ、ext含む)で、本パッチでは変更しない。 */
   var sMin = timeToMin(start), eMin = timeToMin(end);
