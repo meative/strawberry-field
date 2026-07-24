@@ -929,6 +929,56 @@ function sfLoad() {
 // 写し(SF_MIRROR)と比較して消えた id を削除対象に含め、楽観的に写しも即時更新する。
 // 実書き込みは window.fbReconcile（module側）へ委譲。read→save は同期実行で
 // 途中に await が無いため、この区間に onSnapshot が割り込む競合は発生しない。
+/* SF-WRITEDIFF-20260724 : 変わったレコードだけを書く。
+   従来は「あるべき全件」をそのまま writeBatch へ渡していたため、予約を1件足すだけで
+   コレクションの全ドキュメントが書き直され、Firestore の1日あたり書き込み上限(2万)を
+   使い切っていた。Firestore は内容が同じでも set すれば1書き込みとして課金する。
+
+   比較はキーの並び順に依存しない形で行う。Firestore から来たオブジェクトと手元で
+   作ったオブジェクトはキーの順が違うことがあり、素朴な JSON.stringify だと毎回
+   「全件変わった」と判定されてしまう。値が undefined のキーは Firestore に保存
+   されないので、比較からも外す。
+
+   取りこぼしは請求や予約の消失に直結するため、疑わしいときは必ず書く側に倒す。
+     - 写しと同一のオブジェクトを指している場合 … その場書き換えを検知できないので書く
+     - 判定そのものが失敗した場合             … 従来どおり全件を書く */
+function sfCanon(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) {
+    var a = [];
+    for (var j = 0; j < v.length; j++) a.push(sfCanon(v[j]));
+    return '[' + a.join(',') + ']';
+  }
+  var ks = [], k;
+  for (k in v) { if (Object.prototype.hasOwnProperty.call(v, k) && v[k] !== undefined) ks.push(k); }
+  ks.sort();
+  var out = [];
+  for (var i = 0; i < ks.length; i++) out.push(JSON.stringify(ks[i]) + ':' + sfCanon(v[ks[i]]));
+  return '{' + out.join(',') + '}';
+}
+function sfChangedOnly(next, prev) {
+  try {
+    var m = {}, i, p, n, e;
+    for (i = 0; i < (prev || []).length; i++) {
+      p = prev[i];
+      if (p && p.id != null) m[String(p.id)] = { o: p, s: sfCanon(p) };
+    }
+    var out = [];
+    for (i = 0; i < (next || []).length; i++) {
+      n = next[i];
+      if (!n || n.id == null) continue;
+      e = m[String(n.id)];
+      if (!e || e.o === n || e.s !== sfCanon(n)) out.push(n);
+    }
+    return out;
+  } catch (err) {
+    console.error('[SF-WRITEDIFF-20260724] 差分判定に失敗。全件書き込みに戻します', err);
+    return next || [];
+  }
+}
+function sfCloneRows(a) {
+  try { return JSON.parse(JSON.stringify(a || [])); } catch (e) { return (a || []).slice(); }
+}
 function sfSave(arr) {
   try {
     const next = JSON.parse(JSON.stringify(arr || []));
@@ -936,9 +986,11 @@ function sfSave(arr) {
     const deletedIds = SF_MIRROR
       .map(r => r && r.id)
       .filter(id => id != null && !newIds.has(String(id)));
+    /* SF-WRITEDIFF-20260724 : 写しを置き換える前に差分を取る */
+    const toWrite = sfChangedOnly(next, SF_MIRROR);
     SF_MIRROR = next; // 楽観更新（次の sfLoad に即反映）
     if (typeof window.fbReconcile === 'function') {
-      window.fbReconcile(next, deletedIds);
+      if (toWrite.length || deletedIds.length) window.fbReconcile(toWrite, deletedIds);
     } else {
       console.warn('[sfSave] fbReconcile 未準備（起動直後）。メモリ写しのみ更新しました。');
     }
