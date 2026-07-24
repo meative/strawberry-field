@@ -547,6 +547,9 @@ function sfSave(arr) {
 window.sfApplySnapshot = function(arr) {
   SF_MIRROR = Array.isArray(arr) ? arr : [];
   if (typeof renderMyBookings === 'function') renderMyBookings();
+  /* SF-SALON-LIVEREFRESH-20260724 : 他のサロン・保育園側で予約が入ったら空き案内も判定し直す。
+     従来は予約一覧だけ描き直しており、表示中の「◎ お預かりできます」が古いまま残っていた。 */
+  if (typeof checkAvailability === 'function') checkAvailability();
 };
 
 // ===== 年齢別定員（sf_capacity）ミラー・満員判定（board と同一ロジック。salon は読み取り専用） =====
@@ -608,6 +611,9 @@ function dayCapFull(slots, date) {
 // onSnapshot（module側）から呼ばれる：定員マップを丸ごと置換（salon は読み取り専用・再描画不要）
 window.capApplySnapshot = function(map) {
   CAP_MIRROR = (map && typeof map === 'object') ? map : {};
+  /* SF-SALON-LIVEREFRESH-20260724 : ボードで制限人数（定員）を変えたら空き案内も判定し直す。
+     従来はミラーを差し替えるだけで再描画しておらず、設定が反映されないように見えていた。 */
+  if (typeof checkAvailability === 'function') checkAvailability();
 };
 
 function sfAdd(rec) {
