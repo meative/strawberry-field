@@ -172,6 +172,9 @@ body {
 .cap-chip .rem { color:var(--tiffany-deep); }
 .cap-chip.full { background:#F5E3E5; border-color:#D8A7A7; }
 .cap-chip.full .rem { color:#B23E4C; font-weight:600; }
+/* SF-CAP-OVER-20260724 : 定員超過（同時予約などで used>cap）を目立つ赤で警告 */
+.cap-chip.over { background:#F3D3D6; border-color:#C05A64; box-shadow:0 0 0 1.5px rgba(178,62,76,0.35); }
+.cap-chip.over .age, .cap-chip.over .rem { color:#8E1F2C; font-weight:700; }
 /* SF-CAPCHIP-PARTIAL-20260724 : 一部の時間だけ満員（受けられる時間が残っている） */
 .cap-chip.partial { background:#FBF1DF; border-color:#DCC08A; }
 .cap-chip.partial .rem { color:#9A6E1F; font-weight:600; }
@@ -1369,12 +1372,13 @@ function renderCapSummary() {
   function capChipScan(age, cap, date) {
     // returns { state:'ok'|'partial'|'full', left:最小残数, freeFrom:'HH:MM'|null }
     var s0 = timeToMin(CAPCHIP_OPEN), e0 = timeToMin(CAPCHIP_CLOSE);
-    var minLeft = null, fullAny = false, freeAny = false, freeFrom = null, sawFull = false;
+    var minLeft = null, fullAny = false, freeAny = false, freeFrom = null, sawFull = false, overFrom = null; /* SF-CAP-OVER-20260724 */
     for (var t = s0; t < e0; t += CAPCHIP_STEP) {
       var from = minToTimeStrCC(t), to = minToTimeStrCC(t + CAPCHIP_STEP);
       var used = countReservations(CURRENT_GARDEN, age, date, from, to);
       var left = cap - used;
       if (minLeft == null || left < minLeft) minLeft = left;
+      if (left < 0 && overFrom == null) overFrom = from; /* SF-CAP-OVER-20260724 : 定員超過が始まる時刻 */
       if (left <= 0) { fullAny = true; sawFull = true; }
       else {
         freeAny = true;
@@ -1383,6 +1387,7 @@ function renderCapSummary() {
       }
     }
     if (minLeft == null) minLeft = cap;
+    if (minLeft < 0) return { state:'over', left:minLeft, over:(-minLeft), freeFrom:overFrom }; /* SF-CAP-OVER-20260724 : used>cap の枠がある */
     if (!fullAny) return { state:'ok', left:minLeft, freeFrom:null };
     if (!freeAny) return { state:'full', left:0, freeFrom:null };
     return { state:'partial', left:0, freeFrom:freeFrom };
@@ -1402,7 +1407,8 @@ function renderCapSummary() {
     else {
       /* SF-CAPCHIP-PARTIAL-20260724 : 受付時間を走査し、終日満員か一部満員かを見分ける */
       var _sc = capChipScan(a, cap, date);
-      if (_sc.state === 'full') { cls += ' full'; rem = '満員'; }
+      if (_sc.state === 'over') { cls += ' over'; rem = '定員超過 +' + _sc.over + '名' + (_sc.freeFrom ? ' ' + _sc.freeFrom + '〜' : ''); }
+      else if (_sc.state === 'full') { cls += ' full'; rem = '満員'; }
       else if (_sc.state === 'partial') {
         cls += ' partial'; rem = '一部満員';
         if (_sc.freeFrom) _free = '<span class="freefrom">' + _sc.freeFrom + '〜</span>';
