@@ -844,6 +844,18 @@ const GARDENS = {
 const GARDEN_KEY = 'sf_board_garden_v1';
 let CURRENT_GARDEN = 'tsukisamu';
 try { const _g = localStorage.getItem(GARDEN_KEY); if (_g && GARDENS[_g]) CURRENT_GARDEN = _g; } catch(e) {}
+/* SF-GARDENPARAM-20260724 : URL の ?garden= を最優先で採用する。
+   salon.html / notify.html は以前から同じ形で ?garden= を読んでおり、board.html だけが
+   読んでいなかった。端末の localStorage が消えても、URL さえ正しければ意図した園で開く。
+   採用した値は localStorage にも保存するので、次回パラメータ無しで開いても同じ園になる
+   （園タブを押したときと同じ扱い）。未知の値は無視して従来どおりの挙動に落とす。 */
+try {
+  var _qGarden = new URLSearchParams(location.search).get('garden');
+  if (_qGarden && GARDENS[_qGarden]) {
+    CURRENT_GARDEN = _qGarden;
+    try { localStorage.setItem(GARDEN_KEY, _qGarden); } catch(e) {}
+  }
+} catch(e) {}
 // gardenId が無い既存レコードは月寒園として扱う（補完）
 function normGarden(g) {
   // 空/未設定 → 現行園に補完（既存データ救済）。非空ならその値をそのまま返す（未知の園IDも保持し、絞り込みで弾けるようにする）
