@@ -8166,6 +8166,56 @@ function sfLoadShared() {
 // arr を「あるべき全件」として Firestore へ反映する。写し(SF_MIRROR)と比較して消えた id を
 // 削除対象に含め、楽観的に写しも即時更新する。実書き込みは window.fbReconcile（module側）へ委譲。
 // read→save は同期実行で途中に await が無いため、この区間に onSnapshot が割り込む競合は起きない。
+/* SF-WRITEDIFF-20260724 : 変わったレコードだけを書く。
+   従来は「あるべき全件」をそのまま writeBatch へ渡していたため、予約を1件足すだけで
+   コレクションの全ドキュメントが書き直され、Firestore の1日あたり書き込み上限(2万)を
+   使い切っていた。Firestore は内容が同じでも set すれば1書き込みとして課金する。
+
+   比較はキーの並び順に依存しない形で行う。Firestore から来たオブジェクトと手元で
+   作ったオブジェクトはキーの順が違うことがあり、素朴な JSON.stringify だと毎回
+   「全件変わった」と判定されてしまう。値が undefined のキーは Firestore に保存
+   されないので、比較からも外す。
+
+   取りこぼしは請求や予約の消失に直結するため、疑わしいときは必ず書く側に倒す。
+     - 写しと同一のオブジェクトを指している場合 … その場書き換えを検知できないので書く
+     - 判定そのものが失敗した場合             … 従来どおり全件を書く */
+function sfCanon(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) {
+    var a = [];
+    for (var j = 0; j < v.length; j++) a.push(sfCanon(v[j]));
+    return '[' + a.join(',') + ']';
+  }
+  var ks = [], k;
+  for (k in v) { if (Object.prototype.hasOwnProperty.call(v, k) && v[k] !== undefined) ks.push(k); }
+  ks.sort();
+  var out = [];
+  for (var i = 0; i < ks.length; i++) out.push(JSON.stringify(ks[i]) + ':' + sfCanon(v[ks[i]]));
+  return '{' + out.join(',') + '}';
+}
+function sfChangedOnly(next, prev) {
+  try {
+    var m = {}, i, p, n, e;
+    for (i = 0; i < (prev || []).length; i++) {
+      p = prev[i];
+      if (p && p.id != null) m[String(p.id)] = { o: p, s: sfCanon(p) };
+    }
+    var out = [];
+    for (i = 0; i < (next || []).length; i++) {
+      n = next[i];
+      if (!n || n.id == null) continue;
+      e = m[String(n.id)];
+      if (!e || e.o === n || e.s !== sfCanon(n)) out.push(n);
+    }
+    return out;
+  } catch (err) {
+    console.error('[SF-WRITEDIFF-20260724] 差分判定に失敗。全件書き込みに戻します', err);
+    return next || [];
+  }
+}
+function sfCloneRows(a) {
+  try { return JSON.parse(JSON.stringify(a || [])); } catch (e) { return (a || []).slice(); }
+}
 function sfSaveShared(arr) {
   try {
     const next = JSON.parse(JSON.stringify(arr || []));
@@ -8173,9 +8223,11 @@ function sfSaveShared(arr) {
     const deletedIds = SF_MIRROR
       .map(r => r && r.id)
       .filter(id => id != null && !newIds.has(String(id)));
+    /* SF-WRITEDIFF-20260724 : 写しを置き換える前に差分を取る */
+    const toWrite = sfChangedOnly(next, SF_MIRROR);
     SF_MIRROR = next; // 楽観更新（次の sfLoadShared に即反映）
     if (typeof window.fbReconcile === 'function') {
-      window.fbReconcile(next, deletedIds);
+      if (toWrite.length || deletedIds.length) window.fbReconcile(toWrite, deletedIds);
     } else {
       console.warn('[sfSaveShared] fbReconcile 未準備（起動直後）。メモリ写しのみ更新しました。');
     }
@@ -8220,20 +8272,83 @@ function birthToAgeMonths(y, m, d) {
 }
 // 共有ストレージから「予約管理ボードで入れた予約（fromBoard）」を取り込み、
 // 現在の園（branch）の reservations に反映する。customerId は持たず、氏名等を予約レコードに直接保存。
+/* SF-SALONSPLIT-GROUP-20260724 : 美容室＋JANIS の時間分割（区間グループ）
+   1組のお客様が2つのサロンを続けて利用するとき、sf_bookings には
+   groupId / groupSeq / groupTotal を持つレコードが区間の数だけ入る。
+   ボード・定員・お迎え通知から見れば「ただの複数の予約」なので、それらの判定は変えない。
+   受付アプリだけが「1組のお預かり」として1件にまとめて扱う（合計時間・会計1回）。
+
+   - 代表 … 残っているメンバーのうち groupSeq が最小のもの。配列の順番では選ばない
+            （SF-NOTIFY-IDENTITY 系と同じ事故を避ける）。①が取り消されたら②が代表になり、
+            割引の根拠も自動的に②のサロンへ移る。
+   - 時間 … min(start) 〜 max(end)。区間は隙間なく連続して入力される前提。
+            会計は calcAmountFromTimes が実お迎え時刻で計算するため、
+            受付後に片方が取り消されても請求は過剰にならない。
+   - groupId を持たない従来のレコードは「1件だけのグループ」として扱われ、挙動は変わらない。 */
+function sfGroupKey(r) {
+  return (r && r.groupId) ? ('g:' + r.groupId) : ('i:' + (r && r.id));
+}
+function sfGroupSeq(r) {
+  var n = Number(r && r.groupSeq);
+  return isFinite(n) ? n : 1;
+}
+/* グループの内容から署名を作る。更新判定はこの1本で行う。
+   従来は比較条件を9個並べており、項目を足したときに比較側へ足し忘れる事故が
+   起きていた（SF-AGEMONTH-SYNC-FIX-20260722）。区間が増えると同じ形で再発するため、
+   「何が変わっても署名が変わる」形にしておく。 */
+function sfGroupSig(recs) {
+  return recs.map(function (r) {
+    return [r.id, r.date, r.start, r.end, r.name, r.kana, r.age, r.months,
+            r.birthY, r.birthM, r.salon, r.affiliation, r.provisional ? 1 : 0,
+            r.groupSeq].join('|');
+  }).join('//');
+}
+/* 取り込み対象のレコード群を、グループ単位の「合成レコード」に畳む。
+   合成レコードは通常のレコードと同じ形なので、呼び出し側は分岐せずに済む。 */
+function sfFoldGroups(rows) {
+  var map = {}, order = [];
+  (rows || []).forEach(function (r) {
+    var k = sfGroupKey(r);
+    if (!map[k]) { map[k] = []; order.push(k); }
+    map[k].push(r);
+  });
+  return order.map(function (k) {
+    var members = map[k].slice().sort(function (a, b) { return sfGroupSeq(a) - sfGroupSeq(b); });
+    var head = members[0];
+    var starts = members.map(function (m) { return m.start; }).filter(Boolean).sort();
+    var ends = members.map(function (m) { return m.end; }).filter(Boolean).sort();
+    var g = {}, key;
+    for (key in head) { if (Object.prototype.hasOwnProperty.call(head, key)) g[key] = head[key]; }
+    g.start = starts.length ? starts[0] : head.start;
+    g.end = ends.length ? ends[ends.length - 1] : head.end;
+    g._groupIds = members.map(function (m) { return m.id; });
+    g._salons = members.map(function (m) { return m.salon || null; });
+    g._mins = members.map(function (m) {
+      var t = function (x) { var p = String(x || '0:0').split(':'); return Number(p[0]) * 60 + Number(p[1]); };
+      return Math.max(0, t(m.end) - t(m.start));
+    });
+    g._sig = sfGroupSig(members);
+    return g;
+  });
+}
 function importBoardReservations() {
   const branch = DATA.settings.branch;
   const shared = sfLoadShared();
   if (!DATA.reservations) DATA.reservations = [];
   let changed = false;
-  shared.forEach(r => {
-    if (!r) return;
+  /* SF-SALONSPLIT-GROUP-20260724 : 先に対象を絞り、それから区間グループに畳む。
+     畳んだ結果は通常のレコードと同じ形なので、以降の処理は分岐しない。 */
+  sfFoldGroups(shared.filter(r => {
+    if (!r) return false;
     /* SF-SALON-INTAKE-20260722 : サロン発（bk_接頭辞・fromBoard 無し）も取り込む。
        受付アプリはサロン割引の自動適用まで実装済みで、取り込み口だけが塞がっていた。 */
-    if (r.tlDone) return;                           // 受付済み（当日入力に取り込み済み）は出さない
-    if (gardenIdToBranch(r.gardenId) !== branch) return; // 現在の園のものだけ
+    if (r.tlDone) return false;                            // 受付済み（当日入力に取り込み済み）は出さない
+    if (gardenIdToBranch(r.gardenId) !== branch) return false; // 現在の園のものだけ
     /* SF-KINDER-TIMELY-HIDE-STEP4-V6-20260702 : 幼稚舎児の早朝/延長は TimelySchool に出さない */
-    if (r.affiliation === 'youchisha' && (r.salon === 'ext_am' || r.salon === 'ext_pm')) return;
-    // 既に取り込み済みか（sfId で重複防止）
+    if (r.affiliation === 'youchisha' && (r.salon === 'ext_am' || r.salon === 'ext_pm')) return false;
+    return true;
+  })).forEach(r => {
+    // 既に取り込み済みか（代表の id で重複防止）
     const exists = DATA.reservations.some(x => x.sfId === r.id);
     if (exists) {
       // 既存を最新内容に同期（時刻・氏名の変更を反映）
@@ -8241,23 +8356,21 @@ function importBoardReservations() {
       /* SF-AGEMONTH-SYNC-FIX-20260722 : 発火条件に生年月とサロンを追加。
          これが無いと、生年月を運ばない版で取り込まれた予約が
          永久に更新されず、3歳以上が「3歳〜」のまま残る。 */
-      const _by = (r.birthY != null ? r.birthY : null);
-      const _bm = (r.birthM != null ? r.birthM : null);
-      const _sal = (r.salon || null);
-      if (cur && (cur.reservationDate !== r.date || cur.reservationStart !== r.start ||
-                  cur.reservationEnd !== r.end || cur.guestName !== r.name ||
-                  cur.affiliation !== r.affiliation ||
-                  cur.guestMonths !== (r.months != null ? r.months : null) ||
-                  (cur.birthY != null ? cur.birthY : null) !== _by ||
-                  (cur.birthM != null ? cur.birthM : null) !== _bm ||
-                  (cur.salon || null) !== _sal)) {
+      /* SF-SALONSPLIT-GROUP-20260724 : 更新判定を署名1本にする。
+         従来はここに比較条件を9個並べており、項目を足したときに比較側へ足し忘れる
+         事故が起きていた（SF-AGEMONTH-SYNC-FIX-20260722）。区間が2つになると
+         比較対象も倍になるため、同じ形で必ず再発する。 */
+      if (cur && cur.sfSig !== r._sig) {
         cur.reservationDate = r.date; cur.reservationStart = r.start;
         cur.reservationEnd = r.end; cur.guestName = r.name;
         cur.guestKana = r.kana || ''; cur.guestAge = r.age; cur.guestMonths = (r.months != null ? r.months : null);
-        /* SF-AGEMONTH-SYNC-FIX-20260722 : 生年月（3歳以上の実月齢表示に必要）とサロン（会計割引の自動適用に必要） */
-        cur.birthY = _by;
-        cur.birthM = _bm;
-        cur.salon = _sal;
+        cur.birthY = (r.birthY != null ? r.birthY : null);
+        cur.birthM = (r.birthM != null ? r.birthM : null);
+        cur.salon = (r.salon || null);
+        cur.salons = r._salons;         /* 区間ごとのサロン（表示・無料分の按分用） */
+        cur.salonMins = r._mins;        /* 区間ごとの所要分（按分の材料） */
+        cur.sfGroupIds = r._groupIds;   /* 受付完了時に全区間へ tlDone を立てるため */
+        cur.sfSig = r._sig;
         cur.salonOrigin = !r.fromBoard;
         cur.provisional = !!r.provisional;
         if (r.affiliation !== undefined) cur.affiliation = r.affiliation;
@@ -8285,6 +8398,11 @@ function importBoardReservations() {
       guestMonths: (r.months != null ? r.months : null),
       birthY: (r.birthY != null ? r.birthY : null),   /* SF-AGEMONTH-3PLUS-TIMELY-20260722 : 3歳以上の実月齢表示に必要 */
       birthM: (r.birthM != null ? r.birthM : null),
+      /* SF-SALONSPLIT-GROUP-20260724 : 区間グループの情報。単独の予約でも1件の配列になる。 */
+      salons: r._salons,
+      salonMins: r._mins,
+      sfGroupIds: r._groupIds,
+      sfSig: r._sig,
     });
     changed = true;
   });
@@ -8371,9 +8489,12 @@ function tlReconcile(kind, arr) {
   var deletedIds = (TL_MIRROR[kind] || [])
     .filter(function (x) { return x && x.id && !nextIds[x.id]; })
     .map(function (x) { return x.id; });
-  TL_MIRROR[kind] = next.slice();   // 楽観更新
+  /* SF-WRITEDIFF-20260724 : 深いコピーにする。浅いコピーだと写しが DATA と同じ
+     オブジェクトを指し、その場書き換えを検知できず保存が取りこぼされる。 */
+  var toWriteTl = sfChangedOnly(next, TL_MIRROR[kind] || []);
+  TL_MIRROR[kind] = sfCloneRows(next);   // 楽観更新
   if (typeof window.fbReconcileTl === 'function') {
-    window.fbReconcileTl(kind, next, deletedIds);
+    if (toWriteTl.length || deletedIds.length) window.fbReconcileTl(kind, toWriteTl, deletedIds);
   } else {
     console.warn('[tlReconcile] fbReconcileTl 未準備（起動直後）。ローカルのみ保存しました。', kind);
   }
@@ -8420,17 +8541,17 @@ window.tlApplySnapshot = function (kind, rows) {
         return x && x.id && !cloudIds[x.id];
       });
       DATA[kind] = cloud.concat(localOnly);
-      TL_MIRROR[kind] = cloud.slice();
+      TL_MIRROR[kind] = sfCloneRows(cloud);   /* SF-WRITEDIFF-20260724 : 深いコピー */
       saveDataLocalOnly(DATA);
       console.log('[tlApplySnapshot] 初回マージ ' + kind +
                   ': クラウド' + cloud.length + '件 + この端末のみ' + localOnly.length + '件');
       if (localOnly.length && typeof window.fbReconcileTl === 'function') {
         window.fbReconcileTl(kind, localOnly, []);   // 端末固有分だけ上げる（削除は送らない）
-        TL_MIRROR[kind] = DATA[kind].slice();
+        TL_MIRROR[kind] = sfCloneRows(DATA[kind]);   /* SF-WRITEDIFF-20260724 : 深いコピー */
       }
     } else {
       DATA[kind] = cloud;
-      TL_MIRROR[kind] = cloud.slice();
+      TL_MIRROR[kind] = sfCloneRows(cloud);   /* SF-WRITEDIFF-20260724 : 深いコピー */
       saveDataLocalOnly(DATA);
     }
   } catch (e) {
@@ -10270,6 +10391,16 @@ function submitVisit() {
     const _r = (DATA.reservations || []).find(r => r.sfId === window._pendingResSfId && r.salon);
     if (_r && _r.salon) salonReferral = _r.salon;
   }
+  /* SF-SALONSPLIT-GROUP-20260724 : 区間ごとのサロンと所要分を控える（領収書の表示・無料分の按分用）。
+     割引の判定に使う salon は従来どおり代表（①）のサロンのまま。 */
+  let salonAll = null, salonMinsAll = null;
+  if (window._pendingResSfId) {
+    const _rg = (DATA.reservations || []).find(r => r.sfId === window._pendingResSfId);
+    if (_rg && Array.isArray(_rg.salons) && _rg.salons.length > 1) {
+      salonAll = _rg.salons.slice();
+      salonMinsAll = Array.isArray(_rg.salonMins) ? _rg.salonMins.slice() : null;
+    }
+  }
   // 予約からサロン情報を引き継ぐ（サロン経由予約の判定用）
   if (currentCustomer && currentCustomer.id) {
     const matchedRes = DATA.reservations.find(r => 
@@ -10333,6 +10464,8 @@ function submitVisit() {
     paymentStatus: 'pending',  // 会計待ち
     usageType: 'temporary',     // 一時預かり
     salon: salonReferral,       // サロン経由予約の判定（woodstock/janis/null）
+    salons: salonAll,           /* SF-SALONSPLIT-GROUP-20260724 : 2サロン利用のときだけ入る */
+    salonMins: salonMinsAll,    /* 同上。無料分を時間比で按分するための材料 */
   };
   
   DATA.visits.push(visit);
@@ -10349,14 +10482,22 @@ function submitVisit() {
     try {
       const _shared = sfLoadShared();
       const _rec = _shared.find(r => r && r.id === _sid);
-      if (_rec) {
-        _rec.tlDone = true;                 // 受付済みの印（全端末の予約リストから消える）
-        _rec.tlVisitId = visit.id;
-        // カタカナ仮予約 → 受付で登録した正式表記を書き戻す（ボードの表示も直る）
-        if (currentCustomer.childName) _rec.name = currentCustomer.childName;
-        if (currentCustomer.childKana) _rec.kana = currentCustomer.childKana;
-        _rec.provisional = false;
-        sfUpsertShared(_rec);
+      /* SF-SALONSPLIT-GROUP-20260724 : 区間が分かれている予約は、全区間に受付済みの印を付ける。
+         代表だけに付けると、もう一方が予約リストに残り続け、ボードの2レーン目にも
+         カタカナの仮名が残ってしまう。 */
+      const _members = (_rec && _rec.groupId)
+        ? _shared.filter(r => r && r.groupId === _rec.groupId)
+        : (_rec ? [_rec] : []);
+      if (_members.length) {
+        _members.forEach(function (m) {
+          m.tlDone = true;                 // 受付済みの印（全端末の予約リストから消える）
+          m.tlVisitId = visit.id;
+          // カタカナ仮予約 → 受付で登録した正式表記を書き戻す（ボードの表示も直る）
+          if (currentCustomer.childName) m.name = currentCustomer.childName;
+          if (currentCustomer.childKana) m.kana = currentCustomer.childKana;
+          m.provisional = false;
+        });
+        sfSaveShared(_shared);           // 全区間ぶんをまとめて1回で書く
       }
     } catch (e) { console.error('[SF-SALON-INTAKE-20260722] 共有レコードの更新に失敗', e); }
   }
