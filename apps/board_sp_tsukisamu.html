@@ -1725,7 +1725,14 @@ function renderBoard() {
     html += `<div class="zone zone-${zone.key}">`;
     /* SF-KINDER-BOARD-STEP23-20260630: 幼稚舎チップ(ext_am/ext_pmのみ) */
     if (zone.key === 'ext_am' || zone.key === 'ext_pm') html += renderKinderChips(zone.key);
-    for (let ln = 0; ln < zone.lanes; ln++) {
+    /* SF-EXT-LANES-20260724 : 早朝/延長は実際に使われたレーン数ぶん描画（最小 zone.lanes）。生徒が増えたら縦に伸ばして重ねない。 */
+    let _nLanes = zone.lanes;
+    if (zone.key === 'ext_am' || zone.key === 'ext_pm') {
+      let _mx = -1;
+      for (let _i = 0; _i < bookings.length; _i++) { const _b = bookings[_i]; if (_b && _b.zone === zone.key && typeof _b.lane === 'number' && _b.lane > _mx) _mx = _b.lane; }
+      _nLanes = Math.max(zone.lanes, _mx + 1);
+    }
+    for (let ln = 0; ln < _nLanes; ln++) {
       html += '<div class="lane">';
       if (ln === 0) {
         html += `<div class="zone-label"><span class="en">${zoneEn(zone.key)}</span><span class="jp">${zoneJp(zone.key)}</span><span class="cap-info">${zone.cap}</span></div>`;
@@ -2575,7 +2582,9 @@ const ZONE_LANES = { temp:3, woodstock:3, janis:2, ext_am:3, ext_pm:3 };
 function findFreeLane(zone, start, end) {
   const sIdx = slotIndex(start), eIdx = (slotIndex(end) < 0 ? SLOTS.length : slotIndex(end));
   const lanes = ZONE_LANES[zone] || 3;
-  for (let ln = 0; ln < lanes; ln++) {
+  /* SF-EXT-LANES-20260724 : 自園生徒の早朝/延長は全員が同じ時間帯に入るため、上限で打ち切らず人数ぶんレーンを確保して重なりを防ぐ。他区分は従来どおり lanes で頭打ち。 */
+  const _limit = (zone === 'ext_am' || zone === 'ext_pm') ? 9999 : lanes;
+  for (let ln = 0; ln < _limit; ln++) {
     const clash = bookings.some(b => {
       if (b.zone !== zone || b.lane !== ln) return false;
       const bs = slotIndex(b.start), be = (slotIndex(b.end) < 0 ? SLOTS.length : slotIndex(b.end));
@@ -2583,7 +2592,7 @@ function findFreeLane(zone, start, end) {
     });
     if (!clash) return ln;
   }
-  return lanes - 1; // 全部埋まっていたら最終レーンに重ねる
+  return lanes - 1; // 全部埋まっていたら最終レーンに重ねる（ext_am/ext_pm はここへ来ない）
 }
 // 共有予約(sfId付き)を Firestore の写しから「丸ごと再構築」する（ミラー方式）。
 // 追加・更新だけでなく、写しから消えた共有予約は bookings からも消える（他端末での削除が反映される）。
@@ -2853,7 +2862,9 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     return (h ? h + '時間' : '') + (mm ? mm + '分' : '');
   }
   function recName(r) { return (r && r.info && r.info.name) ? r.info.name : (r ? r.name : ''); }
-  function salonLabel(s) { return s === 'woodstock' ? 'WOODSTOCK' : (s === 'janis' ? 'JANIS' : String(s || '').toUpperCase()); }
+  function salonLabel(s) { /* SF-SALONLABEL-GARDEN-20260724 : 着信ログのサロン名を園別の実店名で表示（白石=BUDDY BROWN / JANIS白石、月寒=WOODSTOCK / JANIS）。zoneEn は CURRENT_GARDEN 依存で、着信ログは常に現在園ぶんのみ表示するため整合する。 */
+    try { if ((s === 'woodstock' || s === 'janis') && typeof zoneEn === 'function') { var _nm = zoneEn(s); if (_nm) return _nm; } } catch (e) {}
+    return s === 'woodstock' ? 'WOODSTOCK' : (s === 'janis' ? 'JANIS' : String(s || '').toUpperCase()); }
   function isSalonOrigin(r) { return r && !r.fromBoard && (r.salon === 'woodstock' || r.salon === 'janis'); }
   function fmtClock(ts) {
     var d = new Date(ts);
