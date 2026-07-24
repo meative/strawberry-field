@@ -1837,8 +1837,9 @@ function nfSave() {
     const want = nfBuildDocs();
     const puts = [], dels = [];
     Object.keys(want).forEach(id => {
-      const a = JSON.stringify(want[id].data);
-      const b = JSON.stringify((NF_MIRROR[id] || {}).data);
+      /* SF-NFSAVE-CANON-20260724 : キー順に依存しない sfCanon で比較する。素朴な JSON.stringify は Firestore 由来のオブジェクトとキー順が違うだけで毎回“変わった”と誤検知し、sf_notify を無駄に全書きしていた（sf_bookings の SF-WRITEDIFF-20260724 と同じ罠）。 */
+      const a = sfCanon(want[id].data);
+      const b = sfCanon((NF_MIRROR[id] || {}).data);
       if (a !== b) puts.push(Object.assign({ id: id }, want[id]));
     });
     Object.keys(NF_MIRROR).forEach(id => {
