@@ -1164,21 +1164,36 @@ function ensurePartyUI() {
   if (!document.getElementById('partyCss')) {
     var st = document.createElement('style'); st.id = 'partyCss';
     st.textContent =
+      /* SF-PARTYFIX-20260725 : 既存デザイン（角2px・明朝・色変数）に統一＋「お子様を追加」導線 */
       '.party-wrap{margin:16px 0 4px}' +
-      '.party-toggle{width:100%;padding:12px;border:1.5px dashed #C9A96A;background:#FBF7EF;color:#8A6D3B;border-radius:12px;font-weight:700;cursor:pointer;font-size:15px}' +
-      '.party-toggle.on{border-style:solid;background:#F3E8CF;color:#6B4F1D}' +
-      '.party-panel{margin-top:10px;border:1.5px solid #E4D6B8;background:#FFFDF8;border-radius:12px;padding:12px}' +
-      '.party-head{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}' +
-      '#partyCount{font-weight:800;color:#6B4F1D}' +
-      '.party-hint{font-size:12px;color:#9A8A6A}' +
-      '.party-list{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}' +
-      '.party-item{display:flex;align-items:center;gap:8px;background:#F6EFDF;border-radius:8px;padding:7px 10px}' +
-      '.pi-name{font-weight:700;color:#4A3A1A}.pi-meta{font-size:12px;color:#8A785A;margin-left:auto}' +
-      '.pi-del{border:none;background:#E7D3A8;color:#6B4F1D;border-radius:50%;width:22px;height:22px;cursor:pointer;font-weight:700}' +
-      '.party-empty{font-size:13px;color:#B0A075;padding:4px 2px}' +
+      '.party-toggle{width:100%;padding:13px 24px;border:1px dashed var(--gold);background:var(--white);color:var(--gold-deep);border-radius:2px;font-family:var(--serif-jp);font-size:15px;letter-spacing:.05em;cursor:pointer;transition:all var(--transition)}' +
+      '.party-toggle:active{transform:scale(0.98)}' +
+      '.party-toggle.on{border-style:solid;border-color:var(--salon-deep);background:var(--salon-soft);color:var(--salon-deep)}' +
+      '.party-panel{margin-top:10px;border:1px solid var(--line-soft);background:var(--white);border-radius:4px;padding:16px 18px}' +
+      '.party-head{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}' +
+      '#partyCount{font-family:var(--serif-jp);font-size:15px;font-weight:500;color:var(--ink)}' +
+      '.party-hint{font-size:12px;color:var(--ink-soft);line-height:1.6}' +
+      '.party-hint b{color:var(--salon-deep);font-weight:600}' +
+      '.party-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}' +
+      '.party-item{display:flex;align-items:center;gap:8px;background:var(--ivory);border:1px solid var(--line-soft);border-radius:2px;padding:6px 6px 6px 12px}' +
+      '.pi-no{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--salon-deep);color:#fff;font-size:11px;font-family:var(--sans)}' +
+      '.pi-name{font-family:var(--serif-jp);font-size:15px;font-weight:500;color:var(--ink)}' +
+      '.pi-meta{font-size:12px;color:var(--ink-soft);margin-left:auto}' +
+      '.pi-del{flex-shrink:0;width:38px;height:38px;border:1px solid var(--line-soft);background:var(--white);color:var(--ink-soft);border-radius:2px;font-size:17px;line-height:1;cursor:pointer;transition:all var(--transition)}' +
+      '.pi-del:active{background:var(--ivory-deep);transform:scale(0.94)}' +
+      '.party-empty{font-size:13px;color:var(--ink-soft);padding:4px 2px;margin-bottom:12px}' +
+      '.party-add{display:block;width:100%;padding:15px 20px;margin:0 0 10px;border:1px solid var(--salon-deep);background:var(--salon-soft);color:var(--salon-deep);border-radius:2px;font-family:var(--serif-jp);font-size:15px;letter-spacing:.05em;cursor:pointer;transition:all var(--transition)}' +
+      '.party-add:active{background:var(--white);transform:scale(0.98)}' +
+      '.party-steps{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin:0 0 14px;padding:9px 12px;background:var(--ivory);border-radius:2px}' +
+      '.party-steps .ps-t{font-size:10px;letter-spacing:.16em;color:var(--ink-soft)}' +
+      '.party-steps .ps-i{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-soft)}' +
+      '.party-steps .ps-i i{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:16px;height:16px;border-radius:50%;background:var(--line);color:var(--ink);font-style:normal;font-size:10px;font-family:var(--sans)}' +
       '.party-actions{display:flex;gap:8px}' +
-      '.party-confirm{flex:1;padding:11px;border:none;background:#7A9A5A;color:#fff;border-radius:10px;font-weight:800;cursor:pointer;font-size:15px}' +
-      '.party-cancel{padding:11px 16px;border:none;background:#EEE6D6;color:#7A6A4A;border-radius:10px;font-weight:700;cursor:pointer}';
+      '.party-confirm{flex:1;font-family:var(--serif-jp);font-size:15px;padding:13px 24px;border:1px solid var(--salon-deep);background:var(--salon-deep);color:var(--white);border-radius:2px;letter-spacing:.05em;cursor:pointer;transition:all var(--transition)}' +
+      '.party-confirm[disabled]{border-color:var(--line);background:var(--ivory-deep);color:var(--ink-soft);cursor:not-allowed}' +
+      '.party-cancel{font-family:var(--serif-jp);font-size:15px;padding:13px 20px;border:1px solid var(--line);background:var(--white);color:var(--ink);border-radius:2px;cursor:pointer;transition:all var(--transition)}' +
+      '.party-confirm:active,.party-cancel:active{transform:scale(0.98)}' +
+      '.party-focus{outline:2px solid var(--salon-deep);outline-offset:5px}';
     (document.head || document.body).appendChild(st);
   }
   if (document.getElementById('partyWrap')) return;
@@ -1190,8 +1205,16 @@ function ensurePartyUI() {
     '<button id="partyToggleBtn" class="party-toggle" onclick="togglePartyMode()">\uff0b \u304d\u3087\u3046\u3060\u3044\u3092\u307e\u3068\u3081\u3066\u4e88\u7d04</button>' +
     '<div id="partyPanel" class="party-panel" style="display:none;">' +
       '<div class="party-head"><span id="partyCount">\u3053\u306e\u7d44\uff1a0\u540d</span>' +
-      '<span class="party-hint">\u304a\u5b50\u69d8\u3054\u3068\u306b\u5e74\u9f62\u30fb\u6642\u9593\u3092\u9078\u3073\u300c\u3053\u306e\u5185\u5bb9\u3067\u4e88\u7d04\u300d\u3092\u62bc\u3059\u3068\u3001\u3053\u306e\u7d44\u306b\u8ffd\u52a0\u3055\u308c\u307e\u3059</span></div>' +
+      /* SF-PARTYFIX-20260725 : 「2人目・3人目をどこで足すのか分からない」の解消 */
+      '<span class="party-hint">\u304a\u5b50\u69d8\u306f<b>1\u4eba\u305a\u3064</b>\u8ffd\u52a0\u3057\u307e\u3059\u3002\u4e0b\u306e\u30dc\u30bf\u30f3\u3092\u62bc\u3059\u3068\u3001\u5e74\u9f62\u3068\u6642\u9593\u3092\u9078\u3076\u753b\u9762\u306b\u623b\u308a\u307e\u3059\u3002</span></div>' +
       '<div id="partyList" class="party-list"></div>' +
+      '<button id="partyAddBtn" class="party-add" onclick="partyAddAnother()">\uff0b 1\u4eba\u76ee\u306e\u304a\u5b50\u69d8\u3092\u8ffd\u52a0\u3059\u308b</button>' +
+      '<div class="party-steps"><span class="ps-t">\u8ffd\u52a0\u306e\u3057\u304b\u305f</span>' +
+        '<span class="ps-i"><i>1</i>\u751f\u5e74\u6708\uff08\u5e74\u9f62\uff09\u3092\u9078\u3076</span>' +
+        '<span class="ps-i"><i>2</i>\u958b\u59cb\u6642\u523b\u3068\u9577\u3055\u3092\u9078\u3076</span>' +
+        '<span class="ps-i"><i>3</i>\u300c\u3053\u306e\u6642\u9593\u3067\u4e88\u7d04\u3059\u308b\u300d</span>' +
+        '<span class="ps-i"><i>4</i>\u304a\u540d\u524d\u2192\u300c\u3053\u306e\u5185\u5bb9\u3067\u4e88\u7d04\u300d</span>' +
+      '</div>' +
       '<div class="party-actions">' +
         '<button id="partyConfirmBtn" class="party-confirm" onclick="confirmParty()">\u3053\u306e\u7d44\u3067\u78ba\u5b9a\u3059\u308b</button>' +
         '<button id="partyCancelBtn" class="party-cancel" onclick="cancelParty()">\u53d6\u6d88</button>' +
@@ -1209,9 +1232,15 @@ function renderPartyPanel() {
   panel.style.display = partyMode ? '' : 'none';
   if (btn) { btn.textContent = partyMode ? '\u2715 \u7d44\u30e2\u30fc\u30c9\u3092\u89e3\u9664' : '\uff0b \u304d\u3087\u3046\u3060\u3044\u3092\u307e\u3068\u3081\u3066\u4e88\u7d04'; btn.className = 'party-toggle' + (partyMode ? ' on' : ''); }
   if (cnt) cnt.textContent = '\u3053\u306e\u7d44\uff1a' + partyDraft.length + '\u540d';
+  /* SF-PARTYFIX-20260725 : 次が何人目かをボタンに出す＋0名では確定を押させない */
+  var addb = document.getElementById('partyAddBtn');
+  if (addb) addb.textContent = '\uff0b ' + (partyDraft.length + 1) + '\u4eba\u76ee\u306e\u304a\u5b50\u69d8\u3092\u8ffd\u52a0\u3059\u308b';
+  var okb = document.getElementById('partyConfirmBtn');
+  if (okb) { okb.disabled = !partyDraft.length; okb.textContent = partyDraft.length ? ('\u3053\u306e\u7d44\uff08' + partyDraft.length + '\u540d\uff09\u3067\u78ba\u5b9a\u3059\u308b') : '\u3053\u306e\u7d44\u3067\u78ba\u5b9a\u3059\u308b'; }
   if (list) {
     list.innerHTML = partyDraft.map(function (m, i) {
-      return '<div class="party-item"><span class="pi-name">' + (m.name || '') + '</span>' +
+      /* SF-PARTYFIX-20260725 : 何人目かを番号で出す */
+      return '<div class="party-item"><span class="pi-no">' + (i + 1) + '</span><span class="pi-name">' + (m.name || '') + '</span>' +
         '<span class="pi-meta">' + partyAgeJp(m.age) + ' \u30fb ' + m.start + '\u301c' + m.end + '</span>' +
         '<button class="pi-del" onclick="partyRemove(' + i + ')">\u00d7</button></div>';
     }).join('') || '<div class="party-empty">\u307e\u3060\u8ffd\u52a0\u3055\u308c\u3066\u3044\u307e\u305b\u3093</div>';
@@ -1219,6 +1248,20 @@ function renderPartyPanel() {
 }
 
 function partyRemove(i) { partyDraft.splice(i, 1); renderPartyPanel(); }
+
+/* SF-PARTYFIX-20260725 : 組パネルから「年齢・時間を選ぶ画面」へ戻す導線。
+   予約の判定・保存には一切関与しない（画面スクロールと案内だけ）。 */
+function partyAddAnother() {
+  try {
+    if (typeof reserveMode !== 'undefined' && reserveMode !== 'book' && typeof switchMode === 'function') switchMode('book');
+    var f = document.getElementById('bookMode');
+    if (f && f.scrollIntoView) f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (f) { f.classList.add('party-focus'); setTimeout(function () { try { f.classList.remove('party-focus'); } catch (e2) {} }, 1800); }
+    var y = document.getElementById('sBirthYear');
+    if (y && y.focus) { try { y.focus({ preventScroll: true }); } catch (e3) {} }
+    if (typeof showToast === 'function') showToast('\uff08' + (partyDraft.length + 1) + '\u4eba\u76ee\uff09\u5e74\u9f62\u3068\u6642\u9593\u3092\u9078\u3093\u3067\u3001\u300c\u3053\u306e\u6642\u9593\u3067\u4e88\u7d04\u3059\u308b\u300d\u3092\u62bc\u3057\u3066\u304f\u3060\u3055\u3044');
+  } catch (e) {}
+}
 
 try { ensurePartyUI(); } catch (e) {}
 
@@ -1266,6 +1309,8 @@ function confirmReserve() {
     closeModal();
     renderPartyPanel();
     showToast('\u3053\u306e\u7d44\u306b\u8ffd\u52a0\uff1a' + name + '\uff08\u8a08' + partyDraft.length + '\u540d\uff09');
+    /* SF-PARTYFIX-20260725 : 追加したら組パネルへ戻し、「次の1人」ボタンを見せる */
+    try { var _pp = document.getElementById('partyPanel'); if (_pp && _pp.scrollIntoView) setTimeout(function () { _pp.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 80); } catch (e4) {}
     return;
   }
   // ===== 年齢別定員の満員チェック（満員なら予約不可でブロック。既存予約・時間帯空き判定には触らない） =====

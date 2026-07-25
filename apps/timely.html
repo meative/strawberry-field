@@ -2337,14 +2337,25 @@
     border: 1px solid var(--line);
     border-radius: 2px;
   }
-  /* SF-SALONPARTY2-CSS-20260725 : お会計待ちの「組（きょうだい）」家族カード */
-  .payment-party { border: 1.5px solid var(--tiffany-deep, #2E9B9B); border-radius: 4px; margin-bottom: 8px; overflow: hidden; background: var(--white); }
-  .payment-party .pp-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(46,155,155,0.10); border-bottom: 1px solid var(--line); font-weight: 700; }
-  .payment-party .pp-badge { background: var(--tiffany-deep, #2E9B9B); color: #fff; font-size: 12px; padding: 2px 9px; border-radius: 10px; }
-  .payment-party .pp-title { color: var(--ink, #333); }
-  .payment-party .pp-note { color: var(--ink-soft, #888); font-size: 12px; font-weight: 400; }
-  .payment-party .pp-total { margin-left: auto; color: var(--ink, #333); }
+  /* SF-SALONPARTY2-CSS-20260725 : お会計待ちの「組（きょうだい）」家族カード
+     SF-PARTYFIX-20260725 : 既存デザイン（角2px・バッジ2px・金額はセリフ体）に合わせて調整 */
+  .payment-party { border: 1px solid var(--tiffany-deep); border-radius: 2px; margin-bottom: 10px; overflow: hidden; background: var(--white); }
+  .payment-party .pp-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--tiffany-soft); border-bottom: 1px solid var(--line); }
+  .payment-party .pp-badge { background: var(--tiffany-deep); color: var(--white); font-family: var(--sans); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 2px; line-height: 1.4; }
+  .payment-party .pp-title { font-family: var(--serif-jp); font-size: 15px; font-weight: 500; color: var(--ink); }
+  .payment-party .pp-note { font-family: var(--serif-jp); font-size: 12px; font-weight: 400; color: var(--ink-soft); }
+  .payment-party .pp-total { margin-left: auto; font-family: var(--serif-en); font-size: 19px; font-weight: 400; color: var(--ink); }
+  .payment-party .pp-total .currency { font-size: 12px; color: var(--gold-deep); font-style: italic; margin-right: 2px; }
   .payment-party .payment-row:last-child { border-bottom: none; }
+  /* SF-PARTYFIX-20260725 : 領収書の上に出す「同じ組の次のお子様へ」案内バー。
+     既存のボタン行(.receipt-controls)には一切手を触れない＝「会計完了」は1行のまま。 */
+  .party-next-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; max-width: 856px; margin: 24px auto 0; padding: 11px 14px 11px 16px; background: var(--tiffany-soft); border: 1px solid var(--tiffany-deep); border-radius: 2px; }
+  .party-next-bar .pnb-badge { background: var(--tiffany-deep); color: var(--white); font-family: var(--sans); font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 2px; line-height: 1.4; }
+  .party-next-bar .pnb-text { font-family: var(--serif-jp); font-size: 13px; color: var(--ink); letter-spacing: 0.03em; }
+  .party-next-bar .pnb-text b { font-weight: 700; }
+  .party-next-bar .ctrl-btn { margin-left: auto; padding: 10px 16px; font-size: 12px; background: var(--white); border-color: var(--tiffany-deep); color: var(--tiffany-deep); }
+  .party-next-bar .ctrl-btn:hover { background: var(--tiffany-deep); color: var(--white); border-color: var(--tiffany-deep); }
+  @media print { .party-next-bar { display: none !important; } }
   .payment-row {
     padding: 20px 28px;
     border-bottom: 1px solid var(--line-soft);
@@ -12635,21 +12646,31 @@ function applyPartyCarry() {
 }
 
 function sfUpdatePartyReceiptBtn(v) {
+  /* SF-PARTYFIX-20260725 : 既存のボタン行に5個目の黒ボタンを差し込むのをやめ、
+     領収書の上に案内バーを出す。.receipt-controls は元の4個・1行のまま。 */
   try {
-    var ctrls = document.querySelector('#screen-receipt .receipt-controls');
+    var sc = document.getElementById('screen-receipt');
+    var ctrls = sc && sc.querySelector('.receipt-controls');
     if (!ctrls) return;
-    var btn = document.getElementById('receiptNextSibling');
+    var stray = document.getElementById('receiptNextSibling');
+    if (stray && stray.parentNode === ctrls) ctrls.removeChild(stray); /* 旧版の黒ボタンが残っていれば撤去 */
+    var bar = document.getElementById('receiptNextBar');
     var rest = sfPartyPending(v);
-    if (!rest.length) { if (btn) btn.style.display = 'none'; return; }
-    if (!btn) {
-      btn = document.createElement('button');
-      btn.id = 'receiptNextSibling';
-      btn.className = 'ctrl-btn ctrl-btn-primary';
-      btn.setAttribute('onclick', 'goNextPartySibling()');
-      ctrls.insertBefore(btn, ctrls.firstChild);
+    if (!rest.length) { if (bar) bar.style.display = 'none'; return; }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'receiptNextBar';
+      bar.className = 'party-next-bar';
+      ctrls.parentNode.insertBefore(bar, ctrls);
     }
-    btn.style.display = '';
-    btn.textContent = '\u540c\u3058\u7d44\u306e\u6b21\u306e\u304a\u5b50\u69d8\u3092\u4f1a\u8a08 \u2192\uff08\u3042\u3068' + rest.length + '\u540d\uff09';
+    bar.style.display = '';
+    bar.innerHTML =
+      '<span class="pnb-badge">\u7d44</span>' +
+      '<span class="pnb-text">\u3053\u306e\u7d44\u306f \u3042\u3068<b>' + rest.length + '</b>\u540d \u304a\u4f1a\u8a08\u304c\u6b8b\u3063\u3066\u3044\u307e\u3059</span>' +
+      '<button id="receiptNextSibling" class="ctrl-btn ctrl-btn-secondary" onclick="goNextPartySibling()">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+          '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>' +
+        '</svg>\u6b21\u306e\u304a\u5b50\u69d8\u3078</button>';
   } catch (e) {}
 }
 
