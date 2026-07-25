@@ -12589,10 +12589,75 @@ function renderPaymentList() {
   el.innerHTML = `<div class="payment-list">${_clusterHtml}</div>`;
 }
 
+/* SF-SALONPARTY2B-20260725 : 組の「まとめて会計」。実料金の計算・承認・領収書発行には触れない。
+   会計後の領収書に「次のお子様へ」を出し、受領者とお迎え時刻を引き継いで次の子の会計画面を自動で埋めるだけ。 */
+var partyCarry = null;
+
+function sfPartyPending(v) {
+  if (!v || !v.partyId) return [];
+  return (DATA.visits || []).filter(function (x) {
+    return x && x.id !== v.id && x.partyId === v.partyId
+      && x.branch === v.branch && x.paymentStatus === 'pending';
+  });
+}
+
+function goNextPartySibling() {
+  var cur = currentPaymentVisit;
+  if (!cur) return;
+  var rest = sfPartyPending(cur);
+  if (!rest.length) return;
+  partyCarry = { staff: (cur.receivedBy || null), actualEnd: (cur.actualEnd || null) };
+  currentPaymentVisit = rest[0];
+  isEditingPaid = false;
+  navigate('payment');
+}
+
+function applyPartyCarry() {
+  if (!partyCarry || !currentPaymentVisit || !currentPaymentVisit.partyId) return;
+  try {
+    if (partyCarry.staff) {
+      var ps = document.getElementById('paymentStaff');
+      if (ps) { ps.value = partyCarry.staff; if (typeof populateStaffSelect === 'function') populateStaffSelect(); }
+    }
+    if (partyCarry.actualEnd && /^\d{1,2}:\d{2}$/.test(partyCarry.actualEnd)) {
+      var p = partyCarry.actualEnd.split(':');
+      var hSel = document.getElementById('actualEndH'), mSel = document.getElementById('actualEndM');
+      if (hSel && mSel) {
+        hSel.value = parseInt(p[0], 10);
+        var mm = Math.round(parseInt(p[1], 10) / 10) * 10; if (mm >= 60) mm = 50;
+        mSel.value = mm;
+        if (typeof onActualPickupChange === 'function') onActualPickupChange();
+        if (typeof initDiscountUI === 'function') initDiscountUI(currentPaymentVisit);
+        if (typeof recalcAmount === 'function') recalcAmount();
+      }
+    }
+  } catch (e) {}
+}
+
+function sfUpdatePartyReceiptBtn(v) {
+  try {
+    var ctrls = document.querySelector('#screen-receipt .receipt-controls');
+    if (!ctrls) return;
+    var btn = document.getElementById('receiptNextSibling');
+    var rest = sfPartyPending(v);
+    if (!rest.length) { if (btn) btn.style.display = 'none'; return; }
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'receiptNextSibling';
+      btn.className = 'ctrl-btn ctrl-btn-primary';
+      btn.setAttribute('onclick', 'goNextPartySibling()');
+      ctrls.insertBefore(btn, ctrls.firstChild);
+    }
+    btn.style.display = '';
+    btn.textContent = '\u540c\u3058\u7d44\u306e\u6b21\u306e\u304a\u5b50\u69d8\u3092\u4f1a\u8a08 \u2192\uff08\u3042\u3068' + rest.length + '\u540d\uff09';
+  } catch (e) {}
+}
+
 function selectPayment(visitId) {
   currentPaymentVisit = DATA.visits.find(v => v.id === visitId);
   if (currentPaymentVisit) {
     isEditingPaid = false;  // 通常の会計
+    partyCarry = null; /* SF-SALONPARTY2B-RESET-20260725 : リストからの通常会計は組の引き継ぎをリセット */
     navigate('payment');
   }
 }
@@ -12788,8 +12853,9 @@ function renderPaymentScreen() {
   
   // 割引の初期化：修正モードなら保存済みの割引を復元、新規ならサロン経由予約は自動セット
   initDiscountUI(v);
-  
+
   recalcAmount();
+  applyPartyCarry(); /* SF-SALONPARTY2B-20260725 : まとめ会計なら受領者・お迎え時刻を引き継いで反映 */
 }
 
 // 割引UIの初期化
@@ -14929,9 +14995,10 @@ function loadReceiptScale() {
 function renderReceipt() {
   // localStorage から保存済みスケールを読み込み
   loadReceiptScale();
-  
+
   if (!currentPaymentVisit) return;
   const v = currentPaymentVisit;
+  sfUpdatePartyReceiptBtn(v); /* SF-SALONPARTY2B-20260725 : 同じ組に未会計の兄弟が居れば「次のお子様へ」を出す */
   const customer = DATA.customers.find(c => c.id === v.customerId);
   
   // 宛名：姓のみ取得
