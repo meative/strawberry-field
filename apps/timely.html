@@ -2337,6 +2337,14 @@
     border: 1px solid var(--line);
     border-radius: 2px;
   }
+  /* SF-SALONPARTY2-CSS-20260725 : お会計待ちの「組（きょうだい）」家族カード */
+  .payment-party { border: 1.5px solid var(--tiffany-deep, #2E9B9B); border-radius: 4px; margin-bottom: 8px; overflow: hidden; background: var(--white); }
+  .payment-party .pp-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(46,155,155,0.10); border-bottom: 1px solid var(--line); font-weight: 700; }
+  .payment-party .pp-badge { background: var(--tiffany-deep, #2E9B9B); color: #fff; font-size: 12px; padding: 2px 9px; border-radius: 10px; }
+  .payment-party .pp-title { color: var(--ink, #333); }
+  .payment-party .pp-note { color: var(--ink-soft, #888); font-size: 12px; font-weight: 400; }
+  .payment-party .pp-total { margin-left: auto; color: var(--ink, #333); }
+  .payment-party .payment-row:last-child { border-bottom: none; }
   .payment-row {
     padding: 20px 28px;
     border-bottom: 1px solid var(--line-soft);
@@ -10482,6 +10490,7 @@ function submitVisit() {
     try {
       const _shared = sfLoadShared();
       const _rec = _shared.find(r => r && r.id === _sid);
+      if (_rec && _rec.partyId != null) visit.partyId = _rec.partyId; /* SF-SALONPARTY2-VISITID-20260725 : 組の紐付けを visit に運ぶ（会計待ちの家族束ね用） */
       /* SF-SALONSPLIT-GROUP-20260724 : 区間が分かれている予約は、全区間に受付済みの印を付ける。
          代表だけに付けると、もう一方が予約リストに残り続け、ボードの2レーン目にも
          カタカナの仮名が残ってしまう。 */
@@ -12514,7 +12523,7 @@ function renderPaymentList() {
     return;
   }
   
-  const rowsHtml = pending.map(v => {
+  function payRowHtml(v) { /* SF-SALONPARTY2-CLUSTER-20260725 : 1行の描画（家族カードでも再利用） */
     const customer = DATA.customers.find(c => c.id === v.customerId);
     const customerName = customer ? customer.childName : v.childName;
     const usageKey = v.usageType || 'temporary';
@@ -12552,9 +12561,32 @@ function renderPaymentList() {
         </svg>
       </div>
     `;
+  }
+  /* SF-SALONPARTY2-ASSEMBLE-20260725 : partyId を持つ来園は1家族カードに束ねる。持たない来園は従来どおり1行。
+     会計は per-child のまま、各メンバー行は個別に会計できる（selectPayment はそのまま）。 */
+  var _pmap = {}, _porder = [];
+  pending.forEach(function (v) {
+    var k = v.partyId ? ('p:' + v.partyId) : ('s:' + v.id);
+    if (!_pmap[k]) { _pmap[k] = []; _porder.push(k); }
+    _pmap[k].push(v);
+  });
+  var _clusterHtml = _porder.map(function (k) {
+    var members = _pmap[k];
+    if (members.length < 2) return payRowHtml(members[0]);
+    var total = members.reduce(function (s, v) {
+      var ti = getUsageType(v.usageType || 'temporary');
+      var amt = (ti && ti.pricingType === 'hourly')
+        ? calcAmountFromTimes(v.visitStart, v.visitEnd, v.visitEnd, ti.hourlyRate).total
+        : calcInternalAmount(v.usageType || 'temporary', v.visitStart, v.visitEnd).total;
+      return s + (amt || 0);
+    }, 0);
+    var head = '<div class="pp-head"><span class="pp-badge">\u7d44</span>' +
+      '<span class="pp-title">\u304d\u3087\u3046\u3060\u3044 ' + members.length + '\u540d</span>' +
+      '<span class="pp-note">\u30fb \u304a\u4f1a\u8a08\u306f\u304a\u5b50\u69d8\u3054\u3068</span>' +
+      '<span class="pp-total"><span class="currency">\u00a5</span>' + total.toLocaleString() + '</span></div>';
+    return '<div class="payment-party">' + head + members.map(payRowHtml).join('') + '</div>';
   }).join('');
-  
-  el.innerHTML = `<div class="payment-list">${rowsHtml}</div>`;
+  el.innerHTML = `<div class="payment-list">${_clusterHtml}</div>`;
 }
 
 function selectPayment(visitId) {
