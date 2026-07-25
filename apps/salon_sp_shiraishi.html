@@ -1068,6 +1068,160 @@ function openReserve(start, end) {
 function closeModal(){ document.getElementById('modal').classList.remove('show'); }
 const WD_JP = ['日','月','火','水','木','金','土'];
 
+/* SF-SALONPARTY-ENGINE-20260725 : サロンの「きょうだい（組）」まとめ予約エンジン＋UI。
+   組モードON中だけ confirmReserve の書き込みを横取りして partyDraft に貯め、
+   「この組で確定」で組の容量判定(used[age][i]+demand<=cap)を通し、全員へ同じ partyId を付けて一括登録する。
+   組モードOFF時の単体予約フローには一切触れない。受付(timely)側の束ねは Patch2。 */
+var partyMode = false;
+var partyDraft = [];
+
+function partyMemberFromForm(name, kana, provisional) {
+  var by = (typeof getBirthYM === 'function') ? getBirthYM() : { by: null, bm: null };
+  return {
+    name: name, kana: kana, provisional: !!provisional,
+    age: selectedAge, months: (selectedAge === '3') ? null : selectedMonths,
+    start: pendingStart, end: pendingEnd,
+    birthY: by.by, birthM: by.bm,
+    consumed: (selConsumedSlots() || []).slice()
+  };
+}
+
+function partyDemand(members) {
+  var dem = { '0': new Array(N).fill(0), '1': new Array(N).fill(0), '2': new Array(N).fill(0), '3': new Array(N).fill(0) };
+  (members || []).forEach(function (m) {
+    var slots = (m.consumed && m.consumed.length) ? m.consumed : [];
+    var s = slotIdx(m.start), e = slotIdx(m.end);
+    slots.forEach(function (age) {
+      if (!dem[age]) return;
+      for (var i = s; i < e; i++) if (i >= 0 && i < N) dem[age][i]++;
+    });
+  });
+  return dem;
+}
+
+function partyCapacityCheck(members) {
+  var dem = partyDemand(members);
+  var ages = ['0', '1', '2', '3'];
+  for (var a = 0; a < ages.length; a++) {
+    var age = ages[a], cap = capEffAge(age);
+    for (var i = 0; i < N; i++) {
+      if (dem[age][i] > 0 && (used[age][i] + dem[age][i]) > cap) {
+        return { ok: false, age: age, slot: i };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+function partyAgeJp(age) {
+  try { var f = AGES.filter(function (x) { return x.key === age; })[0]; if (f) return f.jp; } catch (e) {}
+  return age + '\u6b73';
+}
+
+function togglePartyMode() {
+  partyMode = !partyMode;
+  if (!partyMode) partyDraft = [];
+  renderPartyPanel();
+  if (typeof showToast === 'function') showToast(partyMode ? '\u304d\u3087\u3046\u3060\u3044\uff08\u7d44\uff09\u30e2\u30fc\u30c9\uff1a\u3053\u306e\u5f8c\u306e\u4e88\u7d04\u30921\u7d44\u306b\u307e\u3068\u3081\u307e\u3059' : '\u7d44\u30e2\u30fc\u30c9\u3092\u89e3\u9664\u3057\u307e\u3057\u305f');
+}
+
+function cancelParty() {
+  partyMode = false; partyDraft = [];
+  renderPartyPanel();
+  if (typeof showToast === 'function') showToast('\u7d44\u306e\u4e0b\u66f8\u304d\u3092\u53d6\u308a\u6d88\u3057\u307e\u3057\u305f');
+}
+
+function confirmParty() {
+  if (!partyDraft.length) { showToast('\u3053\u306e\u7d44\u306b\u304a\u5b50\u69d8\u304c\u8ffd\u52a0\u3055\u308c\u3066\u3044\u307e\u305b\u3093'); return; }
+  if (typeof rebuildUsed === 'function') rebuildUsed();
+  var chk = partyCapacityCheck(partyDraft);
+  if (!chk.ok) {
+    showToast('\u3053\u306e\u7d44\u306f ' + partyAgeJp(chk.age) + ' \u306e ' + SLOTS[chk.slot] + ' \u304c\u5b9a\u54e1\u306b\u9054\u3059\u308b\u305f\u3081\u3001\u5168\u54e1\u5206\u3092\u304a\u9810\u304b\u308a\u3067\u304d\u307e\u305b\u3093');
+    return;
+  }
+  var pid = 'pty_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  var today = new Date(); today.setHours(0, 0, 0, 0); today.setDate(today.getDate() + dayOffset);
+  var dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  partyDraft.forEach(function (m) {
+    sfAdd({
+      gardenId: CURRENT_GARDEN, salon: salon, name: m.name, kana: m.kana,
+      age: m.age, months: m.months, birthY: m.birthY, birthM: m.birthM,
+      start: m.start, end: m.end, date: dateStr, nextReservation: null,
+      provisional: m.provisional, info: null, partyId: pid
+    });
+  });
+  var cnt = partyDraft.length;
+  partyMode = false; partyDraft = [];
+  if (typeof rebuildUsed === 'function') rebuildUsed();
+  renderPartyPanel();
+  if (typeof renderMyBookings === 'function') renderMyBookings();
+  if (typeof buildStartOptions === 'function') buildStartOptions();
+  if (typeof checkAvailability === 'function') checkAvailability();
+  showToast('\u2713 \u7d44\uff08' + cnt + '\u540d\uff09\u3092\u4e88\u7d04\u3057\u307e\u3057\u305f\u3002\u4fdd\u80b2\u5712\u306b\u901a\u77e5\u3057\u307e\u3057\u305f');
+}
+
+function ensurePartyUI() {
+  if (!document.getElementById('partyCss')) {
+    var st = document.createElement('style'); st.id = 'partyCss';
+    st.textContent =
+      '.party-wrap{margin:16px 0 4px}' +
+      '.party-toggle{width:100%;padding:12px;border:1.5px dashed #C9A96A;background:#FBF7EF;color:#8A6D3B;border-radius:12px;font-weight:700;cursor:pointer;font-size:15px}' +
+      '.party-toggle.on{border-style:solid;background:#F3E8CF;color:#6B4F1D}' +
+      '.party-panel{margin-top:10px;border:1.5px solid #E4D6B8;background:#FFFDF8;border-radius:12px;padding:12px}' +
+      '.party-head{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}' +
+      '#partyCount{font-weight:800;color:#6B4F1D}' +
+      '.party-hint{font-size:12px;color:#9A8A6A}' +
+      '.party-list{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}' +
+      '.party-item{display:flex;align-items:center;gap:8px;background:#F6EFDF;border-radius:8px;padding:7px 10px}' +
+      '.pi-name{font-weight:700;color:#4A3A1A}.pi-meta{font-size:12px;color:#8A785A;margin-left:auto}' +
+      '.pi-del{border:none;background:#E7D3A8;color:#6B4F1D;border-radius:50%;width:22px;height:22px;cursor:pointer;font-weight:700}' +
+      '.party-empty{font-size:13px;color:#B0A075;padding:4px 2px}' +
+      '.party-actions{display:flex;gap:8px}' +
+      '.party-confirm{flex:1;padding:11px;border:none;background:#7A9A5A;color:#fff;border-radius:10px;font-weight:800;cursor:pointer;font-size:15px}' +
+      '.party-cancel{padding:11px 16px;border:none;background:#EEE6D6;color:#7A6A4A;border-radius:10px;font-weight:700;cursor:pointer}';
+    (document.head || document.body).appendChild(st);
+  }
+  if (document.getElementById('partyWrap')) return;
+  var mb = document.querySelector('.my-bookings');
+  if (!mb || !mb.parentNode) return;
+  var w = document.createElement('div');
+  w.id = 'partyWrap'; w.className = 'party-wrap';
+  w.innerHTML =
+    '<button id="partyToggleBtn" class="party-toggle" onclick="togglePartyMode()">\uff0b \u304d\u3087\u3046\u3060\u3044\u3092\u307e\u3068\u3081\u3066\u4e88\u7d04</button>' +
+    '<div id="partyPanel" class="party-panel" style="display:none;">' +
+      '<div class="party-head"><span id="partyCount">\u3053\u306e\u7d44\uff1a0\u540d</span>' +
+      '<span class="party-hint">\u304a\u5b50\u69d8\u3054\u3068\u306b\u5e74\u9f62\u30fb\u6642\u9593\u3092\u9078\u3073\u300c\u3053\u306e\u5185\u5bb9\u3067\u4e88\u7d04\u300d\u3092\u62bc\u3059\u3068\u3001\u3053\u306e\u7d44\u306b\u8ffd\u52a0\u3055\u308c\u307e\u3059</span></div>' +
+      '<div id="partyList" class="party-list"></div>' +
+      '<div class="party-actions">' +
+        '<button id="partyConfirmBtn" class="party-confirm" onclick="confirmParty()">\u3053\u306e\u7d44\u3067\u78ba\u5b9a\u3059\u308b</button>' +
+        '<button id="partyCancelBtn" class="party-cancel" onclick="cancelParty()">\u53d6\u6d88</button>' +
+      '</div></div>';
+  mb.parentNode.insertBefore(w, mb);
+}
+
+function renderPartyPanel() {
+  ensurePartyUI();
+  var btn = document.getElementById('partyToggleBtn');
+  var panel = document.getElementById('partyPanel');
+  var list = document.getElementById('partyList');
+  var cnt = document.getElementById('partyCount');
+  if (!panel) return;
+  panel.style.display = partyMode ? '' : 'none';
+  if (btn) { btn.textContent = partyMode ? '\u2715 \u7d44\u30e2\u30fc\u30c9\u3092\u89e3\u9664' : '\uff0b \u304d\u3087\u3046\u3060\u3044\u3092\u307e\u3068\u3081\u3066\u4e88\u7d04'; btn.className = 'party-toggle' + (partyMode ? ' on' : ''); }
+  if (cnt) cnt.textContent = '\u3053\u306e\u7d44\uff1a' + partyDraft.length + '\u540d';
+  if (list) {
+    list.innerHTML = partyDraft.map(function (m, i) {
+      return '<div class="party-item"><span class="pi-name">' + (m.name || '') + '</span>' +
+        '<span class="pi-meta">' + partyAgeJp(m.age) + ' \u30fb ' + m.start + '\u301c' + m.end + '</span>' +
+        '<button class="pi-del" onclick="partyRemove(' + i + ')">\u00d7</button></div>';
+    }).join('') || '<div class="party-empty">\u307e\u3060\u8ffd\u52a0\u3055\u308c\u3066\u3044\u307e\u305b\u3093</div>';
+  }
+}
+
+function partyRemove(i) { partyDraft.splice(i, 1); renderPartyPanel(); }
+
+try { ensurePartyUI(); } catch (e) {}
+
 function confirmReserve() {
   // ===== 次回予約モード =====
   if (reserveMode === 'next') {
@@ -1105,6 +1259,14 @@ function confirmReserve() {
     // 新規：カタカナで一時予約（カタカナでなければ注意）
     if (!isKatakanaName(input)) { showToast('登録のないお客様は、カタカナでお名前をご入力ください'); return; }
     name = input; kana = input; provisional = true;
+  }
+  /* SF-SALONPARTY-INTERCEPT-20260725 : 組モード中は書き込まず、この組の下書きへ貯める（確定は confirmParty で一括） */
+  if (partyMode) {
+    partyDraft.push(partyMemberFromForm(name, kana, provisional));
+    closeModal();
+    renderPartyPanel();
+    showToast('\u3053\u306e\u7d44\u306b\u8ffd\u52a0\uff1a' + name + '\uff08\u8a08' + partyDraft.length + '\u540d\uff09');
+    return;
   }
   // ===== 年齢別定員の満員チェック（満員なら予約不可でブロック。既存予約・時間帯空き判定には触らない） =====
   // 予約日は下の dateStr と同一式（new Date() + dayOffset）で算出し、カウント日と予約日を一致させる
