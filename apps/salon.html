@@ -2013,7 +2013,12 @@ function confirmReserve() {
     var _cSlots = selConsumedSlots();
     var _cS = slotIdx(pendingStart), _cE = slotIdx(pendingEnd);
     if (!_cSlots.every(function (s) { return rangeAvailable(s, _cS, _cE); })) {
+      /* SF-DATESYNC-20260726/D2 : 満員でとめたときは、画面の空き状況も最新に描き直す。
+         そのままだと「◎ お預かりできます」が残ってしまい、
+         なぜ予約できないのかお客様にもスタッフにも分からないため。 */
       showToast('申し訳ございません。ご希望の時間は満員でございます');
+      try { closeModal(); } catch (_e) {}
+      try { checkAvailability(); } catch (_e) {}
       return;
     }
   }
@@ -2197,6 +2202,32 @@ function updateDateLabel() {
   document.getElementById('curDate').innerHTML = `${base.getMonth()+1}月${base.getDate()}日 <span class="wd">${WD[base.getDay()]}</span><span class="cal-caret">▾</span>`;
 }
 function changeDay(d){ dayOffset += d; updateDateLabel(); }
+
+/* ============================================================
+   SF-DATESYNC-20260726/D1 : 日付を変えたら空き状況も引き直す
+   ------------------------------------------------------------
+   これまで changeDay / calPickDay / calGoToday は日付の見出ししか
+   書き換えておらず、「◎ お預かりできます」の表示が前の日のまま
+   残っていた。押した瞬間に confirmReserve() は新しい日付で判定し直す
+   ので、表示（◎）と結果（満員）が食い違っていた。
+
+   3つとも updateDateLabel() を通るので、ここで一度だけ包んで
+   ・受付時間の案内（同時◯名まで）
+   ・開始時刻の選択肢
+   ・空き状況の判定
+   をまとめて引き直す。判定のしかたそのものには一切さわらない。
+   ============================================================ */
+if (!window.__SF_DATESYNC_20260726 && typeof updateDateLabel === 'function') {
+  window.__SF_DATESYNC_20260726 = true;
+  var _sfOrigUpdateDateLabel = updateDateLabel;
+  window.updateDateLabel = function () {
+    var r = _sfOrigUpdateDateLabel.apply(this, arguments);
+    try { if (typeof updateAcceptInfo === 'function') updateAcceptInfo(); } catch (e) {}
+    try { if (typeof buildStartOptions === 'function') buildStartOptions(); } catch (e) {}
+    try { if (typeof checkAvailability === 'function') checkAvailability(); } catch (e) {}
+    return r;
+  };
+}
 
 // ===== 自作カレンダー =====
 let calViewYear, calViewMonth; // 表示中の年・月（0始まり）
