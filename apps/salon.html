@@ -1162,47 +1162,40 @@ function partyAgeJp(age) {
   return age + '\u6b73';
 }
 
+/* SF-PARTYFLOW-20260726/P5 : 組モード中は1人ずつ用の入力欄(#bookMode)を隠し、組パネルだけで完結させる。
+   これで「時間→予約→名前」を人数分くり返す操作がなくなる。 */
 function togglePartyMode() {
   partyMode = !partyMode;
-  if (!partyMode) partyDraft = [];
+  partyDraft = [];
+  if (partyMode) {
+    try { if (typeof reserveMode !== 'undefined' && reserveMode !== 'book' && typeof switchMode === 'function') switchMode('book'); } catch (e1) {}
+    if (!partyKids.length) partyKids = [{ by: null, bm: null }, { by: null, bm: null }];
+    partyDur = 90; partyStart = '';
+  } else {
+    partyKids = [];
+  }
+  var bm = document.getElementById('bookMode');
+  if (bm) bm.style.display = partyMode ? 'none' : '';
   renderPartyPanel();
-  if (typeof showToast === 'function') showToast(partyMode ? '\u304d\u3087\u3046\u3060\u3044\uff08\u7d44\uff09\u30e2\u30fc\u30c9\uff1a\u3053\u306e\u5f8c\u306e\u4e88\u7d04\u30921\u7d44\u306b\u307e\u3068\u3081\u307e\u3059' : '\u7d44\u30e2\u30fc\u30c9\u3092\u89e3\u9664\u3057\u307e\u3057\u305f');
+  try { if (partyMode) { var w = document.getElementById('partyWrap'); if (w && w.scrollIntoView) w.scrollIntoView({ behavior: 'smooth', block: 'start' }); } } catch (e2) {}
+  if (typeof showToast === 'function') showToast(partyMode
+    ? 'きょうだい（組）モード：①人数と生年月 → ②時間 → ③判定 → ④最後にお名前'
+    : '組モードを解除しました');
 }
 
 function cancelParty() {
-  partyMode = false; partyDraft = [];
+  partyMode = false; partyKids = []; partyDraft = [];
+  partyCloseNames();
+  var bm = document.getElementById('bookMode');
+  if (bm) bm.style.display = '';
   renderPartyPanel();
-  if (typeof showToast === 'function') showToast('\u7d44\u306e\u4e0b\u66f8\u304d\u3092\u53d6\u308a\u6d88\u3057\u307e\u3057\u305f');
+  if (typeof checkAvailability === 'function') checkAvailability();
+  if (typeof showToast === 'function') showToast('組の下書きを取り消しました');
 }
 
-function confirmParty() {
-  if (!partyDraft.length) { showToast('\u3053\u306e\u7d44\u306b\u304a\u5b50\u69d8\u304c\u8ffd\u52a0\u3055\u308c\u3066\u3044\u307e\u305b\u3093'); return; }
-  if (typeof rebuildUsed === 'function') rebuildUsed();
-  var chk = partyCapacityCheck(partyDraft);
-  if (!chk.ok) {
-    showToast('\u3053\u306e\u7d44\u306f ' + partyAgeJp(chk.age) + ' \u306e ' + SLOTS[chk.slot] + ' \u304c\u5b9a\u54e1\u306b\u9054\u3059\u308b\u305f\u3081\u3001\u5168\u54e1\u5206\u3092\u304a\u9810\u304b\u308a\u3067\u304d\u307e\u305b\u3093');
-    return;
-  }
-  var pid = 'pty_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-  var today = new Date(); today.setHours(0, 0, 0, 0); today.setDate(today.getDate() + dayOffset);
-  var dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-  partyDraft.forEach(function (m) {
-    sfAdd({
-      gardenId: CURRENT_GARDEN, salon: salon, name: m.name, kana: m.kana,
-      age: m.age, months: m.months, birthY: m.birthY, birthM: m.birthM,
-      start: m.start, end: m.end, date: dateStr, nextReservation: null,
-      provisional: m.provisional, info: null, partyId: pid
-    });
-  });
-  var cnt = partyDraft.length;
-  partyMode = false; partyDraft = [];
-  if (typeof rebuildUsed === 'function') rebuildUsed();
-  renderPartyPanel();
-  if (typeof renderMyBookings === 'function') renderMyBookings();
-  if (typeof buildStartOptions === 'function') buildStartOptions();
-  if (typeof checkAvailability === 'function') checkAvailability();
-  showToast('\u2713 \u7d44\uff08' + cnt + '\u540d\uff09\u3092\u4e88\u7d04\u3057\u307e\u3057\u305f\u3002\u4fdd\u80b2\u5712\u306b\u901a\u77e5\u3057\u307e\u3057\u305f');
-}
+/* 旧UIからの呼び出し互換：確定＝名前入力へ進む */
+function confirmParty() { partyOpenNames(); }
+
 
 function ensurePartyUI() {
   if (!document.getElementById('partyCss')) {
@@ -1248,7 +1241,44 @@ function ensurePartyUI() {
       '.result-party{margin-top:10px;padding:9px 11px;border-radius:2px;background:var(--ivory);border:1px dashed var(--line);font-family:var(--serif-jp);font-size:12px;color:var(--ink-soft);line-height:1.7}' +
       '.result-party b{color:var(--salon-deep);font-weight:600}' +
       '.party-modal-note{margin:10px 0 0;padding:9px 11px;border-radius:2px;background:var(--salon-soft);border:1px solid var(--salon-deep);color:var(--salon-deep);font-family:var(--serif-jp);font-size:12.5px;line-height:1.65}' +
-      '.party-modal-note b{font-weight:600}';
+      '.party-modal-note b{font-weight:600}' + /* SF-PARTYFLOW-20260726/P1 : 新しい組予約の流れ（人数と生年月→時間→判定→最後に名前）の見た目 */
+      '.pf-sec{margin:0 0 14px;padding:0 0 14px;border-bottom:1px dashed var(--line-soft)}' +
+      '.pf-sec.pf-last{border-bottom:none;padding-bottom:0;margin-bottom:0}' +
+      '.pf-sec-h{display:flex;align-items:center;gap:7px;font-family:var(--serif-jp);font-size:13px;color:var(--ink);margin:0 0 9px}' +
+      '.pf-sec-h i{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:19px;height:19px;border-radius:50%;background:var(--salon-deep);color:#fff;font-style:normal;font-size:11px;font-family:var(--sans)}' +
+      '.pf-kid{display:flex;align-items:center;gap:6px;background:var(--ivory);border:1px solid var(--line-soft);border-radius:2px;padding:7px 7px 7px 10px;margin-bottom:6px;flex-wrap:wrap}' +
+      '.pf-kid .no{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--salon-deep);color:#fff;font-size:11px;font-family:var(--sans)}' +
+      '.pf-kid select{font-family:var(--serif-jp);font-size:15px;padding:7px 8px;border:1px solid var(--line);background:var(--white);border-radius:2px;color:var(--ink)}' +
+      '.pf-kid .age{font-family:var(--serif-jp);font-size:13px;color:var(--salon-deep);font-weight:600;margin-left:auto;text-align:right;line-height:1.5}' +
+      '.pf-kid .age .c0{display:block;font-size:11px;color:var(--error);font-weight:500}' +
+      '.pf-kid .del{flex-shrink:0;width:36px;height:36px;border:1px solid var(--line-soft);background:var(--white);color:var(--ink-soft);border-radius:2px;font-size:17px;line-height:1;cursor:pointer;transition:all var(--transition)}' +
+      '.pf-kid .del:active{background:var(--ivory-deep);transform:scale(0.94)}' +
+      '.pf-add{display:block;width:100%;padding:12px 18px;border:1px dashed var(--salon-deep);background:var(--white);color:var(--salon-deep);border-radius:2px;font-family:var(--serif-jp);font-size:14px;cursor:pointer;transition:all var(--transition)}' +
+      '.pf-add:active{background:var(--salon-soft);transform:scale(0.98)}' +
+      '.pf-time{display:flex;gap:10px;flex-wrap:wrap}' +
+      '.pf-tg{flex:1;min-width:132px;display:flex;flex-direction:column;gap:4px}' +
+      '.pf-tg label{font-size:11px;letter-spacing:.08em;color:var(--ink-soft)}' +
+      '.pf-tg select{font-family:var(--serif-jp);font-size:16px;padding:10px;border:1px solid var(--line);background:var(--white);border-radius:2px;color:var(--ink);width:100%}' +
+      '.pf-alt{margin-top:2px;display:flex;flex-wrap:wrap;gap:6px}' +
+      '.pf-alt-h{width:100%;font-family:var(--serif-jp);font-size:12px;color:var(--ink-soft);line-height:1.7}' +
+      '.pf-alt button{font-family:var(--serif-jp);font-size:14px;padding:9px 14px;border:1px solid var(--salon-deep);background:var(--salon-soft);color:var(--salon-deep);border-radius:2px;cursor:pointer;transition:all var(--transition)}' +
+      '.pf-alt button:active{transform:scale(0.96)}' +
+      '.pf-modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(26,31,38,.45);z-index:2000;align-items:center;justify-content:center;padding:18px}' +
+      '.pf-modal-overlay.show{display:flex}' +
+      '.pf-modal{background:var(--white);border-radius:4px;padding:20px 22px;width:100%;max-width:420px;max-height:88vh;overflow:auto}' +
+      '.pf-modal .t{font-family:var(--serif-jp);font-size:18px;color:var(--ink);margin-bottom:4px}' +
+      '.pf-modal .ctx{font-family:var(--serif-jp);font-size:13px;color:var(--salon-deep);margin-bottom:14px}' +
+      '.pf-modal .f{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}' +
+      '.pf-modal .f label{font-size:11px;letter-spacing:.08em;color:var(--ink-soft)}' +
+      '.pf-modal input{font-family:var(--serif-jp);font-size:16px;padding:11px 12px;border:1px solid var(--line);background:var(--white);border-radius:2px;color:var(--ink);width:100%}' +
+      '.pf-name-row{display:flex;align-items:center;gap:7px;margin-bottom:8px}' +
+      '.pf-name-row .no{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--salon-deep);color:#fff;font-size:11px;font-family:var(--sans)}' +
+      '.pf-name-row .lb{flex-shrink:0;font-family:var(--serif-jp);font-size:12px;color:var(--ink-soft);width:76px}' +
+      '.pf-modal .nt{font-size:11.5px;color:var(--ink-soft);line-height:1.7;margin:10px 0 14px;padding:9px 11px;background:var(--ivory);border-radius:2px}' +
+      '.pf-modal .nt b{color:var(--salon-deep);font-weight:600}' +
+      '.pf-modal .acts{display:flex;gap:8px}' +
+      '.pf-modal .acts .ok{flex:1;font-family:var(--serif-jp);font-size:15px;padding:13px 20px;border:1px solid var(--salon-deep);background:var(--salon-deep);color:var(--white);border-radius:2px;cursor:pointer}' +
+      '.pf-modal .acts .bk{font-family:var(--serif-jp);font-size:15px;padding:13px 18px;border:1px solid var(--line);background:var(--white);color:var(--ink);border-radius:2px;cursor:pointer}';
     (document.head || document.body).appendChild(st);
   }
   if (document.getElementById('partyWrap')) return;
@@ -1259,76 +1289,149 @@ function ensurePartyUI() {
   if (!mb || !mb.parentNode) return;
   var w = document.createElement('div');
   w.id = 'partyWrap'; w.className = 'party-wrap';
+  /* SF-PARTYFLOW-20260726/P2 : ①人数と生年月 → ②時間（全員おなじ） → ③判定 → ④最後に名前、の4段。 */
   w.innerHTML =
-    '<button id="partyToggleBtn" class="party-toggle" onclick="togglePartyMode()">\uff0b \u304d\u3087\u3046\u3060\u3044\u3092\u307e\u3068\u3081\u3066\u4e88\u7d04</button>' +
+    '<!--SF-PARTYFLOW-20260726/P2-->' +
+    '<button id="partyToggleBtn" class="party-toggle" onclick="togglePartyMode()">＋ きょうだいをまとめて予約</button>' +
     '<div id="partyPanel" class="party-panel" style="display:none;">' +
-      '<div class="party-head"><span id="partyCount">\u3053\u306e\u7d44\uff1a0\u540d</span>' +
-      /* SF-PARTYFIX-20260725 : 「2人目・3人目をどこで足すのか分からない」の解消 */
-      /* SF-PARTYAVAIL-20260726/S5 : パネルが入力欄の上に移ったので案内文を合わせる＋判定帯を足す */
-      '<span class="party-hint">お子様は<b>1人ずつ</b>追加します。追加するたびに、下の年齢・時間の空きは<b>この組の分を引いて</b>判定されます。</span></div>' +
-      '<div id="partyStatus" class="party-status idle"></div>' +
-      '<div id="partyList" class="party-list"></div>' +
-      '<button id="partyAddBtn" class="party-add" onclick="partyAddAnother()">\uff0b 1\u4eba\u76ee\u306e\u304a\u5b50\u69d8\u3092\u8ffd\u52a0\u3059\u308b</button>' +
-      '<div class="party-steps"><span class="ps-t">\u8ffd\u52a0\u306e\u3057\u304b\u305f</span>' +
-        '<span class="ps-i"><i>1</i>\u751f\u5e74\u6708\uff08\u5e74\u9f62\uff09\u3092\u9078\u3076</span>' +
-        '<span class="ps-i"><i>2</i>\u958b\u59cb\u6642\u523b\u3068\u9577\u3055\u3092\u9078\u3076</span>' +
-        '<span class="ps-i"><i>3</i>\u300c\u3053\u306e\u6642\u9593\u3067\u4e88\u7d04\u3059\u308b\u300d</span>' +
-        '<span class="ps-i"><i>4</i>\u304a\u540d\u524d\u2192\u300c\u3053\u306e\u5185\u5bb9\u3067\u4e88\u7d04\u300d</span>' +
-      '</div>' +
-      '<div class="party-actions">' +
-        '<button id="partyConfirmBtn" class="party-confirm" onclick="confirmParty()">\u3053\u306e\u7d44\u3067\u78ba\u5b9a\u3059\u308b</button>' +
-        '<button id="partyCancelBtn" class="party-cancel" onclick="cancelParty()">\u53d6\u6d88</button>' +
-      '</div></div>';
+      '<div class="party-head"><span id="partyCount">この組：0名</span>' +
+      '<span class="party-hint">お名前は<b>いちばん最後</b>にまとめて入れます。先に<b>人数と生年月</b>、つぎに<b>時間</b>を選ぶと、その場で入れるかが出ます。</span></div>' +
+      '<div class="pf-sec"><div class="pf-sec-h"><i>1</i>お子様の人数と生年月</div>' +
+        '<div id="pfKids"></div>' +
+        '<button class="pf-add" onclick="partyKidAdd()">＋ お子様を追加する</button></div>' +
+      '<div class="pf-sec"><div class="pf-sec-h"><i>2</i>お預かりの時間（全員おなじ時刻）</div>' +
+        '<div class="pf-time">' +
+          '<div class="pf-tg"><label>開始時刻</label><select id="pfStart" onchange="partyOnTime()"></select></div>' +
+          '<div class="pf-tg"><label>お預かりの長さ</label><select id="pfDur" onchange="partyOnTime()">' +
+            '<option value="30">30分</option><option value="60">1時間</option><option value="90" selected>1時間半</option>' +
+            '<option value="120">2時間</option><option value="150">2時間半</option><option value="180">3時間</option><option value="240">4時間</option>' +
+          '</select></div>' +
+        '</div></div>' +
+      '<div class="pf-sec"><div class="pf-sec-h"><i>3</i>この組でお預かりできるか</div>' +
+        '<div id="partyStatus" class="party-status idle"></div>' +
+        '<div id="pfAlt" class="pf-alt" style="display:none;"></div></div>' +
+      '<div class="pf-sec pf-last"><div class="pf-sec-h"><i>4</i>お名前（この次の画面でまとめて）</div>' +
+        '<div class="party-actions">' +
+          '<button id="partyConfirmBtn" class="party-confirm" onclick="partyOpenNames()">この組で予約に進む</button>' +
+          '<button id="partyCancelBtn" class="party-cancel" onclick="cancelParty()">取消</button>' +
+        '</div></div>' +
+    '</div>';
   mb.parentNode.insertBefore(w, mb);
+
+  /* SF-PARTYFLOW-20260726/P2 : 名前は最後に1回だけ。苗字ひとつ＋下の名前を人数分。 */
+  if (!document.getElementById('pfNameModal')) {
+    var nm = document.createElement('div');
+    nm.id = 'pfNameModal'; nm.className = 'pf-modal-overlay';
+    nm.innerHTML =
+      '<div class="pf-modal">' +
+        '<div class="t">お名前の入力</div>' +
+        '<div class="ctx" id="pfNameCtx"></div>' +
+        '<div class="f"><label>苗字（きょうだい共通）</label>' +
+          '<input type="text" id="pfSurname" placeholder="例: 山田 ／ ヤマダ" autocomplete="off"></div>' +
+        '<div id="pfGivens"></div>' +
+        '<div class="nt">登録のないお子様は、<b>苗字も下の名前もカタカナ</b>でご入力ください（一時予約になります）。保育園で一時預かり受付を記入すると、正式な情報に置き換わります。</div>' +
+        '<div class="acts">' +
+          '<button class="bk" onclick="partyCloseNames()">戻る</button>' +
+          '<button class="ok" onclick="partyConfirmNames()">この内容で予約する</button>' +
+        '</div>' +
+      '</div>';
+    (document.body || document.documentElement).appendChild(nm);
+  }
 }
 
+/* SF-PARTYFLOW-20260726/P3 : 組パネルの描画。人数と生年月・時間・判定・候補時間をまとめて出す。 */
 function renderPartyPanel() {
   ensurePartyUI();
   var btn = document.getElementById('partyToggleBtn');
   var panel = document.getElementById('partyPanel');
-  var list = document.getElementById('partyList');
-  var cnt = document.getElementById('partyCount');
   if (!panel) return;
   panel.style.display = partyMode ? '' : 'none';
-  if (btn) { btn.textContent = partyMode ? '\u2715 \u7d44\u30e2\u30fc\u30c9\u3092\u89e3\u9664' : '\uff0b \u304d\u3087\u3046\u3060\u3044\u3092\u307e\u3068\u3081\u3066\u4e88\u7d04'; btn.className = 'party-toggle' + (partyMode ? ' on' : ''); }
-  if (cnt) cnt.textContent = '\u3053\u306e\u7d44\uff1a' + partyDraft.length + '\u540d';
-  /* SF-PARTYFIX-20260725 : 次が何人目かをボタンに出す＋0名では確定を押させない */
-  var addb = document.getElementById('partyAddBtn');
-  if (addb) addb.textContent = '\uff0b ' + (partyDraft.length + 1) + '\u4eba\u76ee\u306e\u304a\u5b50\u69d8\u3092\u8ffd\u52a0\u3059\u308b';
-  /* SF-PARTYAVAIL-20260726/S6 : 確定を押す前に、この組全員が入れるかをその場で判定して出す。
-     入れないときは確定ボタンを押せなくする。 */
-  var _ck = null;
-  if (partyDraft.length) {
-    try { if (typeof rebuildUsed === 'function') rebuildUsed(); } catch (e5) {}
-    try { _ck = partyCapacityCheck(partyDraft); } catch (e6) { _ck = { ok: true }; }
+  if (btn) {
+    btn.textContent = partyMode ? '✕ 組モードを解除' : '＋ きょうだいをまとめて予約';
+    btn.className = 'party-toggle' + (partyMode ? ' on' : '');
+  }
+  if (!partyMode) return;
+
+  var cnt = document.getElementById('partyCount');
+  if (cnt) cnt.textContent = 'この組：' + partyKids.length + '名';
+
+  /* ① 生年月の行（人数分） */
+  var kbox = document.getElementById('pfKids');
+  if (kbox) {
+    var cy = new Date().getFullYear();
+    var yOpt = '<option value="">—</option>';
+    for (var y = cy; y >= cy - 5; y--) yOpt += '<option value="' + y + '">' + y + '年</option>';
+    var mOpt = '<option value="">—</option>';
+    for (var mo = 1; mo <= 12; mo++) mOpt += '<option value="' + mo + '">' + mo + '月</option>';
+    kbox.innerHTML = partyKids.map(function (k, i) {
+      var r = ageMonthsFromYM(k.by, k.bm);
+      var lab = (r.realAge == null) ? '生年月を選んでください' : ageMonthLabel(r.age, r.months, r.realAge, r.realMonths);
+      var c0 = '';
+      try { var ci = class0FromResv(k.by, k.bm); if (ci.is0) c0 = '<span class="c0">' + ci.label + '</span>'; } catch (e1) {}
+      var ys = k.by ? yOpt.replace('value="' + k.by + '"', 'value="' + k.by + '" selected') : yOpt;
+      var ns = k.bm ? mOpt.replace('value="' + k.bm + '"', 'value="' + k.bm + '" selected') : mOpt;
+      return '<div class="pf-kid"><span class="no">' + (i + 1) + '</span>' +
+        '<select onchange="partyKidSet(' + i + ',&quot;by&quot;,this.value)">' + ys + '</select>' +
+        '<select onchange="partyKidSet(' + i + ',&quot;bm&quot;,this.value)">' + ns + '</select>' +
+        '<span class="age">' + lab + c0 + '</span>' +
+        '<button class="del" onclick="partyKidRemove(' + i + ')" title="このお子様を外す">×</button></div>';
+    }).join('');
+  }
+
+  /* ② 時間（全員おなじ） */
+  try { partyBuildTimeOptions(); } catch (e2) {}
+  var dsel = document.getElementById('pfDur');
+  if (dsel && String(partyDur) !== dsel.value) dsel.value = String(partyDur);
+
+  /* ③ 判定 */
+  var ready = partyKidsReady();
+  var res = null;
+  if (ready && partyStart) {
+    try { rebuildUsed(); res = partyGroupCheck(partyMembersAt(partyStart)); } catch (e3) { res = null; }
   }
   var stt = document.getElementById('partyStatus');
   if (stt) {
-    if (!partyDraft.length) {
+    if (!ready) {
       stt.className = 'party-status idle';
-      stt.innerHTML = '<span class="ps-mk">・</span><span>お子様を<b>1人ずつ</b>追加します。追加するたびに、ここで<b>全員分の空き</b>を確かめます。</span>';
-    } else if (_ck && _ck.ok) {
+      stt.innerHTML = '<span class="ps-mk">・</span><span>まず<b>お子様の人数と生年月</b>をすべて入れてください。そのあと時間を選ぶと、ここに ◎ か × が出ます。</span>';
+    } else if (res && res.ok) {
       stt.className = 'party-status ok';
-      stt.innerHTML = '<span class="ps-mk">◎</span><span>この組 <b>' + partyDraft.length + '名</b> 全員、この時間でお預かりできます</span>';
+      stt.innerHTML = '<span class="ps-mk">◎</span><span>この組 <b>' + partyKids.length + '名</b> 全員、<b>' + partyStart + '〜' + partyEnd() + '</b> でお預かりできます</span>';
+    } else if (res && res.reason === 'time') {
+      stt.className = 'party-status ng';
+      stt.innerHTML = '<span class="ps-mk">×</span><span><b>' + partyStart + '〜' + partyEnd() + '</b> は受付時間の外です。開始時刻か長さを変えてください</span>';
     } else {
       stt.className = 'party-status ng';
-      stt.innerHTML = '<span class="ps-mk">×</span><span>この組は <b>' + partyAgeJp(_ck.age) + '</b> の <b>' + SLOTS[_ck.slot] + '</b> が定員を超えます。どなたかの時間をずらすか、×で外してください</span>';
+      var _a = (res && res.age != null) ? partyAgeJp(res.age) : '';
+      var _s = (res && res.slot != null) ? SLOTS[res.slot] : '';
+      stt.innerHTML = '<span class="ps-mk">×</span><span><b>' + _a + '</b> の <b>' + _s + '</b> がいっぱいで、この組 <b>' + partyKids.length + '名</b> 全員は入れません</span>';
     }
   }
+
+  /* ③ ×のときは、全員が入れる時間の候補を出す */
+  var alt = document.getElementById('pfAlt');
+  if (alt) {
+    if (ready && res && !res.ok) {
+      var list = [];
+      try { list = partyAlternatives(); } catch (e4) { list = []; }
+      alt.innerHTML = list.length
+        ? ('<div class="pf-alt-h">この組 ' + partyKids.length + '名 が全員入れる時間（' + (partyDur / 60 >= 1 ? (partyDur / 60) + '時間' : partyDur + '分') + '）</div>' +
+           list.map(function (o) { return '<button onclick="partyPickAlt(&quot;' + o.start + '&quot;)">' + o.start + '〜' + o.end + '</button>'; }).join(''))
+        : '<div class="pf-alt-h">この長さでは、全員が入れる時間が見つかりませんでした。長さを短くするか、日を変えてください。</div>';
+      alt.style.display = '';
+    } else {
+      alt.innerHTML = ''; alt.style.display = 'none';
+    }
+  }
+
+  /* ④ 名前入力へ進むボタン */
   var okb = document.getElementById('partyConfirmBtn');
   if (okb) {
-    okb.disabled = !partyDraft.length || !(_ck && _ck.ok);
-    okb.textContent = partyDraft.length ? ('この組（' + partyDraft.length + '名）で確定する') : 'この組で確定する';
-  }
-  if (list) {
-    list.innerHTML = partyDraft.map(function (m, i) {
-      /* SF-PARTYFIX-20260725 : 何人目かを番号で出す */
-      return '<div class="party-item"><span class="pi-no">' + (i + 1) + '</span><span class="pi-name">' + (m.name || '') + '</span>' +
-        '<span class="pi-meta">' + partyAgeJp(m.age) + ' \u30fb ' + m.start + '\u301c' + m.end + '</span>' +
-        '<button class="pi-del" onclick="partyRemove(' + i + ')">\u00d7</button></div>';
-    }).join('') || '<div class="party-empty">\u307e\u3060\u8ffd\u52a0\u3055\u308c\u3066\u3044\u307e\u305b\u3093</div>';
+    okb.disabled = !(ready && res && res.ok);
+    okb.textContent = 'この組（' + partyKids.length + '名）で予約に進む';
   }
 }
+
 
 function partyRemove(i) {
   partyDraft.splice(i, 1);
@@ -1360,6 +1463,232 @@ function partyAddAnother() {
     /* SF-PARTYAVAIL-20260726/S11 : パネルが上に移ったので、案内も「すぐ下」に直す */
     if (typeof showToast === 'function') showToast('（' + (partyDraft.length + 1) + '人目）すぐ下の欄で年齢と時間を選んでください。空きはこの組の分を引いて出ます');
   } catch (e) {}
+}
+
+/* SF-PARTYFLOW-20260726/P4 : 組（きょうだい）予約の中身。
+   人数と生年月をまとめて持ち、時間は全員おなじ1つ。名前は確定の直前に1回だけ入れる。
+   partyDraft は使わなくなったので常に空のまま（＝PARTY_DEM も null のまま）。
+   これにより1人ずつの通常予約の判定には一切影響しない。 */
+var partyKids = [];
+var partyStart = '';
+var partyDur = 90;
+
+function partyKidAdd() {
+  if (partyKids.length >= 6) { showToast('この組に入れられるのは6名までです'); return; }
+  partyKids.push({ by: null, bm: null });
+  renderPartyPanel();
+}
+function partyKidRemove(i) {
+  partyKids.splice(i, 1);
+  if (!partyKids.length) partyKids.push({ by: null, bm: null });
+  renderPartyPanel();
+}
+function partyKidSet(i, k, v) {
+  if (!partyKids[i]) return;
+  partyKids[i][k] = v ? parseInt(v, 10) : null;
+  renderPartyPanel();
+}
+function partyKidsReady() {
+  return partyKids.length > 0 && partyKids.every(function (k) { return !!(k.by && k.bm); });
+}
+function partyEnd() { return minToTime(timeToMin(partyStart || '09:30') + partyDur); }
+
+/* 生年月から、その子が消費する枠（≤18ヶ月は0歳と1歳の両方）まで作る */
+function partyMembersAt(start) {
+  var st = start || partyStart || '09:30';
+  var en = minToTime(timeToMin(st) + partyDur);
+  return partyKids.filter(function (k) { return k.by && k.bm; }).map(function (k) {
+    var r = ageMonthsFromYM(k.by, k.bm);
+    return {
+      birthY: k.by, birthM: k.bm,
+      age: r.age, months: r.months, realAge: r.realAge, realMonths: r.realMonths,
+      start: st, end: en,
+      consumed: consumedSlots(totalMonths(r.age, r.months))
+    };
+  });
+}
+
+/* 受付時間の重なり：開始は「いちばん遅い open」、終了は「いちばん早い close」 */
+function partyWindow() {
+  var op = null, cl = null, seen = {};
+  partyMembersAt(partyStart || '09:30').forEach(function (m) {
+    (m.consumed || []).forEach(function (a) { seen[a] = 1; });
+  });
+  var keys = Object.keys(seen);
+  if (!keys.length) keys = ['1'];
+  keys.forEach(function (a) {
+    var A = ACCEPT[a]; if (!A) return;
+    if (op === null || A.open > op) op = A.open;
+    if (cl === null || A.close < cl) cl = A.close;
+  });
+  return { open: op || '09:30', close: cl || '16:00' };
+}
+
+function partyBuildTimeOptions() {
+  var sel = document.getElementById('pfStart');
+  if (!sel) return;
+  var w = partyWindow();
+  var opts = SLOTS.filter(function (t) { return t >= w.open && t <= w.close; });
+  var prev = partyStart || sel.value;
+  if (opts.indexOf(prev) === -1) prev = opts[0] || '';
+  partyStart = prev;
+  sel.innerHTML = opts.map(function (t) {
+    return '<option' + (t === prev ? ' selected' : '') + '>' + t + '</option>';
+  }).join('');
+  sel.value = prev;
+}
+
+function partyOnTime() {
+  var s = document.getElementById('pfStart'), d = document.getElementById('pfDur');
+  if (s && s.value) partyStart = s.value;
+  if (d && d.value) partyDur = parseInt(d.value, 10) || 90;
+  renderPartyPanel();
+}
+
+/* 組ぜんぶを一度に判定する。①受付時間内か ②同時定員に収まるか ③時間帯制限に収まるか。
+   used は rebuildUsed() 済みの実データ。組の分は dem としてまとめて足す（1人ずつ足すのではない）。 */
+function partyGroupCheck(ms) {
+  if (!ms || !ms.length) return { ok: false, reason: 'empty' };
+  for (var k = 0; k < ms.length; k++) {
+    var m = ms[k];
+    var s = slotIdx(m.start);
+    if (s < 0) return { ok: false, reason: 'time' };
+    var e = slotIdx(m.end);
+    if (e < 0) e = s + Math.round((timeToMin(m.end) - timeToMin(m.start)) / SLOT_MIN);
+    for (var i = s; i < e; i++) {
+      if (i < 0 || i >= N) return { ok: false, reason: 'time' };
+      var cs = m.consumed || [];
+      for (var c = 0; c < cs.length; c++) {
+        var A = ACCEPT[cs[c]];
+        if (!A) continue;
+        if (SLOTS[i] < A.open || SLOTS[i] >= A.closeEnd) return { ok: false, reason: 'time' };
+      }
+    }
+  }
+  var dem = partyDemand(ms);
+  var ages = ['0', '1', '2', '3'];
+  for (var a = 0; a < ages.length; a++) {
+    var age = ages[a], cap = capEffAge(age);
+    for (var j = 0; j < N; j++) {
+      if (!dem[age][j]) continue;
+      if ((used[age][j] + dem[age][j]) > cap) return { ok: false, reason: 'cap', age: age, slot: j };
+      var bl = blockedAt(CURRENT_GARDEN, age, SLOTS[j]);
+      if (bl != null && (used[age][j] + dem[age][j]) > bl) return { ok: false, reason: 'block', age: age, slot: j };
+    }
+  }
+  return { ok: true };
+}
+
+/* × のとき、同じ長さで全員が入れる開始時刻を最大3つ探す */
+function partyAlternatives() {
+  var out = [], w = partyWindow();
+  for (var i = 0; i < N && out.length < 3; i++) {
+    var t = SLOTS[i];
+    if (t < w.open || t > w.close) continue;
+    if (t === partyStart) continue;
+    if (partyGroupCheck(partyMembersAt(t)).ok) {
+      out.push({ start: t, end: minToTime(timeToMin(t) + partyDur) });
+    }
+  }
+  return out;
+}
+function partyPickAlt(t) {
+  partyStart = t;
+  var s = document.getElementById('pfStart'); if (s) s.value = t;
+  renderPartyPanel();
+  showToast('開始時刻を ' + t + ' に変えました');
+}
+
+/* ---------- ④ 名前は最後にまとめて ---------- */
+function partyResvDateStr() {
+  var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + dayOffset);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function partyOpenNames() {
+  if (!partyKidsReady()) { showToast('お子様の生年月を、人数分すべて選んでください'); return; }
+  if (!partyStart) { showToast('開始時刻を選んでください'); return; }
+  rebuildUsed();
+  var ms = partyMembersAt(partyStart);
+  var chk = partyGroupCheck(ms);
+  if (!chk.ok) { renderPartyPanel(); showToast('この時間では、この組の全員をお預かりできません'); return; }
+  var box = document.getElementById('pfNameModal');
+  if (!box) return;
+  var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + dayOffset);
+  var ctx = document.getElementById('pfNameCtx');
+  if (ctx) ctx.textContent = (d.getMonth() + 1) + '月' + d.getDate() + '日(' + WD_JP[d.getDay()] + ') ' +
+    partyStart + '〜' + partyEnd() + ' ／ この組 ' + ms.length + '名';
+  var gv = document.getElementById('pfGivens');
+  if (gv) {
+    gv.innerHTML = ms.map(function (m, i) {
+      return '<div class="pf-name-row"><span class="no">' + (i + 1) + '</span>' +
+        '<span class="lb">' + ageMonthLabel(m.age, m.months, m.realAge, m.realMonths) + '</span>' +
+        '<input type="text" class="pf-given" id="pfGiven' + i + '" placeholder="下の名前" autocomplete="off"></div>';
+    }).join('');
+  }
+  box.classList.add('show');
+  setTimeout(function () { try { document.getElementById('pfSurname').focus(); } catch (e5) {} }, 80);
+}
+
+function partyCloseNames() {
+  var b = document.getElementById('pfNameModal');
+  if (b) b.classList.remove('show');
+}
+
+/* 苗字＋下の名前 →「登録済みか／新規（カタカナ一時予約）か」を1人ずつ判定する。
+   判定のしかたは1人ずつ予約する場合（confirmReserve）と同じ。 */
+function partyResolveName(full) {
+  var reg = REGISTERED.filter(function (r) {
+    return r.name === full || r.kana === full || toKata(r.kana) === toKata(full);
+  })[0];
+  if (reg) return { name: reg.name, kana: reg.kana, provisional: false };
+  if (!isKatakanaName(full)) return null;
+  return { name: full, kana: full, provisional: true };
+}
+
+function partyConfirmNames() {
+  var snEl = document.getElementById('pfSurname');
+  var sn = (snEl && snEl.value ? snEl.value : '').trim();
+  if (!sn) { showToast('苗字を入力してください'); return; }
+  var ms = partyMembersAt(partyStart);
+  if (!ms.length) { showToast('お子様が入っていません'); return; }
+  var people = [];
+  for (var i = 0; i < ms.length; i++) {
+    var gEl = document.getElementById('pfGiven' + i);
+    var g = (gEl && gEl.value ? gEl.value : '').trim();
+    if (!g) { showToast((i + 1) + '人目の下の名前を入力してください'); if (gEl) gEl.focus(); return; }
+    var full = sn + ' ' + g;
+    var r = partyResolveName(full);
+    if (!r) { showToast('登録のないお子様は、カタカナでご入力ください（' + full + '）'); if (gEl) gEl.focus(); return; }
+    people.push({ m: ms[i], name: r.name, kana: r.kana, provisional: r.provisional });
+  }
+  rebuildUsed();
+  var chk = partyGroupCheck(ms);
+  if (!chk.ok) {
+    partyCloseNames(); renderPartyPanel();
+    showToast('たったいま埋まりました。時間を選び直してください');
+    return;
+  }
+  var pid = 'pty_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  var dateStr = partyResvDateStr();
+  people.forEach(function (p) {
+    sfAdd({
+      gardenId: CURRENT_GARDEN, salon: salon, name: p.name, kana: p.kana,
+      age: p.m.age, months: p.m.months, birthY: p.m.birthY, birthM: p.m.birthM,
+      start: p.m.start, end: p.m.end, date: dateStr, nextReservation: null,
+      provisional: p.provisional, info: null, partyId: pid
+    });
+  });
+  var cnt = people.length;
+  partyCloseNames();
+  partyMode = false; partyKids = []; partyDraft = [];
+  var bmEl = document.getElementById('bookMode'); if (bmEl) bmEl.style.display = '';
+  rebuildUsed();
+  renderPartyPanel();
+  if (typeof renderMyBookings === 'function') renderMyBookings();
+  if (typeof buildStartOptions === 'function') buildStartOptions();
+  if (typeof checkAvailability === 'function') checkAvailability();
+  showToast('✓ 組（' + cnt + '名）を予約しました。保育園に通知しました');
 }
 
 try { ensurePartyUI(); } catch (e) {}
@@ -1402,27 +1731,9 @@ function confirmReserve() {
     if (!isKatakanaName(input)) { showToast('登録のないお客様は、カタカナでお名前をご入力ください'); return; }
     name = input; kana = input; provisional = true;
   }
-  /* SF-SALONPARTY-INTERCEPT-20260725 : 組モード中は書き込まず、この組の下書きへ貯める（確定は confirmParty で一括） */
-  if (partyMode) {
-    /* SF-PARTYAVAIL-20260726/S8 : 下書きに足す前に、この子を含めた組全員で入れるかを判定する。
-       入れない組を組み上げてから確定時に弾かれる、をなくす。 */
-    var _cand = partyMemberFromForm(name, kana, provisional);
-    try { if (typeof rebuildUsed === 'function') rebuildUsed(); } catch (e7) {}
-    var _pchk = partyCapacityCheck(partyDraft.concat([_cand]));
-    if (!_pchk.ok) {
-      showToast(name + 'さんを足すと ' + partyAgeJp(_pchk.age) + ' の ' + SLOTS[_pchk.slot] + ' が定員を超えます。時間をずらしてください');
-      return;
-    }
-    partyDraft.push(_cand);
-    closeModal();
-    renderPartyPanel();
-    /* SF-PARTYAVAIL-20260726/S8 : 下の空き案内も、今足した分を含めて即座に判定し直す */
-    if (typeof checkAvailability === 'function') checkAvailability();
-    showToast('この組に追加：' + name + '（計' + partyDraft.length + '名）');
-    /* SF-PARTYAVAIL-20260726/S8 : パネルは入力欄の真上にあるので、一覧と入力欄が同時に見える位置へ戻す */
-    try { var _pp = document.getElementById('partyWrap'); if (_pp && _pp.scrollIntoView) setTimeout(function () { _pp.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80); } catch (e4) {}
-    return;
-  }
+  /* SF-PARTYFLOW-20260726/P6 : 旧「組モード中は1件ずつ下書きに貯める」横取りを廃止。
+     組の予約は組パネル（partyConfirmNames）だけで行うため、ここは1人ずつの通常予約に専念する。
+     partyDraft は常に空になり、PARTY_DEM も null のままなので通常の空き判定は従来どおり。 */
   // ===== 年齢別定員の満員チェック（満員なら予約不可でブロック。既存予約・時間帯空き判定には触らない） =====
   // 予約日は下の dateStr と同一式（new Date() + dayOffset）で算出し、カウント日と予約日を一致させる
   {
