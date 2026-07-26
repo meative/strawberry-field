@@ -151,6 +151,16 @@ body {
 .cap-input { width: 88px; text-align: center; font-family: var(--serif-jp); font-size: 15px; padding: 8px 6px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
 .cap-input:focus { outline: none; border-color: var(--tiffany); }
 .cap-unit { font-family: var(--serif-jp); font-size: 12px; color: var(--ink-soft); margin-left: 6px; }
+/* SF-CAPUNIT-20260726/C1 : 定員が「1日の合計」ではなく「同時に何名まで」であることを画面上で明示する */
+.cap-hero { border:1px solid var(--tiffany); background:var(--tiffany-soft); border-radius:8px; padding:11px 13px; margin:8px 0 12px; }
+.cap-hero .h { font-family:var(--serif-jp); font-size:13px; font-weight:600; color:var(--tiffany-deep); line-height:1.55; }
+.cap-hero .b { font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); line-height:1.75; margin-top:6px; }
+.cap-hero .b b { color:var(--ink); font-weight:600; }
+.cap-eg { margin-top:9px; padding-top:9px; border-top:1px dashed var(--line); font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); line-height:1.9; }
+.cap-eg .cap-eg-h { color:var(--ink); font-weight:600; }
+.cap-eg .t { color:var(--tiffany-deep); font-weight:600; }
+.cap-eg .x { color:#B23E4C; font-weight:600; }
+.cap-unit2 { font-family:var(--serif-jp); font-size:12px; color:var(--tiffany-deep); font-weight:600; margin-left:6px; white-space:nowrap; }
 .cap-actions { display: flex; gap: 10px; margin-top: 18px; }
 .cap-actions button { flex: 1; min-height: 46px; border-radius: 8px; font-family: var(--serif-jp); font-size: 14px; cursor: pointer; transition: all var(--transition); }
 .cap-cancel { background: var(--ivory); border: 1px solid var(--line); color: var(--ink-soft); }
@@ -710,11 +720,21 @@ body {
       <span class="cap-title">年齢別定員 ・ 基本設定</span>
       <span class="cap-garden" id="capGardenLabel">月寒園</span>
     </div>
-    <div class="cap-note">1日あたりの上限人数を年齢区分ごとに設定します。空欄＝無制限、0＝予約不可。サロンの予約受付で満員判定に使われます。</div>
-    <div class="cap-row"><span class="cap-row-label">0歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput0" placeholder="無制限"><span class="cap-unit">名</span></span></div>
-    <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput1" placeholder="無制限"><span class="cap-unit">名</span></span></div>
-    <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput2" placeholder="無制限"><span class="cap-unit">名</span></span></div>
-    <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput3" placeholder="無制限"><span class="cap-unit">名</span></span></div>
+    <!--SF-CAPUNIT-20260726/C2--><div class="cap-hero">
+      <div class="h">ここに入れる数字は「同時に何名まで」です</div>
+      <div class="b">1日の合計人数ではありません。<b>同じ時間帯に重なって預かれる人数</b>を入れてください。時間がずれていれば、1日に何組でも受けられます。</div>
+      <div class="cap-eg">
+        <span class="cap-eg-h">例：0歳に「2」と入れたとき</span><br>
+        <span class="t">◎ 受けられる</span>　9:30〜11:00 に1人 ／ 11:00〜12:30 に1人（重なっていない）<br>
+        <span class="t">◎ 受けられる</span>　10:00〜11:30 に2人（重なりが2人まで）<br>
+        <span class="x">× 受けられない</span>　10:00〜11:30 に3人（同じ時間に3人は入らない）
+      </div>
+    </div>
+    <div class="cap-note">空欄＝無制限、0＝予約不可。サロンの予約受付で満員判定に使われます。</div>
+    <!--SF-CAPUNIT-20260726/C3--><div class="cap-row"><span class="cap-row-label">0歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput0" placeholder="無制限"><span class="cap-unit2">名（同時）</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput1" placeholder="無制限"><span class="cap-unit2">名（同時）</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput2" placeholder="無制限"><span class="cap-unit2">名（同時）</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capInput3" placeholder="無制限"><span class="cap-unit2">名（同時）</span></span></div>
     <!-- SF-CAP-UNIFY-20260706 : 時間帯制限は「特定日の定員（日別例外）」画面へ一本化 -->
     <div class="cap-blocks-note" style="margin-top:16px; padding-top:12px; border-top:1px solid var(--line-soft); font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); line-height:1.7;">時間帯ごとの制限は、下の「特定日の定員（日別例外）」からカレンダーで日を選んで設定します。</div>
     <div class="cap-actions">
@@ -732,7 +752,15 @@ body {
       <span class="cap-title">年齢別定員 ・ 日別設定</span>
       <span class="cap-garden" id="capDailyLabel">月寒園</span>
     </div>
-    <div class="cap-note">この日だけの上限を設定します。空欄＝基本設定を使用、0＝予約不可。変えたい年齢だけ入力してください。</div>
+    <!--SF-CAPUNIT-20260726/C4--><div class="cap-hero">
+      <div class="h">この日だけ「同時に何名まで」を変えます</div>
+      <div class="b">数え方は基本設定と同じで、<b>同じ時間帯に重なって預かれる人数</b>です。1日の合計人数ではありません。</div>
+      <div class="cap-eg">
+        <span class="cap-eg-h">空欄</span>　基本設定のまま（この日は変えない）<br>
+        <span class="cap-eg-h">0</span>　この日はその年齢を受けない<br>
+        変えたい年齢の欄だけ入れてください。
+      </div>
+    </div>
     <div id="capCal" class="cap-cal">
       <div class="cap-cal-head">
         <button type="button" class="cap-cal-nav" onclick="capCalMove(-1)">‹</button>
@@ -742,10 +770,10 @@ body {
       <div class="cap-cal-dow"><span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span></div>
       <div id="capCalGrid" class="cap-cal-grid"></div>
     </div>
-    <div class="cap-row"><span class="cap-row-label">0歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput0" placeholder="基本"><span class="cap-unit">名</span></span></div>
-    <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput1" placeholder="基本"><span class="cap-unit">名</span></span></div>
-    <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput2" placeholder="基本"><span class="cap-unit">名</span></span></div>
-    <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput3" placeholder="基本"><span class="cap-unit">名</span></span></div>
+    <!--SF-CAPUNIT-20260726/C5--><div class="cap-row"><span class="cap-row-label">0歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput0" placeholder="基本"><span class="cap-unit2">名（同時）</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">1歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput1" placeholder="基本"><span class="cap-unit2">名（同時）</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">2歳</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput2" placeholder="基本"><span class="cap-unit2">名（同時）</span></span></div>
+    <div class="cap-row"><span class="cap-row-label">3歳〜</span><span><input type="number" min="0" inputmode="numeric" class="cap-input" id="capDailyInput3" placeholder="基本"><span class="cap-unit2">名（同時）</span></span></div>
     <div class="cap-blocks-section" id="capDailyBlocksSection" style="margin-top:16px; padding-top:14px; border-top:1px solid var(--line-soft);">
       <div class="cap-blocks-head" style="font-family:var(--serif-jp); font-size:11px; color:var(--ink-soft); letter-spacing:0.04em; margin-bottom:8px;">この日だけの時間帯制限</div>
       <div id="capDailyBlocksList"></div>
@@ -1094,8 +1122,9 @@ function capBlockAdd(val, listId) {
     '<span style="color:var(--ink-soft);">〜</span>' +
     '<select class="cb-to" style="' + selStyle + '">' + capBlockTimeOptions(val.to || '12:00') + '</select>' +
     '<span style="display:inline-flex; gap:8px; margin:0 4px;">' + ageBoxes + '</span>' +
-    '<span style="font-family:var(--serif-jp); font-size:12px; color:var(--ink-soft);">定員</span>' +
+    '<span style="font-family:var(--serif-jp); font-size:12px; color:var(--ink-soft);">同時に</span>' + /* SF-CAPUNIT-20260726/C6 */
     '<input type="number" min="0" class="cb-limit" value="' + limitVal + '" placeholder="0" style="width:48px; font-family:var(--serif-jp); font-size:13px; padding:4px 6px; border:1px solid var(--line); border-radius:6px;">' +
+    '<span style="font-family:var(--serif-jp); font-size:12px; color:var(--tiffany-deep); font-weight:600;">名まで</span>' +
     '<button type="button" class="cb-del" onclick="this.closest(\'.cap-block-row\').remove()" style="margin-left:auto; background:none; border:none; color:#B23E4C; font-size:18px; cursor:pointer; line-height:1; padding:0 4px;">×</button>';
 
   list.appendChild(row);

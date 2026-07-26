@@ -709,6 +709,9 @@ AGES.forEach(a => used[a.key] = new Array(N).fill(0));
 // サンプルで一部埋める
 function seed(age, start, end) { for (let i=slotIdx(start); i<slotIdx(end); i++) if(i>=0) used[age][i]++; }
 // used グリッドを実データ(sf_bookings)から消費枠ベースで再構築（サンプルseed廃止）。checkAvailability の都度呼ぶ
+/* SF-PARTYAVAIL-20260726/S1a : 下書き中の組（きょうだい）が消費する枠（age × 30分スロット）。
+   組モードでなければ null。rangeAvailable がこれを引いて ◎/× を出す。 */
+var PARTY_DEM = null;
 function rebuildUsed() {
   const g = normGarden(CURRENT_GARDEN);
   const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
@@ -724,6 +727,13 @@ function rebuildUsed() {
     for (let i = si; i < ei; i++) { if (i < 0) continue; slots.forEach(s => { if (grid[s]) grid[s][i]++; }); }
   });
   used = grid;
+  /* SF-PARTYAVAIL-20260726/S1b : used を作り直した直後に、まだ確定していない組の分を集計しておく。
+     partyCapacityCheck は used を直接見るので、二重には数えない。 */
+  try {
+    PARTY_DEM = (typeof partyMode !== 'undefined' && partyMode
+                 && typeof partyDraft !== 'undefined' && partyDraft && partyDraft.length)
+      ? partyDemand(partyDraft) : null;
+  } catch (e) { PARTY_DEM = null; }
 }
 
 seed('1','09:00','12:00'); seed('1','13:00','14:30');
@@ -965,9 +975,12 @@ function rangeAvailable(age, sIdx, eIdx) {
   for (let i = sIdx; i < eIdx; i++) {
     if (i < 0 || i >= N) return false;
     if (SLOTS[i] < a.open || SLOTS[i] >= a.closeEnd) return false;  // 受付時間外（終了上限17:00）
-    if (used[age][i] >= _cap) return false;                       // 満員（SF-CAP-CONCURRENT-20260724 : 管理設定の同時人数）
+    /* SF-PARTYAVAIL-20260726/S2 : 組モード中は、まだ確定していないきょうだいの分も埋まっているものとして数える。
+       これで「0歳を入れてから1歳を見る」ときに、正しい ◎/× が出る。 */
+    var _pd = (typeof PARTY_DEM !== 'undefined' && PARTY_DEM && PARTY_DEM[age]) ? PARTY_DEM[age][i] : 0;
+    if (used[age][i] + _pd >= _cap) return false;                 // 満員（同時人数）
     var __bl = blockedAt(CURRENT_GARDEN, age, SLOTS[i]);
-    if (__bl != null && used[age][i] >= __bl) return false;   // 時間帯ごとの受け入れ制限
+    if (__bl != null && used[age][i] + _pd >= __bl) return false;   // 時間帯ごとの受け入れ制限
   }
   return true;
 }
@@ -997,6 +1010,17 @@ function checkAvailability() {
      定員は「同時に何名まで」の意味になり、rangeAvailable が30分スロットごとに
      判定する。満員でも下の分岐が近い空き時間を提案するため、案内としても改善する。 */
 
+  /* SF-PARTYAVAIL-20260726/S9a : 組モード中は、下書き済みのきょうだいの分を含めて判定していることを明示する。 */
+  var _pnote = '', _pbtn = 'この時間で予約する →';
+  try {
+    if (typeof partyMode !== 'undefined' && partyMode) {
+      _pbtn = 'この組に ' + (partyDraft.length + 1) + '人目として追加 →';
+      if (partyDraft.length) {
+        _pnote = '<div class="result-party">この判定には、すでにこの組に入れた <b>' + partyDraft.length + '名</b> の分が含まれています。<br>'
+          + partyDraft.map(function (m, i) { return (i + 1) + '. ' + (m.name || '') + '（' + partyAgeJp(m.age) + ' ' + m.start + '〜' + m.end + '）'; }).join('　') + '</div>';
+      }
+    }
+  } catch (e8) {}
   if (_slots.every(s => rangeAvailable(s, sIdx, eIdx))) {
     // 予約可能
     area.innerHTML = `<div class="result-ok">
@@ -1004,9 +1028,9 @@ function checkAvailability() {
       <div class="result-detail">${ageJp} ・ ご希望の時間で空きがあります</div>
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px;">
         <div class="result-time">${start} 〜 ${endTime}</div>
-        <button class="book-btn" onclick="openReserve('${start}','${endTime}')">この時間で予約する →</button>
+        <button class="book-btn" onclick="openReserve('${start}','${endTime}')">${_pbtn}</button><!--SF-PARTYAVAIL-20260726/S9b-->
       </div>
-    </div>`;
+    </div>${_pnote}`;
   } else {
     // 予約不可 → 同じ長さで入れる近い時間を探す
     const alts = findAlternatives(_slots, dur, sIdx);
@@ -1023,8 +1047,8 @@ function checkAvailability() {
     area.innerHTML = `<div class="result-ng">
       <div class="result-headline">この時間は満員です</div>
       <div class="result-detail">${ageJp} ・ ${start} 〜 ${endTime} はお預かりできません</div>
-      ${altHtml}
-    </div>`;
+      ${altHtml}<!--SF-PARTYAVAIL-20260726/S9c-->
+    </div>${_pnote}`;
   }
 }
 
@@ -1067,6 +1091,23 @@ function openReserve(start, end) {
   }
   document.getElementById('modalConfirmBtn').textContent = isBook ? 'この内容で予約' : 'この内容で次回予約を登録';
   document.getElementById('modal').classList.add('show');
+  /* SF-PARTYAVAIL-20260726/S10 : きょうだいは苗字が同じ。2人目以降は苗字を入れておき、
+     同じ苗字の候補（きょうだい）をその場で出す。下の名前だけ足せばよい。 */
+  try {
+    if (isBook && typeof partyMode !== 'undefined' && partyMode) {
+      var _cx = document.getElementById('modalCtx');
+      if (_cx) _cx.innerHTML += '<div class="party-modal-note">この組の <b>' + (partyDraft.length + 1) + '人目</b> です。きょうだいは苗字が同じなので、<b>下のお名前だけ</b>を変えてください。</div>';
+      var _sn = partySurname();
+      var _mn = document.getElementById('mName');
+      if (_sn && _mn) {
+        _mn.value = _sn + ' ';
+        if (typeof onNameInput === 'function') onNameInput();
+        setTimeout(function () {
+          try { _mn.focus(); _mn.setSelectionRange(_mn.value.length, _mn.value.length); } catch (e9) {}
+        }, 60);
+      }
+    }
+  } catch (e10) {}
 }
 function closeModal(){ document.getElementById('modal').classList.remove('show'); }
 const WD_JP = ['日','月','火','水','木','金','土'];
@@ -1196,11 +1237,25 @@ function ensurePartyUI() {
       '.party-confirm[disabled]{border-color:var(--line);background:var(--ivory-deep);color:var(--ink-soft);cursor:not-allowed}' +
       '.party-cancel{font-family:var(--serif-jp);font-size:15px;padding:13px 20px;border:1px solid var(--line);background:var(--white);color:var(--ink);border-radius:2px;cursor:pointer;transition:all var(--transition)}' +
       '.party-confirm:active,.party-cancel:active{transform:scale(0.98)}' +
-      '.party-focus{outline:2px solid var(--salon-deep);outline-offset:5px}';
+      '.party-focus{outline:2px solid var(--salon-deep);outline-offset:5px}' +
+      /* SF-PARTYAVAIL-20260726/S3 : 確定前の「この組は全員入れるか」帯・空き案内の注記・モーダルの案内 */
+      '.party-status{display:flex;align-items:flex-start;gap:8px;margin:0 0 12px;padding:10px 12px;border-radius:2px;font-family:var(--serif-jp);font-size:13px;line-height:1.65}' +
+      '.party-status .ps-mk{flex-shrink:0;font-family:var(--sans);font-size:14px;line-height:1.45}' +
+      '.party-status b{font-weight:600}' +
+      '.party-status.ok{background:var(--salon-soft);border:1px solid var(--salon-deep);color:var(--salon-deep)}' +
+      '.party-status.ng{background:#F5E3E5;border:1px solid #D8A7A7;color:var(--error)}' +
+      '.party-status.idle{background:var(--ivory);border:1px solid var(--line-soft);color:var(--ink-soft)}' +
+      '.result-party{margin-top:10px;padding:9px 11px;border-radius:2px;background:var(--ivory);border:1px dashed var(--line);font-family:var(--serif-jp);font-size:12px;color:var(--ink-soft);line-height:1.7}' +
+      '.result-party b{color:var(--salon-deep);font-weight:600}' +
+      '.party-modal-note{margin:10px 0 0;padding:9px 11px;border-radius:2px;background:var(--salon-soft);border:1px solid var(--salon-deep);color:var(--salon-deep);font-family:var(--serif-jp);font-size:12.5px;line-height:1.65}' +
+      '.party-modal-note b{font-weight:600}';
     (document.head || document.body).appendChild(st);
   }
   if (document.getElementById('partyWrap')) return;
-  var mb = document.querySelector('.my-bookings');
+  /* SF-PARTYAVAIL-20260726/S4 : 追加ボタンと組の一覧を、年齢・時間の入力欄（#bookMode）より上に置く。
+     上にあると「一覧を見ながら次の子を選ぶ」が1画面でできる。
+     #bookMode が無いページでは従来どおり .my-bookings の前に出す。 */
+  var mb = document.getElementById('bookMode') || document.querySelector('.my-bookings');
   if (!mb || !mb.parentNode) return;
   var w = document.createElement('div');
   w.id = 'partyWrap'; w.className = 'party-wrap';
@@ -1209,7 +1264,9 @@ function ensurePartyUI() {
     '<div id="partyPanel" class="party-panel" style="display:none;">' +
       '<div class="party-head"><span id="partyCount">\u3053\u306e\u7d44\uff1a0\u540d</span>' +
       /* SF-PARTYFIX-20260725 : 「2人目・3人目をどこで足すのか分からない」の解消 */
-      '<span class="party-hint">\u304a\u5b50\u69d8\u306f<b>1\u4eba\u305a\u3064</b>\u8ffd\u52a0\u3057\u307e\u3059\u3002\u4e0b\u306e\u30dc\u30bf\u30f3\u3092\u62bc\u3059\u3068\u3001\u5e74\u9f62\u3068\u6642\u9593\u3092\u9078\u3076\u753b\u9762\u306b\u623b\u308a\u307e\u3059\u3002</span></div>' +
+      /* SF-PARTYAVAIL-20260726/S5 : パネルが入力欄の上に移ったので案内文を合わせる＋判定帯を足す */
+      '<span class="party-hint">お子様は<b>1人ずつ</b>追加します。追加するたびに、下の年齢・時間の空きは<b>この組の分を引いて</b>判定されます。</span></div>' +
+      '<div id="partyStatus" class="party-status idle"></div>' +
       '<div id="partyList" class="party-list"></div>' +
       '<button id="partyAddBtn" class="party-add" onclick="partyAddAnother()">\uff0b 1\u4eba\u76ee\u306e\u304a\u5b50\u69d8\u3092\u8ffd\u52a0\u3059\u308b</button>' +
       '<div class="party-steps"><span class="ps-t">\u8ffd\u52a0\u306e\u3057\u304b\u305f</span>' +
@@ -1238,8 +1295,31 @@ function renderPartyPanel() {
   /* SF-PARTYFIX-20260725 : 次が何人目かをボタンに出す＋0名では確定を押させない */
   var addb = document.getElementById('partyAddBtn');
   if (addb) addb.textContent = '\uff0b ' + (partyDraft.length + 1) + '\u4eba\u76ee\u306e\u304a\u5b50\u69d8\u3092\u8ffd\u52a0\u3059\u308b';
+  /* SF-PARTYAVAIL-20260726/S6 : 確定を押す前に、この組全員が入れるかをその場で判定して出す。
+     入れないときは確定ボタンを押せなくする。 */
+  var _ck = null;
+  if (partyDraft.length) {
+    try { if (typeof rebuildUsed === 'function') rebuildUsed(); } catch (e5) {}
+    try { _ck = partyCapacityCheck(partyDraft); } catch (e6) { _ck = { ok: true }; }
+  }
+  var stt = document.getElementById('partyStatus');
+  if (stt) {
+    if (!partyDraft.length) {
+      stt.className = 'party-status idle';
+      stt.innerHTML = '<span class="ps-mk">・</span><span>お子様を<b>1人ずつ</b>追加します。追加するたびに、ここで<b>全員分の空き</b>を確かめます。</span>';
+    } else if (_ck && _ck.ok) {
+      stt.className = 'party-status ok';
+      stt.innerHTML = '<span class="ps-mk">◎</span><span>この組 <b>' + partyDraft.length + '名</b> 全員、この時間でお預かりできます</span>';
+    } else {
+      stt.className = 'party-status ng';
+      stt.innerHTML = '<span class="ps-mk">×</span><span>この組は <b>' + partyAgeJp(_ck.age) + '</b> の <b>' + SLOTS[_ck.slot] + '</b> が定員を超えます。どなたかの時間をずらすか、×で外してください</span>';
+    }
+  }
   var okb = document.getElementById('partyConfirmBtn');
-  if (okb) { okb.disabled = !partyDraft.length; okb.textContent = partyDraft.length ? ('\u3053\u306e\u7d44\uff08' + partyDraft.length + '\u540d\uff09\u3067\u78ba\u5b9a\u3059\u308b') : '\u3053\u306e\u7d44\u3067\u78ba\u5b9a\u3059\u308b'; }
+  if (okb) {
+    okb.disabled = !partyDraft.length || !(_ck && _ck.ok);
+    okb.textContent = partyDraft.length ? ('この組（' + partyDraft.length + '名）で確定する') : 'この組で確定する';
+  }
   if (list) {
     list.innerHTML = partyDraft.map(function (m, i) {
       /* SF-PARTYFIX-20260725 : 何人目かを番号で出す */
@@ -1250,7 +1330,22 @@ function renderPartyPanel() {
   }
 }
 
-function partyRemove(i) { partyDraft.splice(i, 1); renderPartyPanel(); }
+function partyRemove(i) {
+  partyDraft.splice(i, 1);
+  renderPartyPanel();
+  /* SF-PARTYAVAIL-20260726/S7 : 外したら、下の空き案内もその場で判定し直す */
+  if (typeof checkAvailability === 'function') checkAvailability();
+}
+
+/* SF-PARTYAVAIL-20260726/S7 : きょうだいは苗字が同じ。先頭のお子様の苗字（空白区切りの1つ目）を返す。
+   空白が無い名前は区切れないので空文字を返し、何も入れておかない。 */
+function partySurname() {
+  try {
+    var n = (partyDraft[0] && partyDraft[0].name) || '';
+    var p = String(n).split(/[\s\u3000]+/).filter(function (x) { return x; });
+    return (p.length > 1 && p[0]) ? p[0] : '';
+  } catch (e) { return ''; }
+}
 
 /* SF-PARTYFIX-20260725 : 組パネルから「年齢・時間を選ぶ画面」へ戻す導線。
    予約の判定・保存には一切関与しない（画面スクロールと案内だけ）。 */
@@ -1262,7 +1357,8 @@ function partyAddAnother() {
     if (f) { f.classList.add('party-focus'); setTimeout(function () { try { f.classList.remove('party-focus'); } catch (e2) {} }, 1800); }
     var y = document.getElementById('sBirthYear');
     if (y && y.focus) { try { y.focus({ preventScroll: true }); } catch (e3) {} }
-    if (typeof showToast === 'function') showToast('\uff08' + (partyDraft.length + 1) + '\u4eba\u76ee\uff09\u5e74\u9f62\u3068\u6642\u9593\u3092\u9078\u3093\u3067\u3001\u300c\u3053\u306e\u6642\u9593\u3067\u4e88\u7d04\u3059\u308b\u300d\u3092\u62bc\u3057\u3066\u304f\u3060\u3055\u3044');
+    /* SF-PARTYAVAIL-20260726/S11 : パネルが上に移ったので、案内も「すぐ下」に直す */
+    if (typeof showToast === 'function') showToast('（' + (partyDraft.length + 1) + '人目）すぐ下の欄で年齢と時間を選んでください。空きはこの組の分を引いて出ます');
   } catch (e) {}
 }
 
@@ -1308,12 +1404,23 @@ function confirmReserve() {
   }
   /* SF-SALONPARTY-INTERCEPT-20260725 : 組モード中は書き込まず、この組の下書きへ貯める（確定は confirmParty で一括） */
   if (partyMode) {
-    partyDraft.push(partyMemberFromForm(name, kana, provisional));
+    /* SF-PARTYAVAIL-20260726/S8 : 下書きに足す前に、この子を含めた組全員で入れるかを判定する。
+       入れない組を組み上げてから確定時に弾かれる、をなくす。 */
+    var _cand = partyMemberFromForm(name, kana, provisional);
+    try { if (typeof rebuildUsed === 'function') rebuildUsed(); } catch (e7) {}
+    var _pchk = partyCapacityCheck(partyDraft.concat([_cand]));
+    if (!_pchk.ok) {
+      showToast(name + 'さんを足すと ' + partyAgeJp(_pchk.age) + ' の ' + SLOTS[_pchk.slot] + ' が定員を超えます。時間をずらしてください');
+      return;
+    }
+    partyDraft.push(_cand);
     closeModal();
     renderPartyPanel();
-    showToast('\u3053\u306e\u7d44\u306b\u8ffd\u52a0\uff1a' + name + '\uff08\u8a08' + partyDraft.length + '\u540d\uff09');
-    /* SF-PARTYFIX-20260725 : 追加したら組パネルへ戻し、「次の1人」ボタンを見せる */
-    try { var _pp = document.getElementById('partyPanel'); if (_pp && _pp.scrollIntoView) setTimeout(function () { _pp.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 80); } catch (e4) {}
+    /* SF-PARTYAVAIL-20260726/S8 : 下の空き案内も、今足した分を含めて即座に判定し直す */
+    if (typeof checkAvailability === 'function') checkAvailability();
+    showToast('この組に追加：' + name + '（計' + partyDraft.length + '名）');
+    /* SF-PARTYAVAIL-20260726/S8 : パネルは入力欄の真上にあるので、一覧と入力欄が同時に見える位置へ戻す */
+    try { var _pp = document.getElementById('partyWrap'); if (_pp && _pp.scrollIntoView) setTimeout(function () { _pp.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80); } catch (e4) {}
     return;
   }
   // ===== 年齢別定員の満員チェック（満員なら予約不可でブロック。既存予約・時間帯空き判定には触らない） =====
