@@ -1671,7 +1671,25 @@ function partyConfirmNames() {
   }
   var pid = 'pty_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   var dateStr = partyResvDateStr();
-  people.forEach(function (p) {
+  /* SF-SALONSPLIT-UI-20260726/C3 : 組（きょうだい）でも区間が使える。
+     partyId は組ぜんぶで1つ（よこのつながり）、groupId はお子様1人ずつに1つ（たてのつながり）。
+     2名×2区間なら4件。受付側は groupId でまとめてから partyId で束ねるので併存できる。 */
+  var _psegs = null;
+  try { _psegs = (typeof sfSplitSegments === 'function') ? sfSplitSegments(partyStart, partyEnd()) : null; } catch (_e3) { _psegs = null; }
+  people.forEach(function (p, _pi) {
+    if (_psegs && _psegs.length > 1) {
+      var _gid = 'grp_' + Date.now() + '_' + _pi + '_' + Math.random().toString(36).slice(2, 7);
+      _psegs.forEach(function (sg, _i) {
+        sfAdd({
+          gardenId: CURRENT_GARDEN, salon: sg.salon, name: p.name, kana: p.kana,
+          age: p.m.age, months: p.m.months, birthY: p.m.birthY, birthM: p.m.birthM,
+          start: sg.start, end: sg.end, date: dateStr, nextReservation: null,
+          provisional: p.provisional, info: null, partyId: pid,
+          groupId: _gid, groupSeq: _i + 1, groupTotal: _psegs.length
+        });
+      });
+      return;
+    }
     sfAdd({
       gardenId: CURRENT_GARDEN, salon: salon, name: p.name, kana: p.kana,
       age: p.m.age, months: p.m.months, birthY: p.m.birthY, birthM: p.m.birthM,
@@ -1679,6 +1697,7 @@ function partyConfirmNames() {
       provisional: p.provisional, info: null, partyId: pid
     });
   });
+  try { if (_psegs) sfSplitReset(); } catch (_e4) {}
   var cnt = people.length;
   partyCloseNames();
   partyMode = false; partyKids = []; partyDraft = [];
@@ -1692,6 +1711,255 @@ function partyConfirmNames() {
 }
 
 try { ensurePartyUI(); } catch (e) {}
+
+
+/* ============================================================
+   SF-SALONSPLIT-UI-20260726/C1 : 「2つのサロンを続けて使う」＝区間（続き利用）の入力UI
+   ------------------------------------------------------------
+   ・区間は2つまで。①のサロンは自由に選べ、②は自動でもう一方になる。
+   ・開始時刻と「合計の長さ」は今までどおりの欄（組モードでは組パネル）で選ぶ。
+     ここで決めるのは①の長さだけで、②は「合計 − ①」で自動。
+   ・区間は隙間なく連続する（受付側 SF-SALONSPLIT-GROUP-20260724 の前提）。
+   ・空き判定には一切さわらない。区間は連続していて同じお子様なので、
+     ①+②の消費は「合計時間をひと続きで予約した場合」と必ず同じになる
+     （COUNTED_ZONES が temp/woodstock/janis を合算し、サロンで絞らないため）。
+     したがって rangeAvailable / checkAvailability / findAlternatives /
+     partyGroupCheck は変更なし。
+   ・変わるのは確定時の書き込みだけ（1件 → 区間ぶん、groupId/groupSeq/groupTotal 付き）。
+   ・OFF のときは SF_SPLIT_ON=false → sfSplitSegments() が null を返し、
+     従来とまったく同じ1件が書かれる。
+   ============================================================ */
+var SF_SPLIT_ON = false;
+var SF_SPLIT_FIRST = '';
+var SF_SPLIT_D1 = 60;
+
+function sfSplitSalons() {
+  var g = null;
+  try { g = (typeof GARDENS !== 'undefined' && GARDENS[CURRENT_GARDEN]) ? GARDENS[CURRENT_GARDEN].salons : null; } catch (e) {}
+  return (g && g.length >= 2) ? g.slice(0, 2) : ['woodstock', 'janis'];
+}
+function sfSplitOther(s) { var a = sfSplitSalons(); return (a[0] === s) ? a[1] : a[0]; }
+function sfSplitJp(s) { try { return salonInfo(s).jp; } catch (e) { return String(s || ''); } }
+function sfSplitDurJp(m) {
+  m = Number(m) || 0;
+  if (m < 60) return m + '分';
+  if (m % 60 === 0) return (m / 60) + '時間';
+  return Math.floor(m / 60) + '時間' + (m % 60) + '分';
+}
+/* いま選ばれている開始時刻と「合計の長さ（分）」。組モードでは組パネルの値を使う。 */
+function sfSplitCtx() {
+  try {
+    if (typeof partyMode !== 'undefined' && partyMode) {
+      return { start: (typeof partyStart !== 'undefined' ? (partyStart || '') : ''),
+               dur: (typeof partyDur !== 'undefined' ? (partyDur || 0) : 0) };
+    }
+  } catch (e1) {}
+  var s = document.getElementById('wantStart');
+  var d = document.getElementById('wantDur');
+  return { start: (s && s.value) || '', dur: d ? (parseInt(d.value, 10) || 0) : 0 };
+}
+function sfSplitReset() {
+  SF_SPLIT_ON = false; SF_SPLIT_FIRST = ''; SF_SPLIT_D1 = 60;
+  try { sfSplitRender(); } catch (e) {}
+}
+/* 区間の中身を返す。OFF・条件を満たさないときは null（＝従来どおり1件で予約する） */
+function sfSplitSegments(startStr, endStr) {
+  if (!SF_SPLIT_ON) return null;
+  if (!startStr || !endStr) return null;
+  var t0 = timeToMin(startStr), t1 = timeToMin(endStr);
+  var total = t1 - t0;
+  if (!(total >= 60)) return null;
+  var d1 = Number(SF_SPLIT_D1) || 0;
+  if (d1 < 30 || d1 > total - 30) return null;
+  var s1 = SF_SPLIT_FIRST || ((typeof salon !== 'undefined' && salon) ? salon : sfSplitSalons()[0]);
+  var s2 = sfSplitOther(s1);
+  if (!s2 || s2 === s1) return null;
+  var mid = minToTime(t0 + d1);
+  return [
+    { salon: s1, start: startStr, end: mid },
+    { salon: s2, start: mid,      end: endStr }
+  ];
+}
+
+function ensureSplitUI() {
+  if (!document.getElementById('sfSplitCss')) {
+    var st = document.createElement('style'); st.id = 'sfSplitCss';
+    st.textContent =
+      '.sp-wrap{margin:14px 0 4px}' +
+      '.sp-toggle{width:100%;padding:12px 20px;border:1px dashed var(--gold);background:var(--white);color:var(--gold-deep);border-radius:2px;font-family:var(--serif-jp);font-size:14.5px;letter-spacing:.05em;cursor:pointer;transition:all var(--transition)}' +
+      '.sp-toggle:active{transform:scale(0.98)}' +
+      '.sp-toggle.on{border-style:solid;border-color:var(--salon-deep);background:var(--salon-soft);color:var(--salon-deep)}' +
+      '.sp-panel{margin-top:9px;border:1px solid var(--line-soft);background:var(--white);border-radius:4px;padding:14px 15px}' +
+      '.sp-hint{font-size:12px;color:var(--ink-soft);line-height:1.7;margin-bottom:11px}' +
+      '.sp-hint b{color:var(--salon-deep);font-weight:600}' +
+      '.sp-seg{display:flex;align-items:center;gap:6px;background:var(--ivory);border:1px solid var(--line-soft);border-radius:2px;padding:8px 8px;margin-bottom:6px;flex-wrap:nowrap}' +
+      '.sp-seg.fixed{background:#FBFAF7}' +
+      '.sp-seg .no{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--salon-deep);color:#fff;font-size:11px;font-family:var(--sans)}' +
+      '.sp-seg .pick{display:flex;gap:4px;flex:1 1 auto;min-width:0;flex-wrap:nowrap}' +
+      '.sp-seg .pick i{font-style:normal;font-size:12px;padding:7px 7px;border:1px solid var(--line);border-radius:2px;background:var(--white);color:var(--ink-soft);cursor:pointer;transition:all var(--transition);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+      '.sp-seg .pick i.on{background:var(--salon-deep);border-color:var(--salon-deep);color:#fff;cursor:default}' +
+      '.sp-seg select{flex-shrink:0;font-family:var(--serif-jp);font-size:13px;padding:7px 4px;border:1px solid var(--line);background:var(--white);border-radius:2px;color:var(--ink)}' +
+      '.sp-seg .fx{flex-shrink:0;font-size:12.5px;padding:7px 8px;border:1px dashed var(--line);border-radius:2px;background:var(--ivory-deep);color:var(--ink-soft);white-space:nowrap}' +
+      '.sp-read{margin-top:9px;padding:10px 11px;border-radius:2px;background:var(--salon-soft);border:1px solid var(--salon-deep);color:var(--salon-deep);font-family:var(--serif-jp);font-size:12.5px;line-height:1.75}' +
+      '.sp-read.ng{background:var(--ivory);border-color:var(--line-soft);color:var(--ink-soft)}' +
+      '.sp-read b{font-weight:600}' +
+      '.sp-sm{display:block;margin-top:3px;font-size:11.5px;opacity:.85}' +
+      '.sp-chip{display:inline-block;margin-left:6px;font-family:var(--sans);font-size:10.5px;letter-spacing:.04em;padding:2px 7px;border-radius:2px;background:var(--salon-soft);border:1px solid var(--salon-deep);color:var(--salon-deep);vertical-align:middle}';
+    (document.head || document.body).appendChild(st);
+  }
+  if (document.getElementById('sfSplitWrap')) return;
+  /* 組パネル(#partyWrap)のすぐ下・年齢と時間の欄(#bookMode)のすぐ上に置く。
+     こうすると1人ずつの予約でも組の予約でも同じ位置に出る。 */
+  var host = document.getElementById('bookMode') || document.querySelector('.my-bookings');
+  if (!host || !host.parentNode) return;
+  var w = document.createElement('div');
+  w.id = 'sfSplitWrap'; w.className = 'sp-wrap';
+  w.innerHTML =
+    '<!--SF-SALONSPLIT-UI-20260726/C1-->' +
+    '<button id="sfSplitToggleBtn" class="sp-toggle" onclick="sfSplitToggle()">＋ 2つのサロンを続けて使う</button>' +
+    '<div id="sfSplitPanel" class="sp-panel" style="display:none;">' +
+      '<div class="sp-hint">どちらのサロンを<b>先に</b>使うかを選びます。合計の長さは「お預かりの長さ」で決まり、②は自動で<b>残りぜんぶ</b>になります。お子様は①②のあいだ、ずっと保育園にいます。</div>' +
+      '<div id="sfSplitBody"></div>' +
+      '<div id="sfSplitRead" class="sp-read"></div>' +
+    '</div>';
+  host.parentNode.insertBefore(w, host);
+}
+
+function sfSplitToggle() {
+  SF_SPLIT_ON = !SF_SPLIT_ON;
+  if (SF_SPLIT_ON) {
+    if (!SF_SPLIT_FIRST) SF_SPLIT_FIRST = ((typeof salon !== 'undefined' && salon) ? salon : sfSplitSalons()[0]);
+    var c = sfSplitCtx();
+    if (c.dur >= 60) SF_SPLIT_D1 = Math.min(Math.max(30, Number(SF_SPLIT_D1) || 30), c.dur - 30);
+  }
+  sfSplitRender();
+  if (typeof showToast === 'function') showToast(SF_SPLIT_ON
+    ? '2つのサロンを続けて使います。①のサロンと①の長さを選んでください'
+    : '1つのサロンだけの予約に戻しました');
+}
+function sfSplitSetFirst(s) { SF_SPLIT_FIRST = s; sfSplitRender(); }
+function sfSplitSetD1(v) { SF_SPLIT_D1 = parseInt(v, 10) || 30; sfSplitRender(); }
+
+function sfSplitRender() {
+  ensureSplitUI();
+  var wrapEl = document.getElementById('sfSplitWrap');
+  var pan = document.getElementById('sfSplitPanel');
+  var btn = document.getElementById('sfSplitToggleBtn');
+  if (!pan) return;
+  /* 次回予約モードでは使わない（次回予約は別のレコード形になるため） */
+  var isBook = true;
+  try { isBook = (typeof reserveMode === 'undefined') || reserveMode === 'book'; } catch (e0) {}
+  if (wrapEl) wrapEl.style.display = isBook ? '' : 'none';
+  if (!isBook) SF_SPLIT_ON = false;
+
+  pan.style.display = SF_SPLIT_ON ? '' : 'none';
+  if (btn) {
+    btn.textContent = SF_SPLIT_ON ? '✕ 2つのサロン利用をやめる' : '＋ 2つのサロンを続けて使う';
+    btn.className = 'sp-toggle' + (SF_SPLIT_ON ? ' on' : '');
+  }
+  if (!SF_SPLIT_ON) return;
+
+  var c = sfSplitCtx();
+  var s1 = SF_SPLIT_FIRST || ((typeof salon !== 'undefined' && salon) ? salon : sfSplitSalons()[0]);
+  var s2 = sfSplitOther(s1);
+  var body = document.getElementById('sfSplitBody');
+  var read = document.getElementById('sfSplitRead');
+
+  if (c.dur < 60) {
+    if (body) body.innerHTML = '';
+    if (read) { read.className = 'sp-read ng'; read.innerHTML = '2つに分けるには、お預かりの長さを<b>1時間以上</b>にしてください。'; }
+    return;
+  }
+  var lo = 30, hi = c.dur - 30;
+  if (SF_SPLIT_D1 < lo) SF_SPLIT_D1 = lo;
+  if (SF_SPLIT_D1 > hi) SF_SPLIT_D1 = hi;
+
+  var opts = '';
+  for (var m = lo; m <= hi; m += 30) {
+    opts += '<option value="' + m + '"' + (m === SF_SPLIT_D1 ? ' selected' : '') + '>' + sfSplitDurJp(m) + '</option>';
+  }
+  var pick = sfSplitSalons().map(function (s) {
+    return '<i class="' + (s === s1 ? 'on' : '') + '" onclick="sfSplitSetFirst(&quot;' + s + '&quot;)">' + sfSplitJp(s) + '</i>';
+  }).join('');
+  if (body) {
+    body.innerHTML =
+      '<div class="sp-seg"><span class="no">1</span><span class="pick">' + pick + '</span>' +
+        '<select onchange="sfSplitSetD1(this.value)">' + opts + '</select></div>' +
+      '<div class="sp-seg fixed"><span class="no">2</span><span class="pick"><i class="on">' + sfSplitJp(s2) + '</i></span>' +
+        '<span class="fx">' + sfSplitDurJp(c.dur - SF_SPLIT_D1) + '</span></div>';
+  }
+  if (read) {
+    if (!c.start) {
+      read.className = 'sp-read ng';
+      read.innerHTML = '開始時刻を選ぶと、①②それぞれの時間がここに出ます。';
+    } else {
+      var t0 = timeToMin(c.start);
+      var mid = minToTime(t0 + SF_SPLIT_D1);
+      read.className = 'sp-read';
+      read.innerHTML =
+        '① <b>' + c.start + ' 〜 ' + mid + '</b> ' + sfSplitJp(s1) + '<br>' +
+        '② <b>' + mid + ' 〜 ' + minToTime(t0 + c.dur) + '</b> ' + sfSplitJp(s2) +
+        '<span class="sp-sm">合計 ' + sfSplitDurJp(c.dur) + '（このまま下の「予約する」に進めます）</span>';
+    }
+  }
+}
+
+/* 自店の予約一覧に出す ①② のしるし。片方の区間しか自店には出ないので、
+   「この後どこへ行くか／どこから続きか」を添える。 */
+function sfSegChip(b) {
+  try {
+    if (!b || !b.groupId) return '';
+    var sib = sfLoad().filter(function (x) { return x && x.groupId === b.groupId; })
+                      .sort(function (p, q) { return (Number(p.groupSeq) || 1) - (Number(q.groupSeq) || 1); });
+    if (sib.length < 2) return '';
+    var me = Number(b.groupSeq) || 1;
+    var nx = sib.filter(function (x) { return (Number(x.groupSeq) || 1) > me; })[0];
+    var pv = sib.filter(function (x) { return (Number(x.groupSeq) || 1) < me; }).pop();
+    var mk = (me === 1) ? '①' : ((me === 2) ? '②' : '(' + me + ')');
+    var txt = nx ? ('この後 ' + sfSplitJp(nx.salon)) : (pv ? (sfSplitJp(pv.salon) + ' から続き') : '');
+    return '<span class="sp-chip">' + mk + (txt ? ' ' + txt : '') + '</span>';
+  } catch (e) { return ''; }
+}
+
+/* 既存関数の中身は一切変えず、描画のあとに区間パネルを追従させるだけ。 */
+try {
+  if (typeof checkAvailability === 'function') {
+    var _sfOrigCheckAvail = checkAvailability;
+    window.checkAvailability = function () {
+      var r = _sfOrigCheckAvail.apply(this, arguments);
+      try { sfSplitRender(); } catch (e) {}
+      return r;
+    };
+  }
+  if (typeof renderPartyPanel === 'function') {
+    var _sfOrigRenderParty = renderPartyPanel;
+    window.renderPartyPanel = function () {
+      var r = _sfOrigRenderParty.apply(this, arguments);
+      try { sfSplitRender(); } catch (e) {}
+      return r;
+    };
+  }
+  /* 次回予約モードに入ったら区間UIを隠す（次回予約は別のレコード形のため） */
+  if (typeof switchMode === 'function') {
+    var _sfOrigSwitchMode = switchMode;
+    window.switchMode = function () {
+      var r = _sfOrigSwitchMode.apply(this, arguments);
+      try { sfSplitRender(); } catch (e) {}
+      return r;
+    };
+  }
+  /* サロンを切り替えたら表示名を出し直す（①の選択自体は変えない） */
+  if (typeof switchSalon === 'function') {
+    var _sfOrigSwitchSalon = switchSalon;
+    window.switchSalon = function () {
+      var r = _sfOrigSwitchSalon.apply(this, arguments);
+      try { sfSplitRender(); } catch (e) {}
+      return r;
+    };
+  }
+} catch (e) {}
+try { ensureSplitUI(); sfSplitRender(); } catch (e) {}
+
 
 function confirmReserve() {
   // ===== 次回予約モード =====
@@ -1757,7 +2025,23 @@ function confirmReserve() {
   // 共有ストレージへ書き込み → 予約管理システム・通知モデルに自動反映
   const today = new Date(); today.setHours(0,0,0,0); today.setDate(today.getDate()+dayOffset);
   const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-  const saved = sfAdd({ gardenId: CURRENT_GARDEN, salon, name, kana, age: selectedAge, months, birthY: getBirthYM().by, birthM: getBirthYM().bm, start: pendingStart, end: pendingEnd, date: dateStr, nextReservation: null, provisional, info: null });
+  /* SF-SALONSPLIT-UI-20260726/C2 : 「2つのサロンを続けて使う」がONのときは、
+     1件ではなく区間ぶん（2件）書き込む。時間は隙間なく連続させる。
+     OFF のときは _segs が null になり、従来とまったく同じ1件を書く。 */
+  var _segs = null;
+  try { _segs = (typeof sfSplitSegments === 'function') ? sfSplitSegments(pendingStart, pendingEnd) : null; } catch (_e) { _segs = null; }
+  let saved;
+  if (_segs && _segs.length > 1) {
+    const _gid = 'grp_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+    saved = null;
+    _segs.forEach(function (sg, _i) {
+      const _r = sfAdd({ gardenId: CURRENT_GARDEN, salon: sg.salon, name, kana, age: selectedAge, months, birthY: getBirthYM().by, birthM: getBirthYM().bm, start: sg.start, end: sg.end, date: dateStr, nextReservation: null, provisional, info: null, groupId: _gid, groupSeq: _i + 1, groupTotal: _segs.length });
+      if (_i === 0) saved = _r;
+    });
+    try { sfSplitReset(); } catch (_e2) {}
+  } else {
+    saved = sfAdd({ gardenId: CURRENT_GARDEN, salon, name, kana, age: selectedAge, months, birthY: getBirthYM().by, birthM: getBirthYM().bm, start: pendingStart, end: pendingEnd, date: dateStr, nextReservation: null, provisional, info: null });
+  }
   closeModal();
   renderMyBookings();
   buildStartOptions();
@@ -1791,12 +2075,14 @@ function renderMyBookings() {
     // 新規（仮）でまだ受付未登録ならバッジ。受付済みなら正式氏名を表示。
     const displayName = (b.info && b.info.name) ? b.info.name : b.name;
     const provBadge = (b.provisional && !(b.info && b.info.name)) ? '<span class="mb-prov">新規・受付待ち</span>' : '';
+    /* SF-SALONSPLIT-UI-20260726/C4 : 区間予約なら ①/② のしるしを出す（自店には片方しか出ないため） */
+    const _seg = (typeof sfSegChip === 'function') ? sfSegChip(b) : '';
     const meta = (b.info && b.info.name)
       ? `隣の保育園でお預かり ・ ✓ 受付済み`
       : (b.provisional ? '隣の保育園でお預かり ・ 来園時に受付（TimelySchool）' : '隣の保育園でお預かり');
     return `<div class="mb-item">
       <div class="mb-time">${b.start} 〜 ${b.end}</div>
-      <div class="mb-main"><div class="mb-name">${displayName}${lunch}${provBadge}</div><div class="mb-meta">${meta}</div></div>
+      <div class="mb-main"><div class="mb-name">${displayName}${lunch}${provBadge}${_seg}</div><div class="mb-meta">${meta}</div></div>
       <span class="mb-age">${ageLabel}</span>${_c0b}
     </div>`;
   }).join('');
