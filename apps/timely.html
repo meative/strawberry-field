@@ -5574,15 +5574,20 @@
   /* SF-TL-CLOUDSYNC-20260722 : 受付アプリの業務データ(visits/customers/students)を Firestore と同期 */
   const TL_COLS = { visits: 'sf_visits', customers: 'sf_customers', students: 'sf_students' };
   // tlReconcile から呼ぶ：arr を「あるべき全件」として反映し、deletedIds は削除する。
+  /* SF-SYNCGUARD-20260727 : 成否を返す。握りつぶさない。 */
   window.fbReconcileTl = async (kind, arr, deletedIds) => {
     const col = TL_COLS[kind];
-    if (!col) return;
+    if (!col) return { ok: true, empty: true };
     try {
       const batch = writeBatch(db);
       (arr || []).forEach(r => { if (r && r.id) batch.set(doc(db, col, String(r.id)), r); });
       (deletedIds || []).forEach(id => { if (id) batch.delete(doc(db, col, String(id))); });
       await batch.commit();
-    } catch (e) { console.error('[fbReconcileTl] write failed', kind, e); }
+      return { ok: true };
+    } catch (e) {
+      console.error('[fbReconcileTl] write failed', kind, e);
+      return { ok: false, error: (e && e.message) ? e.message : String(e) };
+    }
   };
 
   /* SF-ROSTER-PUBLISH-20260722 : サロン向けの軽量名簿を1ドキュメントで発行する。
@@ -5601,13 +5606,18 @@
 
   // sfSaveShared から呼ぶ：arr を「あるべき全件」として Firestore に反映。
   // deletedIds（写しから消えた id）は削除する。writeBatch で一括コミット。
+  /* SF-SYNCGUARD-20260727 : 成否を返す。握りつぶさない。 */
   window.fbReconcile = async (arr, deletedIds) => {
     try {
       const batch = writeBatch(db);
       (arr || []).forEach(r => { if (r && r.id) batch.set(doc(db, COL, String(r.id)), r); });
       (deletedIds || []).forEach(id => { if (id) batch.delete(doc(db, COL, String(id))); });
       await batch.commit();
-    } catch (e) { console.error('[fbReconcile] write failed', e); }
+      return { ok: true };
+    } catch (e) {
+      console.error('[fbReconcile] write failed', e);
+      return { ok: false, error: (e && e.message) ? e.message : String(e) };
+    }
   };
 
   // 匿名サインイン完了後に購読を開始する。
@@ -8246,7 +8256,10 @@ function sfSaveShared(arr) {
     const toWrite = sfChangedOnly(next, SF_MIRROR);
     SF_MIRROR = next; // 楽観更新（次の sfLoadShared に即反映）
     if (typeof window.fbReconcile === 'function') {
-      if (toWrite.length || deletedIds.length) window.fbReconcile(toWrite, deletedIds);
+      /* SF-SYNCGUARD-20260727 : 送信の成否を追跡する */
+      if (toWrite.length || deletedIds.length) {
+        sfSyncTrack('sf', null, toWrite, deletedIds, window.fbReconcile(toWrite, deletedIds));
+      }
     } else {
       console.warn('[sfSaveShared] fbReconcile 未準備（起動直後）。メモリ写しのみ更新しました。');
     }
@@ -8480,6 +8493,248 @@ var TL_MIRROR = { visits: [], customers: [], students: [] };   // クラウド�
 var TL_SNAP_SEEN = { visits: false, customers: false, students: false };
 var __tlApplying = false;   // スナップショット適用中フラグ（書き戻しループ防止）
 
+/* ============================================================
+   SF-SYNCGUARD-20260727
+   これまで、クラウドへの送信は失敗しても console にしか出ず、
+   しかも送信前に「送信済みの写し」を更新していたため二度と再送されなかった。
+   その結果、会計済みにした記録が翌朝クラウドの古い内容で上書きされていた。
+
+   ここでは
+     (1) 送信の成否を必ず受け取る
+     (2) 失敗したぶんは未送信箱に積み、写しからも外して再送できる状態に戻す
+     (3) 未送信が1件でもあれば画面上部に赤い帯を出し続ける
+     (4) 20秒ごと・オンライン復帰時・帯タップ時に自動で送り直す
+   を行う。会計確定時の確認は sfConfirmCloudSave() が担当する。
+   ============================================================ */
+var SF_SYNC = {
+  queue: [],          // 未送信ぶん [{scope:'tl'|'sf', kind, rows, deletedIds, at, tries}]
+  lastError: null,
+  lastOkAt: null,
+  timer: null,
+};
+window.SF_SYNC = SF_SYNC;
+
+var __sfSaveWaits = [];   // saveData 1回ぶんの送信 Promise を集める
+
+function sfSyncStyle() {
+  if (document.getElementById('sfSyncStyle')) return;
+  var s = document.createElement('style');
+  s.id = 'sfSyncStyle';
+  s.textContent = [
+    '#sfSyncBar{position:fixed;left:0;right:0;top:0;z-index:9998;display:none;',
+    'background:#C0553F;color:#fff;font-size:14px;letter-spacing:.04em;',
+    'padding:11px 16px;text-align:center;cursor:pointer;',
+    'box-shadow:0 2px 10px rgba(0,0,0,.25)}',
+    '#sfSyncBar.show{display:block}',
+    '#sfSyncBar b{font-size:16px}',
+    '#sfSyncBar .sub{display:block;font-size:11.5px;opacity:.9;margin-top:2px}',
+    '#sfSyncOv{position:fixed;inset:0;z-index:9999;display:none;',
+    'background:rgba(26,31,38,.55);align-items:center;justify-content:center;padding:24px}',
+    '#sfSyncOv.show{display:flex}',
+    '#sfSyncBox{background:#fff;border-radius:2px;max-width:460px;width:100%;',
+    'padding:30px 28px;text-align:center;border-top:5px solid #0ABAB5}',
+    '#sfSyncBox.ng{border-top-color:#C0553F}',
+    '#sfSyncBox .ic{font-size:44px;line-height:1;margin-bottom:12px}',
+    '#sfSyncBox .ttl{font-size:19px;font-weight:700;margin-bottom:8px}',
+    '#sfSyncBox .msg{font-size:13.5px;color:#4A5158;line-height:1.9}',
+    '#sfSyncBox .btns{margin-top:22px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}',
+    '#sfSyncBox button{font-family:inherit;font-size:14px;padding:11px 22px;border-radius:2px;',
+    'border:1px solid #DDD4C2;background:#fff;color:#1A1F26;cursor:pointer}',
+    '#sfSyncBox button.pri{background:#C0553F;border-color:#C0553F;color:#fff;font-weight:700}',
+  ].join('');
+  document.head.appendChild(s);
+}
+
+function sfSyncEls() {
+  sfSyncStyle();
+  var bar = document.getElementById('sfSyncBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'sfSyncBar';
+    bar.onclick = function () { sfSyncRetry(true); };
+    document.body.appendChild(bar);
+  }
+  var ov = document.getElementById('sfSyncOv');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'sfSyncOv';
+    ov.innerHTML = '<div id="sfSyncBox"><div class="ic"></div><div class="ttl"></div>' +
+                   '<div class="msg"></div><div class="btns"></div></div>';
+    document.body.appendChild(ov);
+  }
+  return { bar: bar, ov: ov };
+}
+
+function sfSyncErrText(e) {
+  if (!e) return '送信に失敗しました';
+  if (typeof e === 'string') return e;
+  var c = e.code ? String(e.code) : '';
+  var m = e.message ? String(e.message) : '';
+  if (c && m) return c + ' / ' + m;
+  return c || m || '送信に失敗しました';
+}
+
+function sfSyncRenderBar() {
+  try {
+    var bar = sfSyncEls().bar;
+    var n = SF_SYNC.queue.length;
+    if (!n) { bar.classList.remove('show'); return; }
+    bar.innerHTML = '<b>⚠ 未送信 ' + n + '件</b>' +
+      '<span class="sub">クラウドに届いていません。' +
+      'タップするとすぐに送り直します。</span>';
+    bar.classList.add('show');
+  } catch (e) {}
+}
+
+// module 側の戻り値を受け取り、失敗ぶんを未送信箱へ積む
+function sfSyncTrack(scope, kind, rows, deletedIds, promise) {
+  var p = Promise.resolve(promise).then(function (res) {
+    if (res && res.ok === false) {
+      SF_SYNC.lastError = sfSyncErrText(res.error);
+      SF_SYNC.queue.push({ scope: scope, kind: kind, rows: rows || [],
+                           deletedIds: deletedIds || [], tries: 1 });
+      // 写しから外して、次の保存でも自然に再送されるようにする
+      try {
+        if (scope === 'tl') {
+          var ids = {}; (rows || []).forEach(function (r) { if (r && r.id) ids[r.id] = 1; });
+          TL_MIRROR[kind] = (TL_MIRROR[kind] || []).filter(function (x) { return !(x && ids[x.id]); });
+        } else {
+          var ids2 = {}; (rows || []).forEach(function (r) { if (r && r.id) ids2[r.id] = 1; });
+          SF_MIRROR = (SF_MIRROR || []).filter(function (x) { return !(x && ids2[x.id]); });
+        }
+      } catch (e) {}
+      sfSyncRenderBar();
+      sfSyncSchedule();
+      return { ok: false, error: SF_SYNC.lastError };
+    }
+    SF_SYNC.lastOkAt = new Date().toISOString();
+    return { ok: true };
+  }).catch(function (e) {
+    SF_SYNC.lastError = (e && e.message) ? e.message : String(e);
+    sfSyncRenderBar();
+    return { ok: false, error: SF_SYNC.lastError };
+  });
+  __sfSaveWaits.push(p);
+  return p;
+}
+
+function sfSyncSchedule() {
+  if (SF_SYNC.timer) return;
+  SF_SYNC.timer = setInterval(function () {
+    if (!SF_SYNC.queue.length) { clearInterval(SF_SYNC.timer); SF_SYNC.timer = null; return; }
+    sfSyncRetry(false);
+  }, 20000);
+}
+
+// 未送信箱を上から順に送り直す。成功したものだけ箱から外す。
+function sfSyncRetry(manual) {
+  if (!SF_SYNC.queue.length) { sfSyncRenderBar(); return Promise.resolve({ ok: true }); }
+  var batchList = SF_SYNC.queue.slice();
+  SF_SYNC.queue = [];
+  sfSyncRenderBar();
+  var jobs = batchList.map(function (j) {
+    var fn = (j.scope === 'tl') ? window.fbReconcileTl : window.fbReconcile;
+    if (typeof fn !== 'function') { SF_SYNC.queue.push(j); return Promise.resolve({ ok: false }); }
+    var call = (j.scope === 'tl')
+      ? fn(j.kind, j.rows, j.deletedIds)
+      : fn(j.rows, j.deletedIds);
+    return Promise.resolve(call).then(function (res) {
+      if (res && res.ok === false) { j.tries = (j.tries || 1) + 1; SF_SYNC.queue.push(j); return { ok: false }; }
+      return { ok: true };
+    }).catch(function () { j.tries = (j.tries || 1) + 1; SF_SYNC.queue.push(j); return { ok: false }; });
+  });
+  return Promise.all(jobs).then(function (rs) {
+    sfSyncRenderBar();
+    var allOk = rs.every(function (r) { return r && r.ok; });
+    if (manual) {
+      if (allOk) sfSyncPopup('ok', '✓', '送信できました',
+        '未送信の分はすべてクラウドに届きました。', ['閉じる']);
+      else sfSyncPopup('ng', '⚠', 'まだ送れていません',
+        '電波を確かめて、もう一度お試しください。（' +
+        (SF_SYNC.lastError || '') + '）', ['閉じる']);
+    }
+    return { ok: allOk };
+  });
+}
+
+// 汎用ポップアップ。btns は [ラベル] または [{label, cb, pri}]
+function sfSyncPopup(kind, icon, title, msg, btns) {
+  var e = sfSyncEls();
+  var box = document.getElementById('sfSyncBox');
+  box.className = (kind === 'ng') ? 'ng' : '';
+  box.querySelector('.ic').textContent = icon;
+  box.querySelector('.ttl').textContent = title;
+  box.querySelector('.msg').innerHTML = msg;
+  var wrap = box.querySelector('.btns');
+  wrap.innerHTML = '';
+  (btns || []).forEach(function (b) {
+    var o = (typeof b === 'string') ? { label: b } : b;
+    var el = document.createElement('button');
+    el.textContent = o.label;
+    if (o.pri) el.className = 'pri';
+    el.onclick = function () { sfSyncClose(); if (o.cb) o.cb(); };
+    wrap.appendChild(el);
+  });
+  e.ov.classList.add('show');
+}
+function sfSyncClose() {
+  var ov = document.getElementById('sfSyncOv');
+  if (ov) ov.classList.remove('show');
+}
+
+/* 会計確定・修正保存のあとに呼ぶ。クラウドに届いたかを見届けてから次へ進む。 */
+function sfConfirmCloudSave(isEditingPaid, onDone) {
+  var label = isEditingPaid ? '修正' : 'お会計';
+  var waits = __sfSaveWaits.slice();
+  var go = function () { if (onDone) onDone(); };
+
+  var notReady = (typeof window.fbReconcileTl !== 'function');
+  if (notReady) {
+    sfSyncPopup('ng', '⚠', 'クラウドにつながっていません',
+      label + 'はこの端末には保存されましたが、<b>まだクラウドに届いていません</b>。<br>' +
+      '電波のある場所でページを再読み込みして、もう一度お会計を確定してください。',
+      [{ label: 'このまま領収書へ', cb: go, pri: true }]);
+    return;
+  }
+
+  if (!waits.length) { go(); return; }   // 送るものが無い＝すでに同じ内容
+
+  sfSyncPopup('ok', '☁', 'クラウドに保存中です',
+    '少しお待ちください…', []);
+
+  var settled = false;
+  var timer = setTimeout(function () { if (!settled) { settled = true; fail('応答がありません（電波を確かめてください）'); } }, 10000);
+
+  function fail(reason) {
+    sfSyncPopup('ng', '⚠', 'まだクラウドに届いていません',
+      label + 'は<b>この端末には保存されています</b>が、他の端末にはまだ届いていません。<br>' +
+      'このままだと、翌日にお会計待ちへ戻ることがあります。<br>' +
+      '<span style="font-size:12px;color:#8B3A28">（' + (reason || SF_SYNC.lastError || '') + '）</span>',
+      [{ label: 'もう一度送る', pri: true, cb: function () {
+           sfSyncRetry(false).then(function (r) {
+             if (r && r.ok) sfSyncPopup('ok', '✓', '送信できました',
+               'クラウドに届きました。', [{ label: '領収書へ', cb: go, pri: true }]);
+             else fail(null);
+           });
+         } },
+       { label: 'あとで（領収書へ）', cb: go }]);
+  }
+
+  Promise.all(waits).then(function (rs) {
+    if (settled) return;
+    settled = true; clearTimeout(timer);
+    var bad = rs.filter(function (r) { return r && r.ok === false; });
+    if (bad.length) { fail(bad[0].error); return; }
+    sfSyncPopup('ok', '✓', label + 'をクラウドに保存しました',
+      '他の端末にも反映されました。', []);
+    setTimeout(function () { sfSyncClose(); go(); }, 900);
+  });
+}
+
+try {
+  window.addEventListener('online', function () { if (SF_SYNC.queue.length) sfSyncRetry(false); });
+} catch (e) {}
+
 // 移行前の localStorage を一度だけ退避しておく（事故時にこのキーから復元できる）
 (function tlPreMigrationBackup() {
   try {
@@ -8511,9 +8766,13 @@ function tlReconcile(kind, arr) {
   /* SF-WRITEDIFF-20260724 : 深いコピーにする。浅いコピーだと写しが DATA と同じ
      オブジェクトを指し、その場書き換えを検知できず保存が取りこぼされる。 */
   var toWriteTl = sfChangedOnly(next, TL_MIRROR[kind] || []);
-  TL_MIRROR[kind] = sfCloneRows(next);   // 楽観更新
+  TL_MIRROR[kind] = sfCloneRows(next);   // 楽観更新（失敗時は sfSyncTrack が巻き戻す）
   if (typeof window.fbReconcileTl === 'function') {
-    if (toWriteTl.length || deletedIds.length) window.fbReconcileTl(kind, toWriteTl, deletedIds);
+    /* SF-SYNCGUARD-20260727 : 送信の成否を追跡する */
+    if (toWriteTl.length || deletedIds.length) {
+      sfSyncTrack('tl', kind, toWriteTl, deletedIds,
+                  window.fbReconcileTl(kind, toWriteTl, deletedIds));
+    }
   } else {
     console.warn('[tlReconcile] fbReconcileTl 未準備（起動直後）。ローカルのみ保存しました。', kind);
   }
@@ -8533,6 +8792,8 @@ function saveDataLocalOnly(data) {
 function saveData(data) {
   if (!saveDataLocalOnly(data)) return false;
   if (__tlApplying) return true;              // スナップショット適用中は書き戻さない
+  /* SF-SYNCGUARD-20260727 : この1回の保存で発生する送信を集め直す */
+  __sfSaveWaits = [];
   try {
     TL_KINDS.forEach(function (kind) {
       // 初回スナップショット受信前は送らない（空配列でクラウドを全消しするのを防ぐ）
@@ -14957,8 +15218,14 @@ function approvePayment() {
     saveData(DATA);
     currentPaymentVisit = DATA.visits[idx];
     
-    toast(isEditingPaid ? '✓ 修正を保存しました' : '✓ お会計を承認しました');
-    setTimeout(() => navigate('receipt'), 600);
+    /* SF-SYNCGUARD-20260727 : クラウドに届いたことを見届けてから領収書へ進む。
+       届かなければ赤い画面で知らせ、再送する。 */
+    if (typeof sfConfirmCloudSave === 'function') {
+      sfConfirmCloudSave(isEditingPaid, function () { navigate('receipt'); });
+    } else {
+      toast(isEditingPaid ? '✓ 修正を保存しました' : '✓ お会計を承認しました');
+      setTimeout(() => navigate('receipt'), 600);
+    }
   }
 }
 
