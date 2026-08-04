@@ -15732,6 +15732,15 @@ function usageBadgeHtml(usageKey) {
   return `<span class="usage-badge" style="background:${t.color};">${t.shortLabel}</span>`;
 }
 
+/* SF-DISCOUNT-COL-20260724 : 割引額を求める。会計時に保存した discountAmount を最優先とし、
+   無い場合は 基本＋延長−合計 から逆算する。日別/月別サマリーで「基本料金は出ているのに
+   合計が0円」の理由（＝割引で相殺）が表に出ていなかったため、割引列を追加する。 */
+function sfDiscountOf(v) {
+  if (!v) return 0;
+  if (typeof v.discountAmount === 'number' && v.discountAmount > 0) return v.discountAmount;
+  var d = (v.baseAmount || 0) + (v.extensionAmount || 0) - (v.totalAmount || 0);
+  return d > 0 ? d : 0;
+}
 // 日報レンダリング
 function renderDailyReport() {
   const dateStr = document.getElementById('reportDate').value;
@@ -15776,12 +15785,13 @@ function renderDailyReport() {
   }
   
   // 集計
-  let totalBase = 0, totalExt = 0, totalAll = 0;
+  let totalBase = 0, totalExt = 0, totalAll = 0, totalDisc = 0;   /* SF-DISCOUNT-COL-20260724 */
   const byType = { temporary: 0, morning: 0, extension: 0 };
   const byTypeCount = { temporary: 0, morning: 0, extension: 0 };
   visits.forEach(v => {
     totalBase += (v.baseAmount || 0);
     totalExt += (v.extensionAmount || 0);
+    totalDisc += sfDiscountOf(v);                                  /* SF-DISCOUNT-COL-20260724 */
     totalAll += (v.totalAmount || 0);
     const k = v.usageType || 'temporary';
     if (byType[k] !== undefined) {
@@ -15802,6 +15812,7 @@ function renderDailyReport() {
         <td class="center"><span class="usage-tag">${escapeHtml(typeLabel)}</span></td>
         <td class="right"><span class="currency">¥</span>${(v.baseAmount || 0).toLocaleString()}</td>
         <td class="right">${v.extensionAmount > 0 ? '<span class="currency">¥</span>' + v.extensionAmount.toLocaleString() : '<span style="color: var(--ink-soft);">-</span>'}</td>
+        <td class="right">${sfDiscountOf(v) > 0 ? '<span style="color: var(--error);">−<span class="currency">¥</span>' + sfDiscountOf(v).toLocaleString() + '</span>' : '<span style="color: var(--ink-soft);">-</span>'}</td>
         <td class="right" style="font-weight: 500;"><span class="currency">¥</span>${(v.totalAmount || 0).toLocaleString()}</td>
         <td class="center" style="font-family: var(--serif-jp); font-size: 12px;">${escapeHtml(v.receivedBy || '-')}</td>
       </tr>
@@ -15861,9 +15872,9 @@ function renderDailyReport() {
       }).join('')}
       <div class="rcs-row" style="border-top: 1px solid var(--gold); padding-top: 12px; margin-top: 8px;">
         <div class="rcs-row-label" style="font-weight: 500;">
-          基本料金 + 延長料金
+          小計 − 割引 = 合計
         </div>
-        <div class="rcs-row-count">基本 ¥${totalBase.toLocaleString()} / 延長 ¥${totalExt.toLocaleString()}</div>
+        <div class="rcs-row-count">小計 ¥${(totalBase + totalExt).toLocaleString()}${totalDisc > 0 ? ' <span style="color: var(--error);">− ¥' + totalDisc.toLocaleString() + '</span>' : ''}</div>
         <div class="rcs-row-amount" style="font-size: 17px;"><span class="currency">¥</span>${totalAll.toLocaleString()}</div>
       </div>
     </div>
@@ -15881,12 +15892,13 @@ function renderDailyReport() {
             <th class="center">Type<span class="jp">区分</span></th>
             <th class="right">Base<span class="jp">基本</span></th>
             <th class="right">Ext.<span class="jp">延長</span></th>
+            <th class="right">Disc.<span class="jp">割引</span></th>
             <th class="right">Total<span class="jp">合計</span></th>
             <th class="center">Received by<span class="jp">受領者</span></th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="8" class="center" style="color: var(--ink-soft); padding: 24px;">該当する記録がありません</td></tr>'}
+          ${rows || '<tr><td colspan="9" class="center" style="color: var(--ink-soft); padding: 24px;">該当する記録がありません</td></tr>'}
         </tbody>
         ${visits.length > 0 ? `
         <tfoot>
@@ -15894,6 +15906,7 @@ function renderDailyReport() {
             <td colspan="4" class="center">Total (${visits.length}名) · 合計</td>
             <td class="right"><span class="currency">¥</span>${totalBase.toLocaleString()}</td>
             <td class="right"><span class="currency">¥</span>${totalExt.toLocaleString()}</td>
+            <td class="right">${totalDisc > 0 ? '<span style="color: var(--error);">−<span class="currency">¥</span>' + totalDisc.toLocaleString() + '</span>' : '<span style="color: var(--ink-soft);">-</span>'}</td>
             <td class="right"><span class="currency">¥</span>${totalAll.toLocaleString()}</td>
             <td></td>
           </tr>
@@ -15942,7 +15955,7 @@ function renderMonthlyReport() {
   }
   
   // 月の合計
-  let totalBase = 0, totalExt = 0, totalAll = 0;
+  let totalBase = 0, totalExt = 0, totalAll = 0, totalDisc = 0;   /* SF-DISCOUNT-COL-20260724 */
   const byType = { temporary: { count: 0, amount: 0 }, morning: { count: 0, amount: 0 }, extension: { count: 0, amount: 0 } };
   
   // 日別集計
@@ -15950,6 +15963,7 @@ function renderMonthlyReport() {
   visits.forEach(v => {
     totalBase += (v.baseAmount || 0);
     totalExt += (v.extensionAmount || 0);
+    totalDisc += sfDiscountOf(v);                                  /* SF-DISCOUNT-COL-20260724 */
     totalAll += (v.totalAmount || 0);
     const k = v.usageType || 'temporary';
     if (byType[k]) {
@@ -15957,11 +15971,12 @@ function renderMonthlyReport() {
       byType[k].amount += (v.totalAmount || 0);
     }
     if (!byDay[v.visitDate]) {
-      byDay[v.visitDate] = { count: 0, base: 0, ext: 0, total: 0 };
+      byDay[v.visitDate] = { count: 0, base: 0, ext: 0, disc: 0, total: 0 };   /* SF-DISCOUNT-COL-20260724 */
     }
     byDay[v.visitDate].count++;
     byDay[v.visitDate].base += (v.baseAmount || 0);
     byDay[v.visitDate].ext += (v.extensionAmount || 0);
+    byDay[v.visitDate].disc += sfDiscountOf(v);                    /* SF-DISCOUNT-COL-20260724 */
     byDay[v.visitDate].total += (v.totalAmount || 0);
   });
   
@@ -15982,6 +15997,7 @@ function renderMonthlyReport() {
         <td class="center"><span style="font-family: var(--serif-en); color: var(--gold-deep); font-style: italic;">${dInfo.count}</span> 名</td>
         <td class="right"><span class="currency">¥</span>${dInfo.base.toLocaleString()}</td>
         <td class="right">${dInfo.ext > 0 ? '<span class="currency">¥</span>' + dInfo.ext.toLocaleString() : '<span style="color: var(--ink-soft);">-</span>'}</td>
+        <td class="right">${dInfo.disc > 0 ? '<span style="color: var(--error);">−<span class="currency">¥</span>' + dInfo.disc.toLocaleString() + '</span>' : '<span style="color: var(--ink-soft);">-</span>'}</td>
         <td class="right" style="font-weight: 500;"><span class="currency">¥</span>${dInfo.total.toLocaleString()}</td>
       </tr>
     `;
@@ -16041,6 +16057,14 @@ function renderMonthlyReport() {
         <div class="rcs-row-count">${visits.filter(v => (v.extensionAmount || 0) > 0).length}件</div>
         <div class="rcs-row-amount"><span class="currency">¥</span>${totalExt.toLocaleString()}</div>
       </div>
+      <div class="rcs-row">
+        <div class="rcs-row-label">
+          割引合計
+          <span style="color: var(--gold-deep); font-family: var(--serif-en); font-style: italic; font-size: 11px; margin-left: 8px;">Discount</span>
+        </div>
+        <div class="rcs-row-count">${visits.filter(v => sfDiscountOf(v) > 0).length}件</div>
+        <div class="rcs-row-amount" style="color: var(--error);">${totalDisc > 0 ? '−<span class="currency">¥</span>' + totalDisc.toLocaleString() : '<span style="color: var(--ink-soft);">¥0</span>'}</div>
+      </div>
       <div class="rcs-row" style="border-top: 1px solid var(--gold); padding-top: 12px; margin-top: 8px; border-bottom: none;">
         <div class="rcs-row-label" style="font-weight: 500;">
           合計
@@ -16086,6 +16110,7 @@ function renderMonthlyReport() {
             <th class="center">Visitors<span class="jp">利用者数</span></th>
             <th class="right">Base<span class="jp">基本料金</span></th>
             <th class="right">Ext.<span class="jp">延長料金</span></th>
+            <th class="right">Disc.<span class="jp">割引</span></th>
             <th class="right">Total<span class="jp">合計</span></th>
           </tr>
         </thead>
@@ -16098,6 +16123,7 @@ function renderMonthlyReport() {
             <td class="center"><span style="font-family: var(--serif-en); font-style: italic;">${visits.length}</span> 名</td>
             <td class="right"><span class="currency">¥</span>${totalBase.toLocaleString()}</td>
             <td class="right"><span class="currency">¥</span>${totalExt.toLocaleString()}</td>
+            <td class="right">${totalDisc > 0 ? '<span style="color: var(--error);">−<span class="currency">¥</span>' + totalDisc.toLocaleString() + '</span>' : '<span style="color: var(--ink-soft);">-</span>'}</td>
             <td class="right"><span class="currency">¥</span>${totalAll.toLocaleString()}</td>
           </tr>
         </tfoot>
@@ -16149,7 +16175,7 @@ function downloadDailyCsv() {
   if (visits.length === 0) return toast('この日の会計済み記録がありません', true);
   
   const rows = [
-    ['利用日', '来園時刻', '退園時刻', '氏名', 'クラス', '区分', '基本料金', '延長料金', '合計', '受領者', '領収書番号', 'お伝え事項', '備考']
+    ['利用日', '来園時刻', '退園時刻', '氏名', 'クラス', '区分', '基本料金', '延長料金', '割引', '合計', '受領者', '領収書番号', 'お伝え事項', '備考']
   ];
   visits.forEach(v => {
     const t = getUsageType(v.usageType || 'temporary');
@@ -16162,6 +16188,7 @@ function downloadDailyCsv() {
       t.label,
       v.baseAmount || 0,
       v.extensionAmount || 0,
+      sfDiscountOf(v),
       v.totalAmount || 0,
       v.receivedBy || '',
       v.receiptNo || '',
@@ -16191,7 +16218,7 @@ function downloadMonthlyDetailCsv() {
   if (visits.length === 0) return toast('この月の会計済み記録がありません', true);
   
   const rows = [
-    ['利用日', '来園時刻', '退園時刻', '氏名', 'クラス', '区分', '基本料金', '延長料金', '合計', '受領者', '領収書番号', 'お伝え事項', '備考']
+    ['利用日', '来園時刻', '退園時刻', '氏名', 'クラス', '区分', '基本料金', '延長料金', '割引', '合計', '受領者', '領収書番号', 'お伝え事項', '備考']
   ];
   visits.forEach(v => {
     const t = getUsageType(v.usageType || 'temporary');
@@ -16204,6 +16231,7 @@ function downloadMonthlyDetailCsv() {
       t.label,
       v.baseAmount || 0,
       v.extensionAmount || 0,
+      sfDiscountOf(v),
       v.totalAmount || 0,
       v.receivedBy || '',
       v.receiptNo || '',
@@ -16236,11 +16264,12 @@ function downloadMonthlySummaryCsv() {
   const byDay = {};
   visits.forEach(v => {
     if (!byDay[v.visitDate]) {
-      byDay[v.visitDate] = { count: 0, base: 0, ext: 0, total: 0, temp: 0, morning: 0, extension: 0 };
+      byDay[v.visitDate] = { count: 0, base: 0, ext: 0, disc: 0, total: 0, temp: 0, morning: 0, extension: 0 };
     }
     byDay[v.visitDate].count++;
     byDay[v.visitDate].base += (v.baseAmount || 0);
     byDay[v.visitDate].ext += (v.extensionAmount || 0);
+    byDay[v.visitDate].disc += sfDiscountOf(v);
     byDay[v.visitDate].total += (v.totalAmount || 0);
     const k = v.usageType || 'temporary';
     if (k === 'temporary') byDay[v.visitDate].temp += (v.totalAmount || 0);
@@ -16249,11 +16278,11 @@ function downloadMonthlySummaryCsv() {
   });
   
   const rows = [
-    ['日付', '利用者数', '基本料金', '延長料金', '合計', '一時預かり', '早朝', '延長']
+    ['日付', '利用者数', '基本料金', '延長料金', '割引', '合計', '一時預かり', '早朝', '延長']
   ];
   Object.keys(byDay).sort().forEach(date => {
     const d = byDay[date];
-    rows.push([date, d.count, d.base, d.ext, d.total, d.temp, d.morning, d.extension]);
+    rows.push([date, d.count, d.base, d.ext, d.disc, d.total, d.temp, d.morning, d.extension]);
   });
   
   // 合計行
