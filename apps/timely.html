@@ -8138,6 +8138,29 @@ function sfSalonLabel(salonKey) {
   }
   return null;
 }
+/* SF-ZONE-20260817 : 会計記録の「区分」判定。一時預かりは予約時のサロン(woodstock/janis)別に分ける。
+   金額・合計は変えず、内訳の分け方と表示ラベルだけを追加する。 */
+const SF_ZONE_ORDER = ['temporary','woodstock','janis','morning','extension'];
+const SF_ZONE_EN = { temporary:'Temporary Care', woodstock:'WOODSTOCK', janis:'JANIS', morning:'Early Morning', extension:'Extended Care' };
+function sfZoneKey(v){
+  const t = (v && v.usageType) || 'temporary';
+  if (t === 'temporary'){
+    if (v && v.salon === 'woodstock') return 'woodstock';
+    if (v && v.salon === 'janis') return 'janis';
+    return 'temporary';
+  }
+  return t; // morning / extension
+}
+function sfZoneLabel(key){
+  if (key === 'woodstock') return sfSalonLabel('woodstock') || 'WOODSTOCK';
+  if (key === 'janis') return sfSalonLabel('janis') || 'JANIS';
+  if (key === 'morning') return '自園生徒・早朝';
+  if (key === 'extension') return '自園生徒・延長';
+  return '一時預かり';
+}
+function sfZoneEn(key){ return SF_ZONE_EN[key] || ''; }
+/* 所属（幼稚舎/保育園）。affiliation==='youchisha' を幼稚舎とみなす。 */
+function sfAffiliationLabel(v){ return (v && v.affiliation === 'youchisha') ? '幼稚舎' : '保育園'; }
 /* SF-AGEMONTH-3PLUS-TIMELY-20260722 : 生年月から実年齢・実月齢のラベルを作る。
    board.html の ageMonthsFromYM と同じ計算。判定キー(age/months)は変えず表示専用。
    生年月が無い古い予約は従来表示にフォールバックする。 */
@@ -15786,14 +15809,14 @@ function renderDailyReport() {
   
   // 集計
   let totalBase = 0, totalExt = 0, totalAll = 0, totalDisc = 0;   /* SF-DISCOUNT-COL-20260724 */
-  const byType = { temporary: 0, morning: 0, extension: 0 };
-  const byTypeCount = { temporary: 0, morning: 0, extension: 0 };
+  const byType = {}, byTypeCount = {};
+  SF_ZONE_ORDER.forEach(z => { byType[z] = 0; byTypeCount[z] = 0; });
   visits.forEach(v => {
     totalBase += (v.baseAmount || 0);
     totalExt += (v.extensionAmount || 0);
     totalDisc += sfDiscountOf(v);                                  /* SF-DISCOUNT-COL-20260724 */
     totalAll += (v.totalAmount || 0);
-    const k = v.usageType || 'temporary';
+    const k = sfZoneKey(v);
     if (byType[k] !== undefined) {
       byType[k] += (v.totalAmount || 0);
       byTypeCount[k] += 1;
@@ -15802,8 +15825,7 @@ function renderDailyReport() {
   
   // テーブル行
   const rows = visits.map(v => {
-    const t = getUsageType(v.usageType || 'temporary');
-    const typeLabel = t.label || '一時預かり';
+    const typeLabel = sfZoneLabel(sfZoneKey(v));
     return `
       <tr>
         <td class="center"><span style="font-family: var(--serif-en); font-size: 13px; color: var(--gold-deep);">${escapeHtml(v.visitStart || '-')}</span></td>
@@ -15857,13 +15879,12 @@ function renderDailyReport() {
         <span class="rcs-title-en">Breakdown by Type</span>
         <span class="rcs-title-jp">区分別内訳</span>
       </div>
-      ${Object.keys(byType).map(k => {
-        const tl = typeLabels[k] || { en: k, jp: k };
+      ${SF_ZONE_ORDER.filter(k => byTypeCount[k] > 0).map(k => {
         return `
           <div class="rcs-row">
             <div class="rcs-row-label">
-              ${escapeHtml(tl.jp)}
-              <span style="color: var(--gold-deep); font-family: var(--serif-en); font-style: italic; font-size: 11px; margin-left: 8px;">${escapeHtml(tl.en)}</span>
+              ${escapeHtml(sfZoneLabel(k))}
+              <span style="color: var(--gold-deep); font-family: var(--serif-en); font-style: italic; font-size: 11px; margin-left: 8px;">${escapeHtml(sfZoneEn(k))}</span>
             </div>
             <div class="rcs-row-count">${byTypeCount[k]}名</div>
             <div class="rcs-row-amount"><span class="currency">¥</span>${byType[k].toLocaleString()}</div>
@@ -15956,7 +15977,8 @@ function renderMonthlyReport() {
   
   // 月の合計
   let totalBase = 0, totalExt = 0, totalAll = 0, totalDisc = 0;   /* SF-DISCOUNT-COL-20260724 */
-  const byType = { temporary: { count: 0, amount: 0 }, morning: { count: 0, amount: 0 }, extension: { count: 0, amount: 0 } };
+  const byType = {};
+  SF_ZONE_ORDER.forEach(z => { byType[z] = { count: 0, amount: 0 }; });
   
   // 日別集計
   const byDay = {};
@@ -15965,7 +15987,7 @@ function renderMonthlyReport() {
     totalExt += (v.extensionAmount || 0);
     totalDisc += sfDiscountOf(v);                                  /* SF-DISCOUNT-COL-20260724 */
     totalAll += (v.totalAmount || 0);
-    const k = v.usageType || 'temporary';
+    const k = sfZoneKey(v);
     if (byType[k]) {
       byType[k].count++;
       byType[k].amount += (v.totalAmount || 0);
@@ -16081,14 +16103,13 @@ function renderMonthlyReport() {
         <span class="rcs-title-en">Breakdown by Type</span>
         <span class="rcs-title-jp">区分別内訳</span>
       </div>
-      ${Object.keys(byType).map(k => {
-        const tl = typeLabels[k] || { en: k, jp: k };
+      ${SF_ZONE_ORDER.filter(k => byType[k] && byType[k].count > 0).map(k => {
         const info = byType[k];
         return `
           <div class="rcs-row">
             <div class="rcs-row-label">
-              ${escapeHtml(tl.jp)}
-              <span style="color: var(--gold-deep); font-family: var(--serif-en); font-style: italic; font-size: 11px; margin-left: 8px;">${escapeHtml(tl.en)}</span>
+              ${escapeHtml(sfZoneLabel(k))}
+              <span style="color: var(--gold-deep); font-family: var(--serif-en); font-style: italic; font-size: 11px; margin-left: 8px;">${escapeHtml(sfZoneEn(k))}</span>
             </div>
             <div class="rcs-row-count">${info.count}件</div>
             <div class="rcs-row-amount"><span class="currency">¥</span>${info.amount.toLocaleString()}</div>
@@ -16175,17 +16196,17 @@ function downloadDailyCsv() {
   if (visits.length === 0) return toast('この日の会計済み記録がありません', true);
   
   const rows = [
-    ['利用日', '来園時刻', '退園時刻', '氏名', 'クラス', '区分', '基本料金', '延長料金', '割引', '合計', '受領者', '領収書番号', 'お伝え事項', '備考']
+    ['利用日', '来園時刻', '退園時刻', '氏名', 'クラス', '区分', '所属', '基本料金', '延長料金', '割引', '合計', '受領者', '領収書番号', 'お伝え事項', '備考']
   ];
   visits.forEach(v => {
-    const t = getUsageType(v.usageType || 'temporary');
     rows.push([
       v.visitDate,
       v.visitStart || '',
       v.actualEnd || '',
       v.childName,
       v.className || '',
-      t.label,
+      sfZoneLabel(sfZoneKey(v)),
+      sfAffiliationLabel(v),
       v.baseAmount || 0,
       v.extensionAmount || 0,
       sfDiscountOf(v),
@@ -16218,17 +16239,17 @@ function downloadMonthlyDetailCsv() {
   if (visits.length === 0) return toast('この月の会計済み記録がありません', true);
   
   const rows = [
-    ['利用日', '来園時刻', '退園時刻', '氏名', 'クラス', '区分', '基本料金', '延長料金', '割引', '合計', '受領者', '領収書番号', 'お伝え事項', '備考']
+    ['利用日', '来園時刻', '退園時刻', '氏名', 'クラス', '区分', '所属', '基本料金', '延長料金', '割引', '合計', '受領者', '領収書番号', 'お伝え事項', '備考']
   ];
   visits.forEach(v => {
-    const t = getUsageType(v.usageType || 'temporary');
     rows.push([
       v.visitDate,
       v.visitStart || '',
       v.actualEnd || '',
       v.childName,
       v.className || '',
-      t.label,
+      sfZoneLabel(sfZoneKey(v)),
+      sfAffiliationLabel(v),
       v.baseAmount || 0,
       v.extensionAmount || 0,
       sfDiscountOf(v),
