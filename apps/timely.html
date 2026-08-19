@@ -7000,6 +7000,10 @@
       
       <!-- アクションボタン -->
       <div class="report-actions">
+        <button class="ctrl-btn ctrl-btn-primary" onclick="downloadDailyZoneCsv()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>
+          区分別CSV
+        </button>
         <button class="ctrl-btn ctrl-btn-primary" onclick="downloadDailyCsv()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -7058,6 +7062,10 @@
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           明細CSV
+        </button>
+        <button class="ctrl-btn ctrl-btn-primary" onclick="downloadMonthlyZoneCsv()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></svg>
+          区分別CSV
         </button>
         <button class="ctrl-btn ctrl-btn-primary" onclick="downloadMonthlySummaryCsv()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -16165,6 +16173,54 @@ function csvCell(val) {
     return '"' + s.replace(/"/g, '""') + '"';
   }
   return s;
+}
+
+// SF-ZONECSV-20260819: 区分別の集計をCSV出力（画面の「区分別内訳」と同じ粒度）。
+// 日報・月報それぞれ。区分＝一時預かり/WOODSTOCK(白石はBUDDY BROWN)/JANIS(白石はJANIS白石)/自園生徒・早朝/自園生徒・延長。
+// 既存の明細CSV・日別サマリーCSVは変更しない。金額/件数の集計方法は画面表示と同一。
+function sfBuildZoneRows(visits) {
+  const cnt = {}, amt = {};
+  SF_ZONE_ORDER.forEach(function(z){ cnt[z] = 0; amt[z] = 0; });
+  visits.forEach(function(v){
+    const k = sfZoneKey(v);
+    if (cnt[k] !== undefined) { cnt[k]++; amt[k] += (v.totalAmount || 0); }
+  });
+  const rows = [['区分', '件数', '金額']];
+  SF_ZONE_ORDER.forEach(function(z){
+    if (cnt[z] > 0) rows.push([sfZoneLabel(z), cnt[z], amt[z]]);
+  });
+  var totalCnt = 0, totalAmt = 0;
+  SF_ZONE_ORDER.forEach(function(z){ totalCnt += cnt[z]; totalAmt += amt[z]; });
+  rows.push(['合計', totalCnt, totalAmt]);
+  return rows;
+}
+
+function downloadDailyZoneCsv() {
+  const dateStr = document.getElementById('reportDate').value;
+  if (!dateStr) return toast('日付を選択してください', true);
+  const branch = DATA.settings.branch;
+  const visits = DATA.visits.filter(function(v){
+    return v.branch === branch && v.paymentStatus === 'paid' && v.visitDate === dateStr;
+  });
+  if (visits.length === 0) return toast('この日の会計済み記録がありません', true);
+  downloadCsv('区分別_' + branch + '_' + dateStr + '.csv', sfBuildZoneRows(visits));
+}
+
+function downloadMonthlyZoneCsv() {
+  const monthStr = document.getElementById('reportMonth').value;
+  if (!monthStr) return toast('月を選択してください', true);
+  const branch = DATA.settings.branch;
+  const ym = monthStr.split('-').map(Number);
+  const y = ym[0], m = ym[1];
+  const visits = DATA.visits.filter(function(v){
+    if (v.branch !== branch) return false;
+    if (v.paymentStatus !== 'paid') return false;
+    if (!v.visitDate) return false;
+    const vd = v.visitDate.split('-').map(Number);
+    return vd[0] === y && vd[1] === m;
+  });
+  if (visits.length === 0) return toast('この月の会計済み記録がありません', true);
+  downloadCsv('区分別_' + branch + '_' + monthStr + '.csv', sfBuildZoneRows(visits));
 }
 
 function downloadCsv(filename, rows) {
