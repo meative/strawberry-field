@@ -842,7 +842,7 @@ body {
     </div>
     <div class="field">
       <label>区分</label>
-      <select id="mZone">
+      <select id="mZone" onchange="sfZoneChanged()">
         <option value="temp">通常の一時預かり（有料）</option>
         <option value="woodstock" id="optWood">ウッドストック（無料）</option>
         <option value="janis" id="optJanis">ジャニス（無料）</option>
@@ -1952,7 +1952,8 @@ function onSlotTap(zoneKey, lane, slotIdx) {
   document.getElementById('mName').value = '';
   document.getElementById('mZone').value = zoneKey;
   document.getElementById('mMemo').value = '';
-  document.getElementById('mYouchisha').checked = false;
+  /* SF-EXT-SHARE-20260824 : 早朝・延長は自園生徒専用なので最初からチェックを入れておく */
+  document.getElementById('mYouchisha').checked = (zoneKey === 'ext_am' || zoneKey === 'ext_pm');
   document.getElementById('mDateField').style.display = 'none'; // 新規は現在のボード日付
   document.getElementById('mDate').value = boardDateStr();
   setBirthYM(null, null); // 新規は生年月未選択（保存時に選択必須）
@@ -2356,6 +2357,21 @@ function sfCapFull(age, start, end, date, months) {
   }
   return false;
 }
+/* SF-EXT-SHARE-20260824 : 早朝・延長（ext_am/ext_pm）は自園生徒専用の区分なので、
+   「幼稚舎所属」チェックの付け忘れがあっても youchisha として扱う。受付・売上レポートの
+   集計条件（affiliation==='youchisha' かつ salon==='ext_am'/'ext_pm'）を必ず満たすようにし、
+   同時に TimelySchool 側の予約取り込み（youchisha の ext を除外）からも必ず外れるようにする。 */
+function sfExtAffiliation(zone, youchisha, fallback) {
+  if (zone === 'ext_am' || zone === 'ext_pm') return 'youchisha';
+  if (youchisha) return 'youchisha';
+  return (fallback === undefined ? CURRENT_GARDEN : fallback);
+}
+/* SF-EXT-SHARE-20260824 : 区分を早朝・延長に切り替えたら幼稚舎所属を自動でチェックする（表示を実態に合わせる） */
+function sfZoneChanged() {
+  var z = document.getElementById('mZone').value;
+  if (z === 'ext_am' || z === 'ext_pm') document.getElementById('mYouchisha').checked = true;
+}
+window.sfZoneChanged = sfZoneChanged;
 async function saveBooking() {
   const name = document.getElementById('mName').value.trim();
   if (!name) { sfAlert('お子様氏名を入力してください'); return; }
@@ -2379,7 +2395,7 @@ async function saveBooking() {
     const newDate = document.getElementById('mDate').value || prev.date || boardDateStr();
     const movedToOtherDay = (newDate !== (prev.date || boardDateStr()));
     const updated = { ...prev, name, zone, age, months, birthY, birthM, memo, start, end, date: newDate,
-      affiliation: youchisha ? 'youchisha' : (prev.gardenId || CURRENT_GARDEN),
+      affiliation: sfExtAffiliation(zone, youchisha, prev.gardenId || CURRENT_GARDEN),  /* SF-EXT-SHARE-20260824 */
       lane: findFreeLane(zone, start, end, editingIdx) };
     // 共有ストレージにも反映（sfId を持つ＝共有由来の予約のみ）
     sfWriteBack(updated);
@@ -2399,11 +2415,18 @@ async function saveBooking() {
       if (!(await sfCapConfirm(_cwMsg))) return;
     }
     const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, birthY, birthM, memo, start, end, date: boardDateStr(),
-      affiliation: youchisha ? 'youchisha' : CURRENT_GARDEN };
-    // 延長保育(ext_am/ext_pm)以外は共有ストレージに保存し、TimelySchool予約画面・サロン側に表記連携する
-    if (zone !== 'ext_am' && zone !== 'ext_pm') {
-      nb.sfId = sfWriteNew(nb);
-    }
+      affiliation: sfExtAffiliation(zone, youchisha) };
+    /* SF-EXT-SHARE-20260824 : 早朝・延長も共有ストレージに保存する。
+       従来は ext_am/ext_pm だけ除外していたため、モーダル（空きコマのタップ）から作った
+       自園生徒の早朝・延長が他端末に出ず（sfId が無い予約は再読み込みで消える）、
+       受付・売上レポートの区分別内訳（予約ボード集計）にも乗らなかった。
+       名簿チップ経由の bookKinder() は元から無条件に sfWriteNew している。
+       共有された ext レコードの行き先：
+         salon.html  … salon==='woodstock'/'janis' で絞るので無視される
+         notify.html … children に ext_am/ext_pm のキーが無いので無視される
+         timely.html … importBoardReservations() が youchisha の ext を除外するので予約には出ない
+       ext は上の sfExtAffiliation で必ず youchisha になるため、漏れ出す経路は残らない。 */
+    nb.sfId = sfWriteNew(nb);
     bookings.push(nb);
     if (zone === 'woodstock' || zone === 'janis') {
       showNotify(`${name} さん（${age==='3'?'3歳〜':age+'歳'}）<br>${start} 〜 ${end} ・ ${zoneJp(zone)}`);
