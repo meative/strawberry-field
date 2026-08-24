@@ -8180,10 +8180,15 @@ function sfAffiliationLabel(v){ return (v && v.affiliation === 'youchisha') ? '�
    ※ salon フィールドにボードの zone がそのまま入る（ext_am=早朝 / ext_pm=延長）。 */
 const SF_KINDER_EXT_ZONE = { ext_am: 'morning', ext_pm: 'extension' };
 /* match(dateStr) が true の予約だけ数える。園（branch）で必ず絞る。 */
+/* SF-KINDERCOUNT-V2-20260819 : unique は「同じ園児が同じ日に早朝と延長の両方を使っても1名」
+   として数えた人数。日報ならその日の実人数、月報なら日ごとの実人数の積み上げ（延べ人日）になる。
+   早朝行・延長行はそれぞれの利用実数を出すため重複排除しない（合計だけを実人数にする）。
+   同一園・同一日で名簿の氏名が一致すれば同じ園児とみなす（予約は名簿チップから作られるため）。 */
 function sfKinderExtCounts(branch, match) {
-  const counts = { morning: 0, extension: 0 };
+  const counts = { morning: 0, extension: 0, unique: 0 };
   let shared = [];
   try { shared = sfLoadShared(); } catch (e) { console.error('sfKinderExtCounts error:', e); return counts; }
+  const seen = Object.create(null);
   shared.forEach(function (r) {
     if (!r) return;
     if (r.affiliation !== 'youchisha') return;
@@ -8192,6 +8197,8 @@ function sfKinderExtCounts(branch, match) {
     if (gardenIdToBranch(r.gardenId) !== branch) return;
     if (!r.date || !match(String(r.date))) return;
     counts[zoneKey]++;
+    const uniqKey = String(r.date) + '|' + String(r.name == null ? '' : r.name);
+    if (!seen[uniqKey]) { seen[uniqKey] = true; counts.unique++; }
   });
   return counts;
 }
@@ -8207,9 +8214,14 @@ function sfKinderCountsForMonth(branch, y, m) {
 /* 区分別内訳に出す注記。予約ボード集計が効いているときだけ出す。 */
 function sfKinderNoteHtml(kinderCnt) {
   if (!kinderCnt || (kinderCnt.morning + kinderCnt.extension) === 0) return '';
+  var note = '※ 自園生徒・早朝／延長の件数は予約管理ボードの予約数で集計しています。'
+           + 'お会計を通さないため金額は ¥0 と表示されます。';
+  /* SF-KINDERCOUNT-V2-20260819 : 重複排除が実際に効いたときだけ、その旨を書く */
+  if (kinderCnt.unique != null && kinderCnt.unique < (kinderCnt.morning + kinderCnt.extension)) {
+    note += '<br>※ 合計は、同じ園児が同じ日に早朝と延長の両方を利用した場合、1名として数えています。';
+  }
   return '<div style="font-size: 11px; color: var(--ink-soft); margin-top: 6px; line-height: 1.6;">'
-       + '※ 自園生徒・早朝／延長の件数は予約管理ボードの予約数（＝利用人数）で集計しています。'
-       + 'お会計を通さないため金額は ¥0 と表示されます。</div>';
+       + note + '</div>';
 }
 /* SF-AGEMONTH-3PLUS-TIMELY-20260722 : 生年月から実年齢・実月齢のラベルを作る。
    board.html の ageMonthsFromYM と同じ計算。判定キー(age/months)は変えず表示専用。
@@ -15880,8 +15892,10 @@ function renderDailyReport() {
      金額(byType)は会計記録のまま。上書きなので二重計上にはならない。 */
   byTypeCount.morning = sfKinderCnt.morning;
   byTypeCount.extension = sfKinderCnt.extension;
+  /* SF-KINDERCOUNT-V2-20260819 : 合計は早朝＋延長を足さず、重複排除した実人数(unique)を使う */
   let sfZoneTotalCount = 0;
-  SF_ZONE_ORDER.forEach(z => { sfZoneTotalCount += byTypeCount[z]; });
+  SF_ZONE_ORDER.forEach(z => { if (z !== 'morning' && z !== 'extension') sfZoneTotalCount += byTypeCount[z]; });
+  sfZoneTotalCount += sfKinderCnt.unique;
   
   // テーブル行
   const rows = visits.map(v => {
@@ -15939,7 +15953,7 @@ function renderDailyReport() {
         <span class="rcs-title-en">Breakdown by Type</span>
         <span class="rcs-title-jp">区分別内訳</span>
       </div>
-      ${SF_ZONE_ORDER.filter(k => byTypeCount[k] > 0).map(k => {
+      ${SF_ZONE_ORDER.filter(k => k === 'temporary' || byTypeCount[k] > 0).map(k => {
         return `
           <div class="rcs-row">
             <div class="rcs-row-label">
@@ -16077,8 +16091,13 @@ function renderMonthlyReport() {
   /* SF-KINDERCOUNT-20260819 : 早朝・延長の件数だけ予約ボード集計で上書き（金額は会計のまま） */
   byType.morning.count = sfKinderCnt.morning;
   byType.extension.count = sfKinderCnt.extension;
+  /* SF-KINDERCOUNT-V2-20260819 : 合計は早朝＋延長を足さず、重複排除した実人数(unique)を使う */
   let sfZoneTotalCount = 0, sfZoneTotalAmount = 0;
-  SF_ZONE_ORDER.forEach(z => { sfZoneTotalCount += byType[z].count; sfZoneTotalAmount += byType[z].amount; });
+  SF_ZONE_ORDER.forEach(z => {
+    if (z !== 'morning' && z !== 'extension') sfZoneTotalCount += byType[z].count;
+    sfZoneTotalAmount += byType[z].amount;
+  });
+  sfZoneTotalCount += sfKinderCnt.unique;
   
   const dayKeys = Object.keys(byDay).sort();
   const dayRows = dayKeys.map(date => {
@@ -16181,7 +16200,7 @@ function renderMonthlyReport() {
         <span class="rcs-title-en">Breakdown by Type</span>
         <span class="rcs-title-jp">区分別内訳</span>
       </div>
-      ${SF_ZONE_ORDER.filter(k => byType[k] && byType[k].count > 0).map(k => {
+      ${SF_ZONE_ORDER.filter(k => byType[k] && (k === 'temporary' || byType[k].count > 0)).map(k => {
         const info = byType[k];
         return `
           <div class="rcs-row">
@@ -16257,7 +16276,7 @@ function csvCell(val) {
 // SF-ZONECSV-20260819: 区分別の集計をCSV出力（画面の「区分別内訳」と同じ粒度）。
 // 日報・月報それぞれ。区分＝一時預かり/WOODSTOCK(白石はBUDDY BROWN)/JANIS(白石はJANIS白石)/自園生徒・早朝/自園生徒・延長。
 // 既存の明細CSV・日別サマリーCSVは変更しない。金額/件数の集計方法は画面表示と同一。
-function sfBuildZoneRows(visits, countOverride) {
+function sfBuildZoneRows(visits, countOverride, kinderUnique) {
   const cnt = {}, amt = {};
   SF_ZONE_ORDER.forEach(function(z){ cnt[z] = 0; amt[z] = 0; });
   visits.forEach(function(v){
@@ -16271,11 +16290,17 @@ function sfBuildZoneRows(visits, countOverride) {
     });
   }
   const rows = [['区分', '件数', '金額']];
+  /* SF-KINDERCOUNT-V2-20260819 : 一時預かりは0件でも必ず1行出す（画面と同じ） */
   SF_ZONE_ORDER.forEach(function(z){
-    if (cnt[z] > 0) rows.push([sfZoneLabel(z), cnt[z], amt[z]]);
+    if (z === 'temporary' || cnt[z] > 0) rows.push([sfZoneLabel(z), cnt[z], amt[z]]);
   });
+  /* SF-KINDERCOUNT-V2-20260819 : 合計件数は、早朝と延長の両方を使った園児を1名にまとめた実人数を使う */
   var totalCnt = 0, totalAmt = 0;
-  SF_ZONE_ORDER.forEach(function(z){ totalCnt += cnt[z]; totalAmt += amt[z]; });
+  SF_ZONE_ORDER.forEach(function(z){
+    if (kinderUnique == null || (z !== 'morning' && z !== 'extension')) totalCnt += cnt[z];
+    totalAmt += amt[z];
+  });
+  if (kinderUnique != null) totalCnt += kinderUnique;
   rows.push(['合計', totalCnt, totalAmt]);
   return rows;
 }
@@ -16290,7 +16315,7 @@ function downloadDailyZoneCsv() {
   /* SF-KINDERCOUNT-20260819 : 会計記録が無くても予約ボードに早朝・延長があれば出す */
   const kc = sfKinderCountsForDate(branch, dateStr);
   if (visits.length === 0 && (kc.morning + kc.extension) === 0) return toast('この日の記録がありません', true);
-  downloadCsv('区分別_' + branch + '_' + dateStr + '.csv', sfBuildZoneRows(visits, kc));
+  downloadCsv('区分別_' + branch + '_' + dateStr + '.csv', sfBuildZoneRows(visits, kc, kc.unique));
 }
 
 function downloadMonthlyZoneCsv() {
@@ -16309,7 +16334,7 @@ function downloadMonthlyZoneCsv() {
   /* SF-KINDERCOUNT-20260819 : 会計記録が無くても予約ボードに早朝・延長があれば出す */
   const kc = sfKinderCountsForMonth(branch, y, m);
   if (visits.length === 0 && (kc.morning + kc.extension) === 0) return toast('この月の記録がありません', true);
-  downloadCsv('区分別_' + branch + '_' + monthStr + '.csv', sfBuildZoneRows(visits, kc));
+  downloadCsv('区分別_' + branch + '_' + monthStr + '.csv', sfBuildZoneRows(visits, kc, kc.unique));
 }
 
 function downloadCsv(filename, rows) {
