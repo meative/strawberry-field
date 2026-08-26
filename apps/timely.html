@@ -5553,7 +5553,8 @@
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
   import {
-    getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+    getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+    collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
@@ -5567,7 +5568,18 @@
   };
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  /* SF-OFFLINE-20260826 : オフライン永続化。会計の送信待ちをタブを閉じても失わず、
+     電波が戻ればFirestore自身が自動で再送する。同一端末の複数タブでも共有できるよう
+     multiTabManager を使う。IndexedDB が使えない環境では既定キャッシュに自動で戻す。 */
+  let db;
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    });
+  } catch (e) {
+    console.warn('[firestore] 永続キャッシュを使えないため既定キャッシュにフォールバック', e);
+    db = getFirestore(app);
+  }
   const auth = getAuth(app);
   const COL = 'sf_bookings'; // board/salon/notify と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
 
@@ -8840,6 +8852,43 @@ function tlIdSet(arr) {
   return s;
 }
 
+/* ============================================================
+   SF-VERGUARD-20260826 : スナップショット適用時のレコード単位マージ。
+   従来は tlApplySnapshot が DATA[kind]=cloud と手元を無条件に破棄していたため、
+   どこかの端末のクラウド状態が古い（会計待ち）と、会計済みが翌朝巻き戻り、
+   その1件が売上から丸ごと外れていた（renderPaymentList に日付フィルタも無く居座る）。
+
+   ここでは cloud を土台にする（＝cloud に無い id は従来どおり落とし、削除も尊重する）が、
+   同じ id が両方にある場合だけ「手元を残す」条件を設ける：
+     (1) 会計ガード … 手元が会計済み・クラウドが会計待ちなら絶対に巻き戻さない。
+         （会計済み→会計待ちに戻す正規の操作は存在しないため、これは常に安全）
+     (2) 版ガード   … 手元の更新時刻(updatedAt 等)がクラウドより新しければ手元を残す。
+   残した手元ぶん(localWins)はクラウドへ送り直す（オフライン永続化で自動再送される）。
+   ============================================================ */
+function tlRecTime(r) {
+  var t = r && (r.updatedAt || r.modifiedAt || r.paidAt || r.createdAt);
+  var n = t ? Date.parse(t) : 0;
+  return isFinite(n) ? n : 0;
+}
+function tlMergeByVersion(kind, local, cloud) {
+  var localById = {};
+  (local || []).forEach(function (r) { if (r && r.id != null) localById[r.id] = r; });
+  var rows = [], localWins = [];
+  (cloud || []).forEach(function (c) {
+    var l = (c && c.id != null) ? localById[c.id] : null;
+    if (!l) { rows.push(c); return; }                 // クラウドのみ（または id 無し）→ クラウド採用
+    var keepLocal = false;
+    if (kind === 'visits' && l.paymentStatus === 'paid' && c.paymentStatus === 'pending') {
+      keepLocal = true;                               // (1) 会計ガード：会計済みは巻き戻さない
+    } else if (tlRecTime(l) > tlRecTime(c)) {
+      keepLocal = true;                               // (2) 版ガード：手元のほうが新しい
+    }
+    if (keepLocal) { rows.push(l); localWins.push(l); }
+    else { rows.push(c); }
+  });
+  return { rows: rows, localWins: localWins };
+}
+
 // DATA[kind] を「あるべき全件」としてクラウドへ反映する。
 // 写し(TL_MIRROR)と比較して消えた id を削除対象に含める。
 function tlReconcile(kind, arr) {
@@ -8905,19 +8954,29 @@ window.tlApplySnapshot = function (kind, rows) {
       var localOnly = (DATA[kind] || []).filter(function (x) {
         return x && x.id && !cloudIds[x.id];
       });
-      DATA[kind] = cloud.concat(localOnly);
+      /* SF-VERGUARD-20260826 : 翌朝の再読み込みはこの初回経路を通る。
+         ここでもレコード単位マージし、会計済みをクラウドの会計待ちで潰さない。 */
+      var mg0 = tlMergeByVersion(kind, DATA[kind] || [], cloud);
+      DATA[kind] = mg0.rows.concat(localOnly);
       TL_MIRROR[kind] = sfCloneRows(cloud);   /* SF-WRITEDIFF-20260724 : 深いコピー */
       saveDataLocalOnly(DATA);
       console.log('[tlApplySnapshot] 初回マージ ' + kind +
-                  ': クラウド' + cloud.length + '件 + この端末のみ' + localOnly.length + '件');
-      if (localOnly.length && typeof window.fbReconcileTl === 'function') {
-        window.fbReconcileTl(kind, localOnly, []);   // 端末固有分だけ上げる（削除は送らない）
-        TL_MIRROR[kind] = sfCloneRows(DATA[kind]);   /* SF-WRITEDIFF-20260724 : 深いコピー */
+                  ': クラウド' + cloud.length + '件 + この端末のみ' + localOnly.length +
+                  '件 + 手元優先' + mg0.localWins.length + '件');
+      var push0 = mg0.localWins.concat(localOnly);
+      if (push0.length && typeof window.fbReconcileTl === 'function') {
+        window.fbReconcileTl(kind, push0, []);   // 端末固有分＋手元が新しいぶんを上げる（削除は送らない）
       }
     } else {
-      DATA[kind] = cloud;
+      /* SF-VERGUARD-20260826 : クラウドで無条件に上書きしない。レコード単位で判定し、
+         「手元が会計済み・クラウドが会計待ち」は絶対に巻き戻さない。手元が新しいものも残す。 */
+      var mg1 = tlMergeByVersion(kind, DATA[kind] || [], cloud);
+      DATA[kind] = mg1.rows;
       TL_MIRROR[kind] = sfCloneRows(cloud);   /* SF-WRITEDIFF-20260724 : 深いコピー */
       saveDataLocalOnly(DATA);
+      if (mg1.localWins.length && typeof window.fbReconcileTl === 'function') {
+        window.fbReconcileTl(kind, mg1.localWins, []);   // 手元優先ぶんをクラウドへ送り直す
+      }
     }
   } catch (e) {
     console.error('[tlApplySnapshot] error', kind, e);
