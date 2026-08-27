@@ -4067,6 +4067,27 @@
     font-weight: 500;
   }
   
+  /* SF-TLDELETE-20260827 : 明細一覧の1件削除ボタン。印刷時は列ごと隠す。 */
+  .tl-del-btn {
+    font-family: var(--serif-jp);
+    font-size: 11px;
+    line-height: 1;
+    padding: 5px 11px;
+    border: 1px solid var(--error);
+    background: #fff;
+    color: var(--error);
+    border-radius: 2px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .15s, color .15s;
+  }
+  .tl-del-btn:hover { background: var(--error); color: #fff; }
+  @media print {
+    .tl-del-btn,
+    .report-table th.tl-del-col,
+    .report-table td.tl-del-col { display: none !important; }
+  }
+  
   /* 明細テーブル */
   .report-table {
     width: 100%;
@@ -8825,6 +8846,92 @@ function sfConfirmCloudSave(isEditingPaid, onDone) {
     sfSyncPopup('ok', '✓', label + 'をクラウドに保存しました',
       '他の端末にも反映されました。', []);
     setTimeout(function () { sfSyncClose(); go(); }, 900);
+  });
+}
+
+/* ============================================================
+   SF-TLDELETE-20260827 : 会計記録の1件削除（明細一覧の「削除」ボタン）。
+   会計・売上データのため削除前に必ず確認ダイアログ（氏名・日付・金額を表示）を出す。
+   削除は「保存の逆」：対象 visit を DATA.visits から除いて saveData() すると、
+   tlReconcile が deletedIds を計算し fbReconcileTl→deleteDoc で sf_visits からも消える。
+   SF-VERGUARD-20260826 のマージは cloud を土台にし「cloud に無い id は落とす（削除を尊重）」
+   ため、削除は他端末の onSnapshot でも復活しない。SYNCGUARD により反映の成否を見届け、
+   失敗時は赤帯＋再送で拾う。方針：完全削除＋再入力（間違えたら受付画面から入れ直す）。
+   ============================================================ */
+function tlDeleteVisit(arg) {
+  var id = (arg && arg.dataset) ? arg.dataset.vid : arg;
+  if (id == null || id === '') return;
+  var v = (DATA.visits || []).find(function (x) { return x && String(x.id) === String(id); });
+  if (!v) { toast('対象の記録が見つかりません（画面を更新してください）', true); return; }
+
+  var typeLabel = (typeof sfZoneLabel === 'function' && typeof sfZoneKey === 'function')
+    ? sfZoneLabel(sfZoneKey(v)) : '';
+  var endT = v.actualEnd || v.visitEnd || '-';
+  var msg = '【この会計記録を削除します】\n\n'
+    + '日付：' + (v.visitDate || '-') + '\n'
+    + '氏名：' + (v.childName || '-') + '\n'
+    + '時間：' + (v.visitStart || '-') + ' 〜 ' + endT + '\n'
+    + (typeLabel ? '区分：' + typeLabel + '\n' : '')
+    + '金額：¥' + (Number(v.totalAmount) || 0).toLocaleString() + '\n'
+    + '受領者：' + (v.receivedBy || '-') + '\n'
+    + (v.receiptNo ? '領収書No：' + v.receiptNo + '\n' : '')
+    + '\nこの操作は取り消せません。\n'
+    + '削除すると売上・月報から外れ、クラウド（他の端末）からも消えます。\n'
+    + '間違えて消したときは、受付画面からもう一度お会計して入力し直してください。\n\n'
+    + '本当に削除しますか？';
+  if (!window.confirm(msg)) return;
+
+  var before = (DATA.visits || []).length;
+  DATA.visits = (DATA.visits || []).filter(function (x) { return !(x && String(x.id) === String(id)); });
+  if (DATA.visits.length === before) { toast('削除できませんでした（対象が見つかりません）', true); return; }
+
+  saveData(DATA);   // localStorage + tlReconcile（deletedIds→クラウド削除）。__sfSaveWaits に送信が積まれる
+
+  // 画面を即時更新（消えた行を反映）
+  try { if (typeof renderDailyReport === 'function') renderDailyReport(); } catch (e) {}
+  try { if (typeof renderMonthlyReport === 'function') renderMonthlyReport(); } catch (e) {}
+  try { if (typeof renderPaymentList === 'function') renderPaymentList(); } catch (e) {}
+
+  tlConfirmCloudDelete();
+}
+
+/* 削除がクラウド（sf_visits）へ届いたかを見届ける。sfConfirmCloudSave の削除版。 */
+function tlConfirmCloudDelete() {
+  var waits = __sfSaveWaits.slice();
+  if (typeof window.fbReconcileTl !== 'function') {
+    sfSyncPopup('ng', '⚠', 'クラウドにつながっていません',
+      '記録はこの端末からは消しましたが、<b>まだクラウドに反映されていません</b>。<br>' +
+      '電波のある場所でページを再読み込みしてください（未反映ぶんは自動で送り直します）。',
+      [{ label: '閉じる', pri: true }]);
+    return;
+  }
+  if (!waits.length) { toast('削除しました'); return; }
+
+  sfSyncPopup('ok', '☁', 'クラウドに反映中です', '少しお待ちください…', []);
+  var settled = false;
+  var timer = setTimeout(function () { if (!settled) { settled = true; fail('応答がありません（電波を確かめてください）'); } }, 10000);
+
+  function fail(reason) {
+    sfSyncPopup('ng', '⚠', 'まだクラウドに反映できていません',
+      '削除は<b>この端末には反映されています</b>が、他の端末にはまだ届いていません。<br>' +
+      'このままだと、他の端末から記録が戻ることがあります。<br>' +
+      '<span style="font-size:12px;color:#8B3A28">（' + (reason || SF_SYNC.lastError || '') + '）</span>',
+      [{ label: 'もう一度送る', pri: true, cb: function () {
+           sfSyncRetry(false).then(function (r) {
+             if (r && r.ok) sfSyncPopup('ok', '✓', '反映できました', 'クラウドから削除されました。', ['閉じる']);
+             else fail(null);
+           });
+         } },
+       { label: '閉じる' }]);
+  }
+
+  Promise.all(waits).then(function (rs) {
+    if (settled) return;
+    settled = true; clearTimeout(timer);
+    var bad = rs.filter(function (r) { return r && r.ok === false; });
+    if (bad.length) { fail(bad[0].error); return; }
+    sfSyncPopup('ok', '✓', '削除しました', '他の端末からも削除されました。', []);
+    setTimeout(function () { sfSyncClose(); }, 900);
   });
 }
 
@@ -15970,6 +16077,7 @@ function renderDailyReport() {
         <td class="right">${sfDiscountOf(v) > 0 ? '<span style="color: var(--error);">−<span class="currency">¥</span>' + sfDiscountOf(v).toLocaleString() + '</span>' : '<span style="color: var(--ink-soft);">-</span>'}</td>
         <td class="right" style="font-weight: 500;"><span class="currency">¥</span>${(v.totalAmount || 0).toLocaleString()}</td>
         <td class="center" style="font-family: var(--serif-jp); font-size: 12px;">${escapeHtml(v.receivedBy || '-')}</td>
+        <td class="center tl-del-col"><button type="button" class="tl-del-btn" data-vid="${escapeHtml(String(v.id == null ? '' : v.id))}" onclick="tlDeleteVisit(this)" title="この記録を削除">削除</button></td>
       </tr>
     `;
   }).join('');
@@ -16058,10 +16166,11 @@ function renderDailyReport() {
             <th class="right">Disc.<span class="jp">割引</span></th>
             <th class="right">Total<span class="jp">合計</span></th>
             <th class="center">Received by<span class="jp">受領者</span></th>
+            <th class="center tl-del-col">Delete<span class="jp">削除</span></th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="9" class="center" style="color: var(--ink-soft); padding: 24px;">該当する記録がありません</td></tr>'}
+          ${rows || '<tr><td colspan="10" class="center" style="color: var(--ink-soft); padding: 24px;">該当する記録がありません</td></tr>'}
         </tbody>
         ${visits.length > 0 ? `
         <tfoot>
@@ -16072,6 +16181,7 @@ function renderDailyReport() {
             <td class="right">${totalDisc > 0 ? '<span style="color: var(--error);">−<span class="currency">¥</span>' + totalDisc.toLocaleString() + '</span>' : '<span style="color: var(--ink-soft);">-</span>'}</td>
             <td class="right"><span class="currency">¥</span>${totalAll.toLocaleString()}</td>
             <td></td>
+            <td class="tl-del-col"></td>
           </tr>
         </tfoot>
         ` : ''}
