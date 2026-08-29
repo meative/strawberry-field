@@ -9455,7 +9455,13 @@ function navigate(screenName) {
     if (elH) elH.textContent = pendingCount > 0 ? ` (${pendingCount})` : '';
     
     // 予約リスト件数を更新
-    const reservations = (DATA.reservations || []).filter(r => r.branch === branch);
+    /* SF-RESBADGE-20260829 : 予約リストのバッジは「本日＋これから」だけ数える。
+       予約リストは共有予約(sf_bookings)の写しで過去日も残るため、全件を数えると
+       「数字は出るのに開くと今日の予約が無い」状態になっていた。過去分は
+       「他の日付を選ぶ」から従来どおり確認できる（データは消さない）。 */
+    const _resToday = todayStr();
+    const reservations = (DATA.reservations || []).filter(r =>
+      r.branch === branch && String(r.reservationDate || '') >= _resToday);
     const elR = document.getElementById('homeReservationCount');
     if (elR) elR.textContent = reservations.length > 0 ? ` (${reservations.length})` : '';
   } else {
@@ -11303,6 +11309,13 @@ function renderVisitListItem(v) {
   const usageKey = v.usageType || 'temporary';
   const usageType = getUsageType(usageKey);
   const usageBadge = `<span style="background:${usageType.color}; color:white; padding:2px 8px; border-radius:10px; font-size:11px;">${usageType.shortLabel}</span>`;
+  /* SF-PENDDEL-20260829 : 会計待ちを1件だけ消せるようにする。受付を二度通してしまった等で
+     残った会計待ちは、これまで消す手段が無く「会計済みなのに会計待ちに出続ける」状態になっていた。
+     会計済みの削除（日報の明細）と同じ tlDeleteVisit を使うので、確認モーダル・クラウド反映・
+     失敗時の再送はそのまま効く。会計済み行には出さない（誤操作防止。修正は「✏️ 修正」から）。 */
+  const delBtn = isPaid
+    ? ''
+    : `<button class="btn btn-secondary" style="padding:6px 12px; font-size:12px; color:var(--error); border-color:var(--error);" onclick="event.stopPropagation(); tlDeleteVisit('${v.id}')">🗑 削除</button>`;
   return `
     <div class="list-item">
       <div class="left">
@@ -11312,6 +11325,7 @@ function renderVisitListItem(v) {
           ${statusBadge}
           ${receiptBtn}
           ${editBtn}
+          ${delBtn}
         </div>
         <div style="font-size:12px; color: var(--color-text-light); margin-top:4px;">
           ${v.visitStart || '-'}〜${v.actualEnd || v.visitEnd || '-'}${v.receivedBy ? ' | 受領：' + escapeHtml(v.receivedBy) : ''}${v.className ? ' | ' + escapeHtml(v.className) : ''}
