@@ -8179,6 +8179,17 @@ function sfSalonLabel(salonKey) {
   }
   return null;
 }
+/* SF-DISCLABEL-GARDEN-20260827 : 会計画面の割引ボタンを園別の実店名で表示
+   （白石園=BUDDY BROWN割引/JANIS白石割引、他園=WOODSTOCK割引/JANIS割引）。
+   識別子(data-type)は woodstock/janis のまま変えない（Method X）。 */
+function sfUpdateDiscountBtnLabels() {
+  try {
+    var w = document.querySelector('.discount-type-btn[data-type="woodstock"] .dt-label');
+    if (w) w.textContent = (sfSalonLabel('woodstock') || 'WOODSTOCK') + '割引';
+    var j = document.querySelector('.discount-type-btn[data-type="janis"] .dt-label');
+    if (j) j.textContent = (sfSalonLabel('janis') || 'JANIS') + '割引';
+  } catch (e) {}
+}
 /* SF-ZONE-20260817 : 会計記録の「区分」判定。一時預かりは予約時のサロン(woodstock/janis)別に分ける。
    金額・合計は変えず、内訳の分け方と表示ラベルだけを追加する。 */
 const SF_ZONE_ORDER = ['temporary','woodstock','janis','morning','extension'];
@@ -8199,7 +8210,11 @@ function sfZoneLabel(key){
   if (key === 'extension') return '自園生徒・延長';
   return '一時預かり';
 }
-function sfZoneEn(key){ return SF_ZONE_EN[key] || ''; }
+function sfZoneEn(key){
+  /* SF-DISCLABEL-GARDEN-20260827 : 白石園は英語表記も実店名（board.html の en/jp 統一表記と同じ扱い） */
+  if (key === 'woodstock' || key === 'janis') return sfSalonLabel(key) || SF_ZONE_EN[key] || '';
+  return SF_ZONE_EN[key] || '';
+}
 /* 所属（幼稚舎/保育園）。affiliation==='youchisha' を幼稚舎とみなす。 */
 function sfAffiliationLabel(v){ return (v && v.affiliation === 'youchisha') ? '幼稚舎' : '保育園'; }
 /* SF-KINDERCOUNT-20260819 : 自園生徒（幼稚舎）の早朝・延長は受付・お会計を通さないため
@@ -9634,7 +9649,7 @@ function openResDetail(sfId) {
   document.getElementById('resDetailBadges').innerHTML = badges;
 
   // 区分（一時預かり / サロン等）。共有レコードの salon から判定
-  const ZONE_JP = { temp:'通常の一時預かり', woodstock:'ウッドストック（美容室）', janis:'ジャニス（サロン）', ext:'延長保育（自園生徒）' };
+  const ZONE_JP = { temp:'通常の一時預かり', woodstock:(sfSalonLabel('woodstock')||'ウッドストック')+'（美容室）', janis:(sfSalonLabel('janis')||'ジャニス')+'（サロン）', ext:'延長保育（自園生徒）' };   /* SF-DISCLABEL-GARDEN-20260827 */
   const zoneLabel = shared && shared.salon ? (ZONE_JP[shared.salon] || shared.salon) : '一時預かり';
   const memo = shared && shared.memo ? shared.memo : '';
 
@@ -13418,6 +13433,7 @@ function renderPaymentScreen() {
 // 修正モード：保存済みの v.discountType/v.discountAmount を復元
 // 新規モード：サロン経由予約なら「WOODSTOCK割引」or「JANIS割引」を自動セット、それ以外は「割引なし」
 function initDiscountUI(v) {
+  sfUpdateDiscountBtnLabels();   /* SF-DISCLABEL-GARDEN-20260827 */
   const typeEl = document.getElementById('discountType');
   const amountEl = document.getElementById('discountAmountInput');
   const row = document.getElementById('discountAmountRow');
@@ -14132,9 +14148,9 @@ function recalcAmount() {
   if (discountAmount > 0 && discountInfo.type !== 'none') {
     let discLabel;
     if (discountInfo.type === 'woodstock') {
-      discLabel = 'WOODSTOCK割引';
+      discLabel = (sfSalonLabel('woodstock') || 'WOODSTOCK') + '割引';   /* SF-DISCLABEL-GARDEN-20260827 */
     } else if (discountInfo.type === 'janis') {
-      discLabel = 'JANIS割引';
+      discLabel = (sfSalonLabel('janis') || 'JANIS') + '割引';
     } else {
       discLabel = '通常割引';
     }
@@ -15622,10 +15638,10 @@ function renderReceipt() {
   if (discType && discType !== 'none' && discAmount > 0) {
     let discLabel, discNote;
     if (discType === 'woodstock') {
-      discLabel = 'WOODSTOCK割引';
+      discLabel = (sfSalonLabel('woodstock') || 'WOODSTOCK') + '割引';   /* SF-DISCLABEL-GARDEN-20260827 */
       discNote = '(美容室ご利用のお客様)';
     } else if (discType === 'janis') {
-      discLabel = 'JANIS割引';
+      discLabel = (sfSalonLabel('janis') || 'JANIS') + '割引';
       discNote = '(サロンご利用のお客様)';
     } else {
       discLabel = '通常割引';

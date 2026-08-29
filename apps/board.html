@@ -1762,6 +1762,8 @@ function bookKinder(zoneKey, idx) {
   if (lane < 0) { sfAlert('この時間帯は満員です'); return; }
   var nb = { zone: zoneKey, lane: lane, gardenId: CURRENT_GARDEN,
              name: r.name, age: '3', months: null, memo: '',
+             /* SF-KINDER-AGE-20260829 : 名簿に生年月があれば載せる（バーは ageMonthsFromYM で実年齢表示、sfWriteNew も透過） */
+             birthY: (r.birthY != null ? r.birthY : null), birthM: (r.birthM != null ? r.birthM : null),
              start: start, end: end, date: boardDateStr(),
              affiliation: 'youchisha' };
   /* SF-KINDER-SHARE-STEP3-V5-20260702 : share ON — write to sf storage before push */
