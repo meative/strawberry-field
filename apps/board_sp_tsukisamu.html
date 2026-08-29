@@ -1805,11 +1805,12 @@ function renderBoard() {
         const width = ((endIdx - si) / N) * 100;
         /* SF-AGEMONTH-3PLUS-20260722 : birthY/birthM があれば実年齢・実月齢で表示（3歳以上も月齢）。無い古い予約は従来表示。 */
         let ageLabel;
-        if (b.birthY && b.birthM) { const _r = ageMonthsFromYM(b.birthY, b.birthM); ageLabel = `${_r.realAge}歳${_r.realMonths != null ? _r.realMonths : 0}ヶ月`; }
+        const _kb = kinderBirthOf(b);   /* SF-KINDER-AGE-V2-20260829 : 幼稚舎は名簿から生年月を補う */
+        if (_kb.birthY && _kb.birthM) { const _r = ageMonthsFromYM(_kb.birthY, _kb.birthM); ageLabel = `${_r.realAge}歳${_r.realMonths != null ? _r.realMonths : 0}ヶ月`; }
         else ageLabel = b.age === '3' ? '3歳〜' : (b.months != null ? `${b.age}歳${b.months}ヶ月` : `${b.age}歳`);
         /* SF-CLASS0-20260721 : 0歳児クラス該当ならチップに「0歳児（○月）」バッジ */
         let class0Chip = '';
-        if (b.birthY && b.birthM) { const _ci = class0FromBoard(b.birthY, b.birthM); if (_ci.is0) class0Chip = `<span class="class0-chip">${_ci.label}</span>`; }
+        if (_kb.birthY && _kb.birthM) { const _ci = class0FromBoard(_kb.birthY, _kb.birthM); if (_ci.is0) class0Chip = `<span class="class0-chip">${_ci.label}</span>`; }
         const gidx = bookings.indexOf(b);
         const lunch = needsLunch(b) ? '<span class="lunch-mark" title="昼食・軽食をお持ちください">🍙</span>' : '';
         const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
@@ -2127,6 +2128,21 @@ function setBirthYM(by, bm) {
   if (m) m.value = bm ? String(bm) : '';
   updateAgePreview();
 }
+/* SF-KINDER-AGE-V2-20260829 : 幼稚舎の予約に生年月が無いとき、名簿(KINDER_ROSTER)から
+   氏名一致で補う。月謝アプリの名簿更新より前に作られた既存予約も実年齢で表示するための
+   「表示時の補完」。予約データそのものは書き換えないので、判定・定員・共有には影響しない。
+   幼稚舎(affiliation==='youchisha')の予約だけを対象にするので、一般の一時預かりには一切効かない。 */
+function kinderBirthOf(b) {
+  if (!b) return { birthY: null, birthM: null };
+  if (b.birthY && b.birthM) return { birthY: b.birthY, birthM: b.birthM };
+  if (b.affiliation !== 'youchisha' || !b.name) return { birthY: null, birthM: null };
+  var roster = window.KINDER_ROSTER || [];
+  for (var i = 0; i < roster.length; i++) {
+    var r = roster[i];
+    if (r && r.name === b.name && r.birthY && r.birthM) return { birthY: r.birthY, birthM: r.birthM };
+  }
+  return { birthY: null, birthM: null };
+}
 // 旧レコード(birth無し)の編集用：age/months から近似の生年月を逆算（基準日 BOARD_BASE から遡る）
 function birthYMFromAgeMonths(age, months) {
   const a = parseInt(age, 10);
@@ -2139,6 +2155,8 @@ function birthYMFromAgeMonths(age, months) {
 // 編集/顧客連携時のプリフィル：birthがあればそれ、無ければ age/months から逆算
 function prefillBirthFrom(rec) {
   if (rec && rec.birthY && rec.birthM) { setBirthYM(rec.birthY, rec.birthM); return; }
+  /* SF-KINDER-AGE-V2-20260829 : 幼稚舎で生年月が未保存なら名簿から補って初期表示する */
+  if (rec) { const _kb = kinderBirthOf(rec); if (_kb.birthY && _kb.birthM) { setBirthYM(_kb.birthY, _kb.birthM); return; } }
   if (rec) { const d = birthYMFromAgeMonths(rec.age, rec.months); setBirthYM(d.by, d.bm); return; }
   setBirthYM(null, null);
 }
