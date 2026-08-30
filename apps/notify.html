@@ -1580,6 +1580,9 @@ function sendNotify(type, childIdx, lateMin) {
   /* SF-NOTIFY-SENDSYNC-20260723 : この関数の renderChildren は
      if (type === 'coming') の中にあるため、late / early / soon は
      nfSave に到達していなかった。ここで明示的に同期する。 */
+  /* SF-NOTIFYRECV-20260830 : 自分が送ったぶんは、クラウドから戻ってきても鳴らさない。
+     ここで先に「知っている」印を付けておく。 */
+  try { __nfSeenKeys[entry.key + '|' + entry.ts] = 1; } catch (e) {}
   nfSave();
   renderFeed(key);
   playSound(type);
@@ -1707,25 +1710,86 @@ function refreshElapsed() {
 
 // ===== 通知音（Web Audio APIで生成。音源ファイル不要） =====
 let audioCtx = null;
+/* SF-NOTIFYSOUND-20260830 : iPad（Safari）は、その画面に一度も触れていないうちは
+   AudioContext を suspended のままにする。受付の iPad は開きっぱなしで誰も触らないので、
+   通知が届いても音が出ない状態が続いていた（try/catch で握りつぶされ、エラーも残らない）。
+   画面を閉じて戻ったときにも suspended に戻るため、resume を明示的に呼ぶ必要がある。
+   - 最初のタップ／クリックで作って resume する（無音の1フレームを鳴らすのが iOS の作法）
+   - 鳴らすたびに suspended なら resume してから鳴らす
+   - 画面復帰でも resume する
+   - それでも鳴らせない間は、通知音トグルに「画面に一度タップ」と出して気づけるようにする */
+function nfAudioCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  return audioCtx;
+}
+function nfSoundReady() { return !!(audioCtx && audioCtx.state === 'running'); }
+function nfSoundHint() {
+  try {
+    const el = document.getElementById('soundLabel');
+    if (!el) return;
+    if (!soundOn) { el.textContent = '通知音 オフ'; return; }
+    el.textContent = nfSoundReady() ? '通知音 オン' : '通知音 オン（画面に一度タップ）';
+  } catch (e) {}
+}
+function nfUnlockAudio() {
+  try {
+    const ctx = nfAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume().then(nfSoundHint, function () {});
+    // iOS は「一度何かを鳴らす」ことで解錠される。無音の1フレームで足りる。
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf; src.connect(ctx.destination); src.start(0);
+    nfSoundHint();
+  } catch (e) {}
+}
+['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (ev) {
+  document.addEventListener(ev, nfUnlockAudio, { passive: true });
+});
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) return;
+  try {
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().then(nfSoundHint, function () {});
+  } catch (e) {}
+});
+function nfBeep(ctx, type) {
+  // 種類で音色を変える
+  const seq = type === 'late' ? [660, 550] : [880, 1175]; // 遅延は下降、その他は上昇
+  seq.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    const t0 = ctx.currentTime + idx * 0.18;
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(t0); osc.stop(t0 + 0.4);
+  });
+}
 function playSound(type) {
   if (!soundOn) return;
   try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    // 種類で音色を変える
-    const seq = type === 'late' ? [660, 550] : [880, 1175]; // 遅延は下降、その他は上昇
-    seq.forEach((freq, idx) => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t0 = audioCtx.currentTime + idx * 0.18;
-      gain.gain.setValueAtTime(0.0001, t0);
-      gain.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
-      osc.connect(gain); gain.connect(audioCtx.destination);
-      osc.start(t0); osc.stop(t0 + 0.4);
-    });
-  } catch(e) { /* 音が出せない環境は無視 */ }
+    const ctx = nfAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      /* まだ解錠されていない。resume を試して、通ったらそのまま鳴らす。
+         ユーザー操作の外だと iPad は resume を拒むので、そのときは静かに諦め、
+         トグルの文言で「画面に一度タップ」と伝える。 */
+      const p = ctx.resume();
+      if (p && typeof p.then === 'function') {
+        p.then(function () { nfSoundHint(); nfBeep(ctx, type); }, function () { nfSoundHint(); });
+      }
+      nfSoundHint();
+      return;
+    }
+    nfBeep(ctx, type);
+  } catch (e) { console.warn('[notify] 通知音を鳴らせませんでした', e); }
 }
 
 function flashAlert() {
@@ -1809,6 +1873,8 @@ let statusLogs = { woodstock: [], janis: [] };
 let NF_MIRROR = {};        // docId -> ドキュメント（Firestore の写し）
 let NF_SNAP_SEEN = false;  // 初回スナップショット受信済みか
 let __nfApplying = false;  // 受信適用中はクラウドへ書かない（往復ループ防止）
+/* SF-NOTIFYRECV-20260830 : すでに知っている通知（key|ts）。新しく届いたものだけ鳴らすための控え。 */
+var __nfSeenKeys = {};
 
 const NF_SALONS = ['woodstock', 'janis'];
 const NF_CHILD_FIELDS = ['status', 'lateMin', 'expectedEnd', 'sentComing', 'lastLateTime',
@@ -1938,6 +2004,32 @@ window.nfApplySnapshot = function (arr) {
   } finally {
     __nfApplying = false;
   }
+  /* SF-NOTIFYRECV-20260830 : 受け取った端末で音と点滅を出す。
+     これまで playSound / flashAlert は「送った端末」でしか呼ばれておらず（sendNotify の中だけ）、
+     保育園の iPad は黙って一覧が書き換わるだけだった。画面には
+     「保育園側の受信ボードに届いて音が鳴ります」と書いてあるのに鳴らない、というのが
+     2026-08-13 に報告された症状の正体。
+     - 初回スナップショットでは鳴らさない（開くたびに当日分が全部鳴ってしまう）
+     - 10分より古い通知でも鳴らさない（電波が切れていた端末が復帰したときの一斉再生を防ぐ）
+     - 同じ通知が更新された（ts が新しくなった）ときは、新しい連絡なので鳴らす */
+  try {
+    var _fresh = [];
+    (notifications || []).forEach(function (n) {
+      if (!n || !n.key) return;
+      var _k = n.key + '|' + (n.ts || 0);
+      if (__nfSeenKeys[_k]) return;
+      __nfSeenKeys[_k] = 1;
+      if (!first && (Date.now() - (n.ts || 0)) <= 10 * 60 * 1000) _fresh.push(n);
+    });
+    if (_fresh.length) {
+      _fresh.sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+      playSound(_fresh[0].type === 'late' ? 'late' : 'soon');
+      if (typeof flashAlert === 'function') flashAlert();
+      var _msg = '🔔 ' + _fresh.length + '件の通知が届きました';
+      if (!nfSoundReady()) _msg += '（音を鳴らすには画面を一度タップ）';
+      if (typeof showToast === 'function') showToast(_msg);
+    }
+  } catch (e) { console.error('[SF-NOTIFYRECV-20260830]', e); }
   console.log('[notify] 同期を受信: 通知' + (notifications || []).length + '件');
   if (first) nfSave();   // 初回：この端末にしか無い分をクラウドへ上げる
 };
