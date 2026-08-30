@@ -11050,7 +11050,9 @@ function submitVisit() {
   }
   /* SF-SALON-INTAKE-20260722 : 予約から来た場合、その予約を sfId で消費する。
      取り込み予約は customerId が null なので上の顧客ID一致では消えない。 */
+  var _consumedResSfId = false;   /* SF-RESCONSUME-20260830 : 予約カード経由で消費済みかの印 */
   if (window._pendingResSfId) {
+    _consumedResSfId = true;
     const _sid = window._pendingResSfId;
     window._pendingResSfId = null;
     DATA.reservations = (DATA.reservations || []).filter(r => r.sfId !== _sid);
@@ -11076,6 +11078,53 @@ function submitVisit() {
         sfSaveShared(_shared);           // 全区間ぶんをまとめて1回で書く
       }
     } catch (e) { console.error('[SF-SALON-INTAKE-20260722] 共有レコードの更新に失敗', e); }
+  }
+  /* SF-RESCONSUME-20260830 : 予約カード以外の入り口（新規登録・顧客検索など）から受付したときも、
+     対応する予約を「受付済み」にする。
+     従来は window._pendingResSfId が立つのは予約カード経由のときだけで、
+     removeFromReservationByCustomerId は r.customerId 一致で消すがボード由来の予約は
+     customerId が常に null。そのため他の入り口から受付すると予約カードが消えず、
+     (1) もう一度タップできてしまい二重受付を招く (2) 予約リストに過去分が溜まり続ける
+     という2つの症状が出ていた（2026-08-29 の棚卸しで全園41件・大半が過去日と判明）。
+
+     誤って別人の予約を消すと、ボード側の予約が消えるうえ氏名まで書き換わるため、
+     照合は保守的に行う：同じ園・同じ日・氏名かカナが完全一致・まだ受付済みでない、
+     の全てを満たす候補だけを対象にし、複数残るときは開始時刻の一致でさらに絞る。
+     それでも1件に決まらなければ何もしない（勝手に選ばない）。
+     氏名は一致が条件なので、こちらの経路では名前の書き戻しは行わない。 */
+  if (!_consumedResSfId) {
+    try {
+      var _nrm = function (s) { return String(s == null ? '' : s).replace(/[\s　]/g, ''); };
+      var _kata = function (s) { return (typeof hiraToKata === 'function') ? hiraToKata(_nrm(s)) : _nrm(s); };
+      var _vName = _nrm(currentCustomer && currentCustomer.childName);
+      var _vKana = _kata(currentCustomer && currentCustomer.childKana);
+      var _cands = (DATA.reservations || []).filter(function (r) {
+        if (!r || !r.sfId || r.tlDone) return false;
+        if (r.branch !== visit.branch) return false;
+        if (r.reservationDate !== visit.visitDate) return false;
+        var rn = _nrm(r.guestName), rk = _kata(r.guestKana);
+        return (!!_vName && rn === _vName) || (!!_vKana && rk === _vKana);
+      });
+      if (_cands.length > 1) {
+        var _byTime = _cands.filter(function (r) { return r.reservationStart === visit.visitStart; });
+        if (_byTime.length === 1) _cands = _byTime;
+      }
+      if (_cands.length === 1) {
+        var _sid2 = _cands[0].sfId;
+        DATA.reservations = (DATA.reservations || []).filter(function (r) { return r.sfId !== _sid2; });
+        var _shared2 = sfLoadShared();
+        var _rec2 = _shared2.find(function (r) { return r && r.id === _sid2; });
+        if (_rec2 && _rec2.partyId != null && visit.partyId == null) visit.partyId = _rec2.partyId;
+        var _mem2 = (_rec2 && _rec2.groupId)
+          ? _shared2.filter(function (r) { return r && r.groupId === _rec2.groupId; })
+          : (_rec2 ? [_rec2] : []);
+        if (_mem2.length) {
+          _mem2.forEach(function (m) { m.tlDone = true; m.tlVisitId = visit.id; m.provisional = false; });
+          sfSaveShared(_shared2);
+          console.log('[SF-RESCONSUME-20260830] 予約を受付済みにしました: ' + _sid2 + ' (' + _vName + ' / ' + visit.visitDate + ')');
+        }
+      }
+    } catch (e) { console.error('[SF-RESCONSUME-20260830] 予約の受付済み化に失敗', e); }
   }
   if (!saveData(DATA)) {
     return toast('保存に失敗しました', true);
