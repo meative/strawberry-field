@@ -1481,8 +1481,31 @@ for (let h = START_HOUR; h < END_HOUR; h++) {
 }
 const N = SLOTS.length;
 
+/* SF-CAPLABEL-20260830 : 一時預かりの見出しに書いてあった「各時間 6名まで」は
+   コードに直書きされた固定の文字で、実際の判定には一切関係していなかった。
+   定員は在園児数と保育士の人数に合わせて園ごと・日ごとに変える運用なので、
+   6 という数字はどの園とも一致せず、現場が信じてしまうと事故のもとになる
+   （2026-08-30 実測：月寒 合計7・白石 5・資生館 9・ファクトリー 6）。
+   表示中の日付の実効定員（日別例外 → 基本設定）から毎回作り直す。
+   未設定の年齢は「無制限」と正直に出す（そこはボードの超過警告も出ない）。 */
+function zoneCapText(zone) {
+  if (!zone) return '';
+  if (zone.key !== 'temp') return zone.cap || '';
+  try {
+    const d = (typeof boardDateStr === 'function') ? boardDateStr() : null;
+    const L = ['0歳', '1歳', '2歳', '3歳〜'];
+    const parts = ['0', '1', '2', '3'].map((a, i) => {
+      const n = capEffective(CURRENT_GARDEN, a, d);
+      return L[i] + (n == null ? '無制限' : n);
+    });
+    return '同時 ' + parts.join('・') + '名';
+  } catch (e) { return zone.cap || ''; }
+}
+
 const ZONES = [
-  { key:'temp', jp:'一時預かり', en:'Drop-in Care', lanes:3, cap:'各時間 6名まで' },
+  /* SF-CAPLABEL-20260830 : cap は見出しの説明文。'temp' だけは zoneCapText() が
+     表示中の日付の実効定員から作り直すので、ここの文字は使われない（保険として残す）。 */
+  { key:'temp', jp:'一時預かり', en:'Drop-in Care', lanes:3, cap:'年齢別の定員は上の空き状況をご覧ください' },
   { key:'woodstock', jp:'ウッドストック', en:'WOODSTOCK', lanes:3, cap:'美容室ご利用者' },
   { key:'janis', jp:'ジャニス', en:'JANIS', lanes:2, cap:'サロンご利用者' },
   { key:'ext_am', jp:'早朝延長保育', en:'Early Extension', lanes:3, cap:'自園生徒 ・ 朝7:00-8:30（薄い枠=無料）' },
@@ -1794,7 +1817,7 @@ function renderBoard() {
     for (let ln = 0; ln < _nLanes; ln++) {
       html += '<div class="lane">';
       if (ln === 0) {
-        html += `<div class="zone-label"><span class="en">${zoneEn(zone.key)}</span><span class="jp">${zoneJp(zone.key)}</span><span class="cap-info">${zone.cap}</span></div>`;
+        html += `<div class="zone-label"><span class="en">${zoneEn(zone.key)}</span><span class="jp">${zoneJp(zone.key)}</span><span class="cap-info">${zoneCapText(zone)}</span></div>`;
       } else {
         html += `<div class="lane-head"></div>`;
       }
@@ -3070,6 +3093,13 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
   }
 
   // ---- 通知音（サロン専用：三角波3音アルペジオ）＋自動再生対策 ----
+  /* SF-BOARDCHIME-20260830 : ブラウザは、その画面に一度も触れていないうちは AudioContext を
+     suspended のままにする。受付の iPad はボードを開きっぱなしで誰も触らないので、
+     新しいサロン予約が入ってもチャイムが鳴らない状態が続いていた
+     （コンソールに "The AudioContext was not allowed to start." が出る）。
+     ensureAudio() は resume を呼んでいたが、ユーザー操作の外では拒まれるうえ、
+     resume の完了を待たずに音を組み立てていたため、通っても鳴らないことがあった。
+     notify 3本の SF-NOTIFYSOUND-20260830 と同じ直し方をする。 */
   var _actx = null;
   function ensureAudio() {
     try { var Ctx = window.AudioContext || window.webkitAudioContext; if (!Ctx) return null;
@@ -3078,8 +3108,35 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
       return _actx;
     } catch (e) { return null; }
   }
+  function sfUnlockChime() {
+    try {
+      var c = ensureAudio(); if (!c) return;
+      // 一度何かを鳴らすと解錠される。無音の1フレームで足りる。
+      var b = c.createBuffer(1, 1, 22050), s = c.createBufferSource();
+      s.buffer = b; s.connect(c.destination); s.start(0);
+    } catch (e) {}
+  }
+  ['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (ev) {
+    document.addEventListener(ev, sfUnlockChime, { passive: true });
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) return;
+    try { if (_actx && _actx.state === 'suspended' && _actx.resume) _actx.resume(); } catch (e) {}
+  });
   function chime() {
     var c = ensureAudio(); if (!c) return;
+    /* SF-BOARDCHIME-20260830 : まだ解錠されていなければ、resume が通ってから鳴らす。
+       通らなければ静かに諦める（画面に触れれば次からは鳴る）。 */
+    if (c.state === 'suspended') {
+      try {
+        var p = c.resume();
+        if (p && typeof p.then === 'function') p.then(function () { chimeNow(c); }, function () {});
+      } catch (e) {}
+      return;
+    }
+    chimeNow(c);
+  }
+  function chimeNow(c) {
     try {
       function tone(freq, start, dur) {
         var o = c.createOscillator(), g = c.createGain();
