@@ -2337,6 +2337,32 @@
     border: 1px solid var(--line);
     border-radius: 2px;
   }
+  /* SF-PAYDATE-20260830 : お会計待ちを日付で区切り、古い件に注意を出す。
+     色は既存のパレットに寄せた薄い琥珀（1〜6日前）と薄い臙脂（7日以上前）。
+     赤で埋め尽くさず、区切りの帯と行の左端だけを染める。 */
+  .pay-date-head { display: flex; align-items: baseline; gap: 10px; padding: 12px 20px;
+    background: var(--ivory); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .payment-list > .pay-date-head:first-child { border-top: none; }
+  .pay-date-head .pdh-date { font-family: var(--serif-jp); font-size: 14px; font-weight: 600;
+    color: var(--ink); letter-spacing: 0.04em; }
+  .pay-date-head .pdh-today { background: var(--tiffany-deep); color: var(--white); font-family: var(--sans);
+    font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 2px; letter-spacing: 0.08em; }
+  .pay-date-head .pdh-ago { font-family: var(--serif-jp); font-size: 12px; font-weight: 500; color: #A05A2C; }
+  .pay-date-head .pdh-count { margin-left: auto; font-family: var(--serif-en); font-size: 12px;
+    color: var(--ink-soft); font-style: italic; }
+  .pay-date-head.is-old { background: #FDF6EC; border-top-color: #E8C89A; border-bottom-color: #E8C89A; }
+  .pay-date-head.is-stale { background: #FBEDEC; border-top-color: #E5B4B0; border-bottom-color: #E5B4B0; }
+  .pay-date-head.is-stale .pdh-ago { color: #A03A30; }
+  .payment-row.is-old { border-left-color: #E8C89A; }
+  .payment-row.is-stale { border-left-color: #D9736A; }
+  .pay-old-note { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; margin-bottom: 12px;
+    background: #FDF6EC; border: 1px solid #E8C89A; border-radius: 2px; }
+  .pay-old-note.is-stale { background: #FBEDEC; border-color: #E5B4B0; }
+  .pay-old-note .pon-badge { flex: none; background: #A05A2C; color: var(--white); font-family: var(--sans);
+    font-size: 10px; font-weight: 600; padding: 4px 9px; border-radius: 2px; letter-spacing: 0.08em; }
+  .pay-old-note.is-stale .pon-badge { background: #A03A30; }
+  .pay-old-note .pon-text { font-family: var(--serif-jp); font-size: 13px; color: var(--ink); line-height: 1.8; }
+  .pay-old-note .pon-text b { font-weight: 700; }
   /* SF-SALONPARTY2-CSS-20260725 : お会計待ちの「組（きょうだい）」家族カード
      SF-PARTYFIX-20260725 : 既存デザイン（角2px・バッジ2px・金額はセリフ体）に合わせて調整 */
   .payment-party { border: 1px solid var(--tiffany-deep); border-radius: 2px; margin-bottom: 10px; overflow: hidden; background: var(--white); }
@@ -13213,6 +13239,37 @@ function renderPaymentList() {
     return;
   }
   
+  /* SF-PAYDATE-20260830 : 何日前かを数える小道具。
+     日付は必ずローカル年月日で比べる（SF-JSTDATE-20260830 と同じ理由で、
+     toISOString を使うと日本時間の朝が前日になる）。 */
+  const _pdToday = todayStr();
+  const _PD_WD = ['日', '月', '火', '水', '木', '金', '土'];
+  function _pdDaysAgo(ds) {
+    if (!ds || ds >= _pdToday) return 0;
+    try {
+      const a = new Date(ds + 'T00:00:00'), b = new Date(_pdToday + 'T00:00:00');
+      const n = Math.round((b - a) / 86400000);
+      return (isFinite(n) && n > 0) ? n : 0;
+    } catch (e) { return 0; }
+  }
+  function _pdCls(ds) {
+    const n = _pdDaysAgo(ds);
+    return (n >= 7) ? ' is-stale' : (n > 0 ? ' is-old' : '');
+  }
+  function _pdHeadHtml(ds, cnt) {
+    const n = _pdDaysAgo(ds);
+    let label = ds || '日付なし';
+    try {
+      const d = new Date(ds + 'T00:00:00');
+      if (isFinite(d.getTime())) label = (d.getMonth() + 1) + '月' + d.getDate() + '日（' + _PD_WD[d.getDay()] + '）';
+    } catch (e) {}
+    const mark = (n === 0)
+      ? '<span class="pdh-today">本日</span>'
+      : '<span class="pdh-ago">' + (n >= 7 ? '⚠ ' : '') + n + '日前</span>';
+    return '<div class="pay-date-head' + _pdCls(ds) + '">'
+      + '<span class="pdh-date">' + escapeHtml(label) + '</span>' + mark
+      + '<span class="pdh-count">' + cnt + '件</span></div>';
+  }
   function payRowHtml(v) { /* SF-SALONPARTY2-CLUSTER-20260725 : 1行の描画（家族カードでも再利用） */
     const customer = DATA.customers.find(c => c.id === v.customerId);
     const customerName = customer ? customer.childName : v.childName;
@@ -13238,7 +13295,7 @@ function renderPaymentList() {
       : '';
     
     return `
-      <div class="payment-row" onclick="selectPayment('${v.id}')">
+      <div class="payment-row${_pdCls(v.visitDate || '')}" onclick="selectPayment('${v.id}')">
         <span class="badge ${badgeClass}">${badgeLabel}</span>
         <div class="pay-info">
           <div class="pay-name">${escapeHtml(customerName)} さん${v.className ? ` <span style="font-size:12px; color: var(--ink-soft); font-weight:400;">(${escapeHtml(v.className)})</span>` : ''} ${draftBadge}</div>
@@ -13260,9 +13317,25 @@ function renderPaymentList() {
     if (!_pmap[k]) { _pmap[k] = []; _porder.push(k); }
     _pmap[k].push(v);
   });
+  /* SF-PAYDATE-20260830 : 日付が変わるところに区切りの帯を差し込む。
+     並びは visitDate + 時刻の昇順なので、古い日が上から順に出る。
+     区切りは表示だけで、会計の処理・金額・並び順には一切触れない。 */
+  var _pdCount = {};
+  _porder.forEach(function (k) {
+    var d = _pmap[k][0].visitDate || '';
+    _pdCount[d] = (_pdCount[d] || 0) + _pmap[k].length;
+  });
+  var _pdCur = null, _pdOld = 0, _pdStale = 0, _pdOldest = null;
   var _clusterHtml = _porder.map(function (k) {
     var members = _pmap[k];
-    if (members.length < 2) return payRowHtml(members[0]);
+    var _ds = members[0].visitDate || '';
+    var _n = _pdDaysAgo(_ds);
+    if (_n >= 7) _pdStale += members.length; else if (_n > 0) _pdOld += members.length;
+    if (_n > 0 && (_pdOldest === null || _n > _pdOldest)) _pdOldest = _n;
+    var _head = '';
+    if (_ds !== _pdCur) { _pdCur = _ds; _head = _pdHeadHtml(_ds, _pdCount[_ds] || members.length); }
+    if (members.length < 2) return _head + payRowHtml(members[0]);
+    return _head + (function () {
     var total = members.reduce(function (s, v) {
       var ti = getUsageType(v.usageType || 'temporary');
       var amt = (ti && ti.pricingType === 'hourly')
@@ -13274,9 +13347,24 @@ function renderPaymentList() {
       '<span class="pp-title">\u304d\u3087\u3046\u3060\u3044 ' + members.length + '\u540d</span>' +
       '<span class="pp-note">\u30fb \u304a\u4f1a\u8a08\u306f\u304a\u5b50\u69d8\u3054\u3068</span>' +
       '<span class="pp-total"><span class="currency">\u00a5</span>' + total.toLocaleString() + '</span></div>';
-    return '<div class="payment-party">' + head + members.map(payRowHtml).join('') + '</div>';
+    return '<div class="payment-party">' + head + members.map(function (m) { return payRowHtml(m); }).join('') + '</div>';
+    })();
   }).join('');
-  el.innerHTML = `<div class="payment-list">${_clusterHtml}</div>`;
+  /* SF-PAYDATE-20260830 : 前日より古い会計待ちがあるときだけ、上に一言出す。
+     消してよいかの判断はここではしない（同じ日・同じ園・同じ氏名の会計済みが在るかを
+     現場で確かめてから）。気づかずに溜め続けることを防ぐのが目的。 */
+  var _noteHtml = '';
+  if (_pdOld + _pdStale > 0) {
+    var _isStale = _pdStale > 0;
+    _noteHtml = '<div class="pay-old-note' + (_isStale ? ' is-stale' : '') + '">'
+      + '<span class="pon-badge">' + (_isStale ? '要確認' : 'お知らせ') + '</span>'
+      + '<span class="pon-text"><b>' + (_pdOld + _pdStale) + '件</b>が本日より前の会計待ちです'
+      + (_isStale ? '（うち<b>' + _pdStale + '件</b>は7日以上前、最も古いもので<b>' + _pdOldest + '日前</b>）' : '')
+      + '。<br>お会計漏れか、二重に受付した記録の可能性があります。'
+      + '同じ日・同じ園・同じお名前で会計済みが在るかを確かめてから、'
+      + '¥0でお会計を通すか、来園記録一覧の削除ボタンで1件ずつ削除してください。</span></div>';
+  }
+  el.innerHTML = _noteHtml + `<div class="payment-list">${_clusterHtml}</div>`;
 }
 
 /* SF-SALONPARTY2B-20260725 : 組の「まとめて会計」。実料金の計算・承認・領収書発行には触れない。
