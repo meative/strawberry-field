@@ -8448,6 +8448,17 @@ function sfRemoveShared(id) {
   const arr = sfLoadShared().filter(r => r && r.id !== id);
   return sfSaveShared(arr);
 }
+/* SF-RESGROUP-DEL-20260830 : 複数のIDをまとめて1回で消す。
+   1件ずつ sfRemoveShared を呼ぶと、そのたびに配列全体を読んで書き直すことになり、
+   途中で失敗したときに「片方だけ消えた」状態が残る。まとめて1回にしておく。 */
+function sfRemoveSharedMany(ids) {
+  const list = (ids || []).filter(Boolean);
+  if (!list.length) return false;
+  const drop = {};
+  list.forEach(function (x) { drop[x] = true; });
+  const arr = sfLoadShared().filter(r => r && !drop[r.id]);
+  return sfSaveShared(arr);
+}
 // 生年月日から board 互換の {age:'0'..'3', months:0-11|null} を作る（board.html ageMonthsFromBirth と同等）
 function birthToAgeMonths(y, m, d) {
   if (!y || !m || !d) return { age: '', months: null };
@@ -8559,6 +8570,7 @@ function importBoardReservations() {
         cur.salons = r._salons;         /* 区間ごとのサロン（表示・無料分の按分用） */
         cur.salonMins = r._mins;        /* 区間ごとの所要分（按分の材料） */
         cur.sfGroupIds = r._groupIds;   /* 受付完了時に全区間へ tlDone を立てるため */
+        cur.partyId = (r.partyId != null ? r.partyId : null);   /* SF-PARTYID-CARRY-20260830 */
         cur.sfSig = r._sig;
         cur.salonOrigin = !r.fromBoard;
         cur.provisional = !!r.provisional;
@@ -8591,6 +8603,9 @@ function importBoardReservations() {
       salons: r._salons,
       salonMins: r._mins,
       sfGroupIds: r._groupIds,
+      /* SF-PARTYID-CARRY-20260830 : 組（きょうだい）の紐付け。受付時に共有レコードを
+         引けなかったときの控えとして、取り込みの時点で手元にも持っておく。 */
+      partyId: (r.partyId != null ? r.partyId : null),
       sfSig: r._sig,
     });
     changed = true;
@@ -11001,10 +11016,18 @@ function submitVisit() {
     }
   }
   // 予約からサロン情報を引き継ぐ（サロン経由予約の判定用）
-  if (currentCustomer && currentCustomer.id) {
+  /* SF-SALONREF-GUARD-20260830 : ここには if (!salonReferral) のガードが無かった。
+     予約カードから受付した場合は直前の SF-SALON-INTAKE-20260722 でサロンが確定しているのに、
+     この顧客ID一致がそれを上書きしてしまう（同じ日に別のサロン予約が残っていると起こる）。
+     さらに園（branch）を見ていないため、同じ顧客が同じ日に別の園のサロン予約を持っていると
+     そちらのサロンを拾い、会計画面が自動で全額割引を入れて請求が黙って0円になりうる
+     （SF-SALON-REFERRAL-IDENTITY-20260723 で塞いだのと同じ事故が、別の経路で残っていた）。
+     すでにサロンが決まっているときは触らない。 */
+  if (!salonReferral && currentCustomer && currentCustomer.id) {
     const matchedRes = DATA.reservations.find(r => 
       r.customerId === currentCustomer.id && 
       r.reservationDate === visitDate &&
+      (!r.branch || r.branch === DATA.settings.branch) &&   /* SF-SALONREF-GUARD-20260830 : 同じ園のものだけを見る */
       r.salon
     );
     if (matchedRes && matchedRes.salon) salonReferral = matchedRes.salon;
@@ -11079,11 +11102,17 @@ function submitVisit() {
     _consumedResSfId = true;
     const _sid = window._pendingResSfId;
     window._pendingResSfId = null;
+    /* SF-PARTYID-CARRY-20260830 : 消す前に手元の予約レコードを控えておく（組の紐付けの控え） */
+    const _localRes = (DATA.reservations || []).find(r => r && r.sfId === _sid) || null;
     DATA.reservations = (DATA.reservations || []).filter(r => r.sfId !== _sid);
     try {
       const _shared = sfLoadShared();
       const _rec = _shared.find(r => r && r.id === _sid);
       if (_rec && _rec.partyId != null) visit.partyId = _rec.partyId; /* SF-SALONPARTY2-VISITID-20260725 : 組の紐付けを visit に運ぶ（会計待ちの家族束ね用） */
+      /* SF-PARTYID-CARRY-20260830 : 共有レコードを引けない（同期前・他端末で先に消された）ときは
+         取り込み時に控えた予約レコードから組の紐付けを拾う。これが無いと、きょうだいが
+         会計待ちで1枚のカードにまとまらず、「まとめて会計」の引き継ぎも効かない。 */
+      if (visit.partyId == null && _localRes && _localRes.partyId != null) visit.partyId = _localRes.partyId;
       /* SF-SALONSPLIT-GROUP-20260724 : 区間が分かれている予約は、全区間に受付済みの印を付ける。
          代表だけに付けると、もう一方が予約リストに残り続け、ボードの2レーン目にも
          カタカナの仮名が残ってしまう。 */
@@ -11139,6 +11168,7 @@ function submitVisit() {
         var _shared2 = sfLoadShared();
         var _rec2 = _shared2.find(function (r) { return r && r.id === _sid2; });
         if (_rec2 && _rec2.partyId != null && visit.partyId == null) visit.partyId = _rec2.partyId;
+        if (visit.partyId == null && _cands[0].partyId != null) visit.partyId = _cands[0].partyId;   /* SF-PARTYID-CARRY-20260830 */
         var _mem2 = (_rec2 && _rec2.groupId)
           ? _shared2.filter(function (r) { return r && r.groupId === _rec2.groupId; })
           : (_rec2 ? [_rec2] : []);
@@ -12799,11 +12829,23 @@ function removeFromReservation(reservationKey) {
     cancelLabel: 'キャンセル',
     action: () => {
       if (isBoard) {
+        /* SF-RESGROUP-DEL-20260830 : 2サロン続き利用のように区間が分かれている予約は、
+           sf_bookings 側では区間の数だけレコードがある。受付側はそれを1件に畳んで
+           代表（区間①）の id を sfId として持っているため、ここで代表だけを消すと
+           区間②が共有ストレージに残る。次の取り込みで区間②が新しい代表になり、
+           消したはずの予約が予約リストへ戻ってくる（区間②の孤児化）。
+           取り込み時に控えてある sfGroupIds を使って全区間をまとめて消す。
+           sfGroupIds が無い古い予約は、従来どおり sfId 1件だけを消す。 */
+        const _delRec = (DATA.reservations || []).find(r => r && r.sfId === sfId);
+        const _delIds = (_delRec && Array.isArray(_delRec.sfGroupIds) && _delRec.sfGroupIds.length)
+          ? _delRec.sfGroupIds.slice()
+          : [sfId];
+        if (_delIds.indexOf(sfId) < 0) _delIds.push(sfId);
         // こちらの予約リストから削除
-        DATA.reservations = (DATA.reservations || []).filter(r => r.sfId !== sfId);
+        DATA.reservations = (DATA.reservations || []).filter(r => _delIds.indexOf(r.sfId) < 0);
         // 共有ストレージ側からも削除（次回取り込みでの復活を防ぐ＝双方向で消える）
         // sfRemoveShared 経由にすることで、ミラー化後は fbReconcile で Firestore からも確実に削除される
-        sfRemoveShared(sfId);
+        sfRemoveSharedMany(_delIds);
       } else {
         // 受付発の予約（sfId保持）は共有ストレージ（予約表）からも削除（案A）
         (DATA.reservations || []).forEach(r => {
