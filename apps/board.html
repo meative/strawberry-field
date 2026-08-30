@@ -2609,6 +2609,31 @@ function showNotify(body, title) {
 let dayOffset = 0;
 const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const BOARD_BASE = new Date(); BOARD_BASE.setHours(0,0,0,0); // 実時刻の今日（深夜0時基準・3画面統一）
+/* SF-BOARDBASE-ROLL-20260830 : 受付の iPad は開きっぱなしで日をまたぐ。
+   BOARD_BASE は読み込み時に1回だけ計算されるため、日付が変わっても「本日」が前日のまま残り、
+   ボードの表示日・カレンダーの today マーカー・予約バーの実年齢（月齢）がまとめて1日ずれる。
+   端末を再読み込みするまで直らず、朝いちばんの受付でそのまま使われてしまう。
+   （timely 側の同じ症状は SF-JSTDATE-20260830 で解決済み。こちらはボード側。）
+
+   1分ごとに実日付を見て、変わっていたら BOARD_BASE の「中身（時刻値）」だけを書き換える。
+   const の束縛は変えないので、各所の new Date(BOARD_BASE) は次の描画から自動的に新しい日付を見る。
+   「本日」を開いている端末（dayOffset === 0）はそのまま新しい本日へ進み、
+   別の日を開いている端末は dayOffset をずらして、見ていた日付のまま留まるようにする。
+   画面を復帰させたときにも1回見る（iPad はスリープ中 setInterval が止まるため）。 */
+function sfBoardBaseTick() {
+  try {
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const diff = Math.round((now.getTime() - BOARD_BASE.getTime()) / 86400000);
+    if (diff === 0) return;
+    BOARD_BASE.setTime(now.getTime());
+    if (dayOffset !== 0) dayOffset -= diff;   // 見ていた日付を保つ
+    if (typeof updateDateLabel === 'function') updateDateLabel();
+    if (typeof reloadBoardForDate === 'function') reloadBoardForDate();
+    console.log('[SF-BOARDBASE-ROLL-20260830] 日付が変わったので基準日を更新しました');
+  } catch (e) { console.error('[SF-BOARDBASE-ROLL-20260830]', e); }
+}
+setInterval(sfBoardBaseTick, 60 * 1000);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) sfBoardBaseTick(); });
 // SF-CLASS0-20260721 : 0歳児クラス判定＋バッジ文字列（サロン・ボード共通）。予約日が属する年度の4/1時点で満0歳=前年4/2〜当年4/1生まれ。日は使わず月で判定、年度も4月基準。
 function class0Info(birthY, birthM, resvY, resvM) {
   if (!birthY || !birthM) return { is0: false, label: '' };
