@@ -10986,7 +10986,35 @@ function submitVisitFromOverlay() {
   submitVisit();
 }
 
-function submitVisit() {
+/* SF-DUPGUARD-20260830 : 同じお子様を同じ日に二度受付してしまう事故を止める。
+
+   2026-08-30 の棚卸しで、会計済みの中に 11〜15秒差の二重受付が3組見つかった
+   （ファクトリー 8/10 は ¥2,500 が二重に計上されていた）。
+   保存できたか分からなくなって、もう一度受付してしまうのが原因。
+   ボード側はカタカナの仮名、受付側は漢字で登録されることがあるので、
+   ひらがな→カタカナに寄せて突き合わせ、姓だけの前方一致も拾う。
+
+   きょうだいや、本当に1日2回お預かりする日もあるので、**止めずに確認を挟むだけ**にする。
+   確認は既存の中央モーダル（showConfirmModal）を使う。 */
+function sfDupKata(s) {
+  return String(s == null ? '' : s).replace(/[\s　]/g, '').replace(/[ぁ-ゖ]/g, function (c) {
+    return String.fromCharCode(c.charCodeAt(0) + 96);
+  });
+}
+function sfFindSameDayVisits(cust, branch, date) {
+  if (!cust || !date) return [];
+  var nm = sfDupKata(cust.childName), ka = sfDupKata(cust.childKana);
+  var hit = function (a, b) { return !!a && !!b && (a === b || a.indexOf(b) === 0 || b.indexOf(a) === 0); };
+  return (DATA.visits || []).filter(function (v) {
+    if (!v || v.branch !== branch || v.visitDate !== date) return false;
+    /* 顧客IDが両方にあって一致するなら、氏名の表記ゆれに関係なく同じ子 */
+    if (cust.id && v.customerId && v.customerId === cust.id) return true;
+    var vn = sfDupKata(v.childName), vk = sfDupKata(v.childKana);
+    return hit(ka, vk) || hit(ka, vn) || hit(nm, vn) || hit(nm, vk);
+  });
+}
+
+function submitVisit(_dupOk) {
   if (!currentCustomer) return toast('顧客が選択されていません', true);
   
   const visitDate = document.getElementById('visitDate').value;
@@ -11015,6 +11043,35 @@ function submitVisit() {
   }
   
   if (!agree) return toast('同意確認にチェックを入れてください', true);
+
+  /* SF-DUPGUARD-20260830 : すでに同じ日・同じ園で受付されていたら、保存する前に確認する。
+     「それでも受付する」を押せば従来どおり保存される（_dupOk = true で戻ってくる）。 */
+  if (!_dupOk) {
+    try {
+      var _dups = sfFindSameDayVisits(currentCustomer, DATA.settings.branch, visitDate);
+      if (_dups.length) {
+        var _d = _dups[0];
+        var _st = (_d.paymentStatus === 'paid')
+          ? ('会計済み ¥' + (Number(_d.totalAmount) || 0).toLocaleString())
+          : '会計待ち';
+        showConfirmModal({
+          title: 'すでに受付されています',
+          message: escapeHtml(_d.childName || '') + ' さんは本日すでに受付済みです。<br>'
+            + '<b>' + escapeHtml(_d.visitDate || '') + '　' + escapeHtml(_d.visitStart || '')
+            + '〜' + escapeHtml(_d.visitEnd || '') + '（' + _st + '）</b><br>'
+            + (_dups.length > 1 ? ('ほかに ' + (_dups.length - 1) + ' 件あります。<br>') : '')
+            + '<br>それでも、もう一度受付しますか？<br>'
+            + '<span style="font-size:12px; line-height:1.7;">'
+            + '同じお子様を二度受付すると、日報の人数と月報の売上が二重になります。'
+            + 'きょうだいや、本当に1日2回のお預かりであれば、このまま進めて問題ありません。</span>',
+          okLabel: 'それでも受付する',
+          cancelLabel: 'やめる',
+          action: function () { submitVisit(true); }
+        });
+        return;
+      }
+    } catch (e) { console.error('[SF-DUPGUARD-20260830]', e); }
+  }
   
   // 持ち物
   const items = Array.from(document.querySelectorAll('input[name="items"]:checked')).map(i => i.value);
