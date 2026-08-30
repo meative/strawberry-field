@@ -8247,6 +8247,13 @@ function sfZoneKey(v){
     if (v && v.discountType === 'trial') return 'trial';
     if (v && v.salon === 'woodstock') return 'woodstock';
     if (v && v.salon === 'janis') return 'janis';
+    /* SF-SALONMANUAL-20260830 : 予約からサロンが引き継がれなかった記録は v.salon が空のまま残る
+       （SF-SALON-REFERRAL-IDENTITY-20260723 / SF-SALONREF-GUARD-20260830 で塞いだ経路の取りこぼし、
+       および予約カードを経由せずに受付した場合）。そのときは、スタッフが会計で選んだ割引を
+       サロン利用の証跡として区分の根拠にする。v.salon が入っていればそちらが優先なので、
+       これまでの記録の見え方は変わらない。 */
+    if (v && !v.salon && v.discountType === 'woodstock') return 'woodstock';
+    if (v && !v.salon && v.discountType === 'janis') return 'janis';
     return 'temporary';
   }
   return t; // morning / extension
@@ -14425,7 +14432,12 @@ function selectDiscountType(type) {
   }
   /* SF-TOURFREE-20260830 : 見学会は全額無料、体験券は2時間分まで無料（超過は通常料金）。
      金額は自動で入るが、あとから手で直すこともできる（従来の割引欄はそのまま使える）。 */
-  if (type === 'tour' || type === 'trial') {
+  /* SF-SALONMANUAL-20260830 : サロン割引も自動で全額を入れる。
+     予約からサロンが引き継がれた記録は initDiscountUI が全額を入れてくれるが、
+     引き継がれなかった記録では割引額が0のままで、スタッフが小計と同じ額を手で打つ必要があった。
+     ¥0にすべき会計で金額を手入力させるのは打ち間違いがそのまま売上のズレになるため、
+     ボタンを押した時点で小計と同額を入れる（あとから手で直すのはこれまでどおりできる）。 */
+  if (type === 'tour' || type === 'trial' || type === 'woodstock' || type === 'janis') {
     try { sfSetTourDiscount(type); } catch (e) { console.error('[SF-TOURFREE-20260830]', e); }
   }
   recalcAmount();
@@ -14434,7 +14446,9 @@ function selectDiscountType(type) {
 /* SF-TOURFREE-20260830 : 見学会／体験券の割引額を入れる。
    見学会 … その日の小計をまるごと割り引く（＝¥0）。見学会の間だけのお預かりなので時間は問わない。
    体験券 … 2時間ぶんの料金を上限に割り引く。3時間いたら1時間ぶんだけ頂く形になる。
-            上限は小計まで（2時間未満で帰ったら、その分だけの割引＝¥0）。 */
+            上限は小計まで（2時間未満で帰ったら、その分だけの割引＝¥0）。
+   SF-SALONMANUAL-20260830 : WOODSTOCK／JANIS 割引もここを通す。サロン割引は全額が仕様なので、
+            見学会と同じ「小計まるごと」でよい（initDiscountUI が入れる額と同じ計算）。 */
 function sfSetTourDiscount(type) {
   if (!currentPaymentVisit) return;
   const v = currentPaymentVisit;
