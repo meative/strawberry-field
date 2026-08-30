@@ -4608,6 +4608,15 @@
     background: var(--tiffany-deep);
     border-color: var(--tiffany-deep);
   }
+  /* SF-TOURFREE-20260830 : 見学会＝無料預かり／体験券＝2時間無料券 */
+  .discount-type-btn.active[data-type="tour"] {
+    background: #7AA67A;
+    border-color: #7AA67A;
+  }
+  .discount-type-btn.active[data-type="trial"] {
+    background: #C08A52;
+    border-color: #C08A52;
+  }
   
   /* ================================================================ */
   /* ============ RECEIPT (領収書) - プロトタイプv11由来 ============ */
@@ -7373,6 +7382,13 @@
         <button type="button" class="discount-type-btn" data-type="janis" onclick="selectDiscountType('janis')">
           <span class="dt-label">JANIS割引</span>
         </button>
+        <!--SF-TOURFREE-20260830/mark-->
+        <button type="button" class="discount-type-btn" data-type="tour" onclick="selectDiscountType('tour')">
+          <span class="dt-label">見学会</span>
+        </button>
+        <button type="button" class="discount-type-btn" data-type="trial" onclick="selectDiscountType('trial')">
+          <span class="dt-label">体験券（2h無料）</span>
+        </button>
       </div>
       <input type="hidden" id="discountType" value="none">
     </div>
@@ -8192,11 +8208,17 @@ function sfUpdateDiscountBtnLabels() {
 }
 /* SF-ZONE-20260817 : 会計記録の「区分」判定。一時預かりは予約時のサロン(woodstock/janis)別に分ける。
    金額・合計は変えず、内訳の分け方と表示ラベルだけを追加する。 */
-const SF_ZONE_ORDER = ['temporary','woodstock','janis','morning','extension'];
-const SF_ZONE_EN = { temporary:'Temporary Care', woodstock:'WOODSTOCK', janis:'JANIS', morning:'Early Morning', extension:'Extended Care' };
+/* SF-TOURFREE-20260830 : 見学会・体験券を独立した区分として足す。
+   一時預かり系のあと・自園生徒の前に置く。合計人数には含まれる（1人としてカウント）。 */
+const SF_ZONE_ORDER = ['temporary','woodstock','janis','tour','trial','morning','extension'];
+const SF_ZONE_EN = { temporary:'Temporary Care', woodstock:'WOODSTOCK', janis:'JANIS', tour:'Facility Tour', trial:'Trial Visit', morning:'Early Morning', extension:'Extended Care' };
 function sfZoneKey(v){
   const t = (v && v.usageType) || 'temporary';
   if (t === 'temporary'){
+    /* SF-TOURFREE-20260830 : 見学会・体験券はサロン経由より優先して独立区分にする。
+       どちらも一時預かりの一種なので、合計人数には含まれる。 */
+    if (v && v.discountType === 'tour') return 'tour';
+    if (v && v.discountType === 'trial') return 'trial';
     if (v && v.salon === 'woodstock') return 'woodstock';
     if (v && v.salon === 'janis') return 'janis';
     return 'temporary';
@@ -8206,6 +8228,8 @@ function sfZoneKey(v){
 function sfZoneLabel(key){
   if (key === 'woodstock') return sfSalonLabel('woodstock') || 'WOODSTOCK';
   if (key === 'janis') return sfSalonLabel('janis') || 'JANIS';
+  if (key === 'tour') return '見学会';                 /* SF-TOURFREE-20260830 */
+  if (key === 'trial') return '体験（無料券）';
   if (key === 'morning') return '自園生徒・早朝';
   if (key === 'extension') return '自園生徒・延長';
   return '一時預かり';
@@ -14218,6 +14242,10 @@ function recalcAmount() {
       discLabel = (sfSalonLabel('woodstock') || 'WOODSTOCK') + '割引';   /* SF-DISCLABEL-GARDEN-20260827 */
     } else if (discountInfo.type === 'janis') {
       discLabel = (sfSalonLabel('janis') || 'JANIS') + '割引';
+    } else if (discountInfo.type === 'tour') {
+      discLabel = '見学会（無料）';                                       /* SF-TOURFREE-20260830 */
+    } else if (discountInfo.type === 'trial') {
+      discLabel = '体験券（2時間無料）';
     } else {
       discLabel = '通常割引';
     }
@@ -14265,7 +14293,36 @@ function selectDiscountType(type) {
     const amountEl = document.getElementById('discountAmountInput');
     if (amountEl) amountEl.value = 0;
   }
+  /* SF-TOURFREE-20260830 : 見学会は全額無料、体験券は2時間分まで無料（超過は通常料金）。
+     金額は自動で入るが、あとから手で直すこともできる（従来の割引欄はそのまま使える）。 */
+  if (type === 'tour' || type === 'trial') {
+    try { sfSetTourDiscount(type); } catch (e) { console.error('[SF-TOURFREE-20260830]', e); }
+  }
   recalcAmount();
+}
+
+/* SF-TOURFREE-20260830 : 見学会／体験券の割引額を入れる。
+   見学会 … その日の小計をまるごと割り引く（＝¥0）。見学会の間だけのお預かりなので時間は問わない。
+   体験券 … 2時間ぶんの料金を上限に割り引く。3時間いたら1時間ぶんだけ頂く形になる。
+            上限は小計まで（2時間未満で帰ったら、その分だけの割引＝¥0）。 */
+function sfSetTourDiscount(type) {
+  if (!currentPaymentVisit) return;
+  const v = currentPaymentVisit;
+  const actualEnd = getActualEndValue();
+  if (!actualEnd) return;
+  const usageKey = v.usageType || 'temporary';
+  const typeInfo = getUsageType(usageKey);
+  const amount = (typeInfo.pricingType === 'hourly')
+    ? calcAmountFromTimes(v.visitStart, v.visitEnd, actualEnd, typeInfo.hourlyRate)
+    : calcInternalAmount(usageKey, v.visitStart, actualEnd);
+  const subTotal = (amount.base || 0) + (amount.extension || 0);
+  let disc = subTotal;                                   // 見学会＝全額
+  if (type === 'trial') {
+    const rate = typeInfo.hourlyRate || 1000;
+    disc = Math.min(subTotal, rate * 2);                 // 体験券＝2時間ぶんが上限
+  }
+  const amountEl = document.getElementById('discountAmountInput');
+  if (amountEl) amountEl.value = disc;
 }
 
 // 全額無料ボタン
@@ -15716,6 +15773,12 @@ function renderReceipt() {
     } else if (discType === 'janis') {
       discLabel = (sfSalonLabel('janis') || 'JANIS') + '割引';
       discNote = '(サロンご利用のお客様)';
+    } else if (discType === 'tour') {
+      discLabel = '見学会（無料）';                     /* SF-TOURFREE-20260830 */
+      discNote = '(見学会にご参加のお客様)';
+    } else if (discType === 'trial') {
+      discLabel = '体験券（2時間無料）';
+      discNote = '(体験無料券のご利用)';
     } else {
       discLabel = '通常割引';
       discNote = '';
