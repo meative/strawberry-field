@@ -531,7 +531,8 @@ body {
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
   import {
-    getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+    getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+    collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
@@ -545,7 +546,20 @@ body {
   };
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  /* SF-OFFLINE-BOARD-20260830 : オフライン永続化。timely は SF-OFFLINE-20260826 で導入済みだが
+     ボードは未対応で、電波が切れている間の書き込みはタブを閉じると失われていた。
+     Firestore 自身のキャッシュに積んでおけば、電波が戻ったときに自動で再送される。
+     同一端末で複数タブを開く運用（受付とボードを並べる）があるため multiTabManager を使う。
+     IndexedDB が使えない環境（プライベートウィンドウ等）では既定キャッシュに自動で戻す。 */
+  let db;
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    });
+  } catch (e) {
+    console.warn('[firestore] 永続キャッシュを使えないため既定キャッシュにフォールバック', e);
+    db = getFirestore(app);
+  }
 
   /* ===== SF-KINDER-BOARD-STEP1-20260630: 幼稚舎データ層 (表示なし・読むだけ) ===== */
   // 園ごとのデフォルト出欠の向き (true=全員いる始まり, false=全員いない始まり)
@@ -2503,6 +2517,10 @@ function sfWriteNew(b) {
     nextReservation: null, provisional: false, info: null, memo: b.memo || '',
     affiliation: b.affiliation || CURRENT_GARDEN,
     fromBoard: true,
+    /* SF-UPDATEDAT-BOARD-20260830 : いつの版かを記録する。端末間で状態が食い違ったときに
+       どちらが新しいかを判断する材料になる（timely の SF-VERGUARD-20260826 と同じ考え方）。
+       編集した1件にだけ付くので、全件書き直しにはならない（書き込み上限の事故を避ける）。 */
+    updatedAt: new Date().toISOString(),
   });
   sfSave(arr);
   return id;
@@ -2519,6 +2537,7 @@ function sfWriteBack(b) {
   if (b.date) rec.date = b.date; // 予約日の変更を反映（TimelySchool・サロン・お迎え通知にも伝わる）
   rec.memo = b.memo || ''; rec.salon = b.zone; rec.gardenId = normGarden(b.gardenId);
   if (b.affiliation !== undefined) rec.affiliation = b.affiliation;
+  rec.updatedAt = new Date().toISOString();   /* SF-UPDATEDAT-BOARD-20260830 */
   sfSave(arr);
 }
 
