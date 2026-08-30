@@ -13821,7 +13821,11 @@ function initInternalScreen() {
   if (kanaInp) kanaInp.value = '';
   document.getElementById('internalClass').value = '';
   document.querySelectorAll('input[name="internalClassRadio"]').forEach(r => r.checked = false);
-  document.getElementById('internalDate').value = new Date().toISOString().split('T')[0];
+  /* SF-JSTDATE-20260830 : toISOString() は UTC を返すため、日本時間の 0:00〜8:59 に
+     この画面を開くと「前日」の日付が入ってしまっていた。早朝保育(07:00〜08:00)の受付は
+     必ず9時前に行うので、自園生徒・早朝は毎回1日ずれて記録されていた（実例：8/24 7:25 の
+     受付が 8/23 として保存され、会計待ちに残り続けた）。ローカル日付の todayStr() を使う。 */
+  document.getElementById('internalDate').value = todayStr();
   document.getElementById('internalMemo').value = '';
   const saveReg = document.getElementById('internalSaveToRegistry');
   if (saveReg) saveReg.checked = false;
@@ -15515,7 +15519,13 @@ function approvePayment() {
       // 領収書番号：YYYYMMDD-連番
       const d = new Date();
       const dateStr = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
-      const sameDayCount = DATA.visits.filter(v => v.paidAt && v.paidAt.startsWith(d.toISOString().slice(0,10))).length;
+      /* SF-JSTDATE-20260830 : 連番の「同じ日」も UTC で数えていたため、9時前の会計が
+         前日ぶんとして数えられ、領収書番号が重複・飛びを起こしうる。ローカル日で数える。 */
+      const sameDayCount = DATA.visits.filter(function (v) {
+        if (!v.paidAt) return false;
+        var p = new Date(v.paidAt);
+        return p.getFullYear() === d.getFullYear() && p.getMonth() === d.getMonth() && p.getDate() === d.getDate();
+      }).length;
       DATA.visits[idx].receiptNo = `${dateStr}-${String(sameDayCount).padStart(3, '0')}`;
     }
     
@@ -16810,7 +16820,7 @@ function exportData() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `timely_school_${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `timely_school_${todayStr()}.json`;   /* SF-JSTDATE-20260830 : ファイル名もローカル日付に */
   a.click();
   URL.revokeObjectURL(url);
   toast('✓ JSONファイルをダウンロードしました');
@@ -16872,7 +16882,8 @@ function loadSampleData() {
   const daysAgo = (n) => {
     const d = new Date();
     d.setDate(d.getDate() - n);
-    return d.toISOString().split('T')[0];
+    /* SF-JSTDATE-20260830 : ここも UTC だとサンプルが1日ずれる */
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   };
   const today = daysAgo(0);
   
