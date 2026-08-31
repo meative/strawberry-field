@@ -7894,6 +7894,41 @@
           <label class="field-label"><span class="en">Phone</span>電話番号</label>
           <input type="tel" id="ceParentTel" class="input" placeholder="例: 09012345678" autocomplete="off">
         </div>
+        <!-- SF-CUSTADDR-20260831 : 初回登録で入力していただいた住所は保存されていたが、
+             どの画面にも出していなかった。忘れ物の郵送などで必要になるのでここに出す。
+             一覧の行には出さない（保護者の目に触れる画面なので）。 -->
+        <div class="ce-grid">
+          <div class="field">
+            <label class="field-label"><span class="en">Postal Code</span>郵便番号</label>
+            <div style="display:flex; gap:10px; align-items:stretch;">
+              <input type="text" id="ceZipcode" class="input" placeholder="例: 0600034" maxlength="8" inputmode="numeric" autocomplete="off">
+              <button type="button" class="btn btn-ghost" onclick="ceLookupZipcode()" style="font-size:11px; padding:10px 16px; white-space:nowrap;">住所検索</button>
+            </div>
+            <div class="field-hint" id="ceZipcodeStatus">※ 数字7桁を入れると住所を探せます</div>
+          </div>
+          <div class="field">
+            <label class="field-label"><span class="en">Address</span>ご住所</label>
+            <input type="text" id="ceAddress" class="input" placeholder="例: 札幌市中央区..." autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <!-- SF-CUSTADDR-20260831 : 緊急連絡先も保存はされていたが画面に出ていなかった。 -->
+      <div class="ce-section">
+        <div class="ce-section-label">
+          <span class="ce-label-en">Emergency</span>
+          <span class="ce-label-jp">緊急連絡先</span>
+        </div>
+        <div class="ce-grid">
+          <div class="field">
+            <label class="field-label"><span class="en">Name</span>お名前</label>
+            <input type="text" id="ceEmergency1Name" class="input" placeholder="例: 高嶋 花子" autocomplete="off">
+          </div>
+          <div class="field">
+            <label class="field-label"><span class="en">Phone</span>電話番号</label>
+            <input type="tel" id="ceEmergency1Tel" class="input" placeholder="例: 09012345678" autocomplete="off">
+          </div>
+        </div>
       </div>
       
       <!-- 健康情報 -->
@@ -9395,6 +9430,36 @@ function formatZipcode(input) {
   if (v.replace('-', '').length === 7) {
     lookupZipcode();
   }
+}
+
+/* SF-CUSTADDR-20260831 : 顧客情報の編集でも郵便番号から住所を引けるようにする。
+   新規登録の lookupZipcode() と同じ zipcloud を使うが、入力欄の id が違うので別に持つ。
+   通信できない園でも編集そのものは手入力で完結する。 */
+function ceLookupZipcode() {
+  var zipInput = document.getElementById('ceZipcode');
+  var statusEl = document.getElementById('ceZipcodeStatus');
+  var addressInput = document.getElementById('ceAddress');
+  if (!zipInput || !addressInput) return;
+  var zip = (zipInput.value || '').replace(/[^\d]/g, '');
+  var say = function (t, c) { if (statusEl) { statusEl.textContent = t; statusEl.style.color = c || ''; } };
+  if (zip.length !== 7) return say('※ 数字7桁で入力してください', 'var(--color-warning)');
+  say('🔄 検索中...', 'var(--color-text-light)');
+  fetch('https://zipcloud.ibsnet.co.jp/api/search?zipcode=' + zip)
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      if (data && data.status === 200 && data.results && data.results.length > 0) {
+        var r = data.results[0];
+        addressInput.value = '' + (r.address1 || '') + (r.address2 || '') + (r.address3 || '');
+        addressInput.focus();
+        say('✓ 住所を取得しました（続きを入力してください）', 'var(--color-accent)');
+      } else {
+        say('⚠ 該当する住所が見つかりません', 'var(--color-warning)');
+      }
+    })
+    .catch(function (err) {
+      console.error('[SF-CUSTADDR-20260831]', err);
+      say('⚠ 通信エラー（手入力してください）', 'var(--color-danger)');
+    });
 }
 
 async function lookupZipcode() {
@@ -11789,6 +11854,14 @@ function openCustomerEditModal(customerId) {
   document.getElementById('ceParentName').value = customer.parentName || '';
   document.getElementById('ceParentKana').value = customer.parentKana || '';
   document.getElementById('ceParentTel').value = customer.parentTel || '';
+  /* SF-CUSTADDR-20260831 : 住所・緊急連絡先。
+     古い記録は緊急連絡先の電話が emergency1 に入っていることがあるので拾う。 */
+  document.getElementById('ceZipcode').value = customer.zipcode || '';
+  document.getElementById('ceAddress').value = customer.address || '';
+  document.getElementById('ceEmergency1Name').value = customer.emergency1Name || '';
+  document.getElementById('ceEmergency1Tel').value = customer.emergency1Tel || customer.emergency1 || '';
+  var _ceZs = document.getElementById('ceZipcodeStatus');
+  if (_ceZs) { _ceZs.textContent = '※ 数字7桁を入れると住所を探せます'; _ceZs.style.color = ''; }
   document.getElementById('ceTemp').value = customer.temp || '';
   document.getElementById('ceDoctor').value = customer.doctor || '';
   
@@ -11829,6 +11902,11 @@ function saveCustomerEdit() {
   const parentName = document.getElementById('ceParentName').value.trim();
   const parentKana = document.getElementById('ceParentKana').value.trim();
   const parentTel = document.getElementById('ceParentTel').value.trim();
+  /* SF-CUSTADDR-20260831 */
+  const zipcode = document.getElementById('ceZipcode').value.trim();
+  const address = document.getElementById('ceAddress').value.trim();
+  const emergency1Name = document.getElementById('ceEmergency1Name').value.trim();
+  const emergency1Tel = document.getElementById('ceEmergency1Tel').value.trim();
   const temp = document.getElementById('ceTemp').value.trim();
   const doctor = document.getElementById('ceDoctor').value.trim();
   
@@ -11848,6 +11926,13 @@ function saveCustomerEdit() {
   customer.parentName = parentName;
   customer.parentKana = parentKana;
   customer.parentTel = parentTel;
+  /* SF-CUSTADDR-20260831 : 空欄でも上書きする（消したいときに消せるように）。
+     電話だけ古い emergency1 に残っていると、消したはずの番号が復活するので落とす。 */
+  customer.zipcode = zipcode;
+  customer.address = address;
+  customer.emergency1Name = emergency1Name;
+  customer.emergency1Tel = emergency1Tel;
+  delete customer.emergency1;
   customer.temp = temp;
   customer.doctor = doctor;
   customer.allergyItems = allergyItems;
