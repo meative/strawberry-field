@@ -1013,13 +1013,54 @@ function sfChangedOnly(next, prev) {
 function sfCloneRows(a) {
   try { return JSON.parse(JSON.stringify(a || [])); } catch (e) { return (a || []).slice(); }
 }
-function sfSave(arr) {
+/* SF-DELGUARD-20260831 : 指示していない削除を、そもそも実行させない。
+
+   2026-08-31 に「ボードに入力したのに消える」「8/24 のぶんが消えていた」という報告があった
+   （ファクトリーは実際に消えており、月寒のボードは無事だった）。原因はまだ特定できていない。
+   ただし原因が分からなくても、被害だけは止められる。
+
+   この保存関数は「手元の写しにあって、渡された配列に無い id はクラウドから消す」という作り。
+   呼び出し側が全件を渡しているうちは正しいが、写しと実体がずれた状態で書き込みが走ると、
+   関係のないレコードまで消えてしまう。実際に消えたときの通信ログには
+   ERR_INTERNET_DISCONNECTED / ERR_NETWORK_CHANGED / Listen stream transport errored が並んでいた。
+
+   そこで削除を「明示的に頼まれたときだけ」に限定する。
+     - 追加・編集の保存（sfWriteNew / sfWriteBack / 受付内容の反映）… 削除は起こりえない → 一切消さない
+     - 予約の取り消し・幼稚舎チップのオフ … allowDelete=true を渡した経路だけ消す
+   さらに、明示的な削除でも一度に SF_DELGUARD_MAX 件を超えるものは実行しない
+   （区間は最大2・組は最大6なので、8件を超えるまとめ削除は業務上ありえない）。
+
+   止めたぶんは写しに戻すので、画面から消えることもない。次のスナップショットで正しい状態に揃う。
+   空のスナップショットで写しを置き換えるのも止める（通信断で0件が届くことがあるため）。 */
+var SF_DELGUARD_MAX = 8;
+function sfDelGuard(next, deletedIds, allowDelete, mirror) {
+  if (!deletedIds.length) return deletedIds;
+  var why = !allowDelete
+    ? '削除の指示が無いのに ' + deletedIds.length + ' 件が消えようとしました'
+    : (deletedIds.length > SF_DELGUARD_MAX
+        ? '一度に ' + deletedIds.length + ' 件を消そうとしました（上限 ' + SF_DELGUARD_MAX + ' 件）'
+        : null);
+  if (!why) return deletedIds;
+  console.error('[SF-DELGUARD-20260831] ' + why + '。削除は行いません。', deletedIds.slice(0, 30));
+  var keep = {};
+  deletedIds.forEach(function (id) { keep[String(id)] = true; });
+  mirror.forEach(function (r) {
+    if (r && r.id != null && keep[String(r.id)]) {
+      /* 写しの実体そのものではなく複製を戻す。実体を戻すと差分判定が「変更あり」と見なして
+         無駄な書き込みが走る（Firestore の無料枠を食う）。 */
+      try { next.push(JSON.parse(JSON.stringify(r))); } catch (e) { next.push(r); }
+    }
+  });
+  return [];
+}
+function sfSave(arr, allowDelete) {
   try {
     const next = JSON.parse(JSON.stringify(arr || []));
     const newIds = new Set(next.map(r => r && r.id).filter(Boolean).map(String));
-    const deletedIds = SF_MIRROR
+    let deletedIds = SF_MIRROR
       .map(r => r && r.id)
       .filter(id => id != null && !newIds.has(String(id)));
+    deletedIds = sfDelGuard(next, deletedIds, allowDelete, SF_MIRROR);   /* SF-DELGUARD-20260831 */
     /* SF-WRITEDIFF-20260724 : 写しを置き換える前に差分を取る */
     const toWrite = sfChangedOnly(next, SF_MIRROR);
     SF_MIRROR = next; // 楽観更新（次の sfLoad に即反映）
@@ -1035,7 +1076,15 @@ function sfSave(arr) {
 // onSnapshot（module側）から呼ばれる：Firestore の全ドキュメントで写しを丸ごと置換し、
 // 既存の取り込み経路（importSharedBookings → renderBoard）で再構築・再描画する。
 window.sfApplySnapshot = function(arr) {
-  SF_MIRROR = Array.isArray(arr) ? arr : [];
+  const _next = Array.isArray(arr) ? arr : [];
+  /* SF-DELGUARD-20260831 : 通信断のあとに0件のスナップショットが届くことがある。
+     それで写しを置き換えると画面から予約が消え、現場が入れ直して二重になる。 */
+  if (!_next.length && SF_MIRROR.length) {
+    console.error('[SF-DELGUARD-20260831] 空のスナップショットが届きました。手元の ' +
+      SF_MIRROR.length + ' 件を維持します。');
+    return;
+  }
+  SF_MIRROR = _next;
   if (typeof importSharedBookings === 'function') importSharedBookings();
 };
 
@@ -1787,7 +1836,7 @@ function bookKinder(zoneKey, idx) {
       /* SF-KINDER-SHARE-STEP3-V5-20260702 : also remove from shared storage (same as deleteBooking) */
       if (_b.sfId) {
         var _arr = sfLoad().filter(function(r){ return r.id !== _b.sfId; });
-        sfSave(_arr);
+        sfSave(_arr, true);   /* SF-DELGUARD-20260831 : 明示的な取り消し */
       }
       bookings.splice(_k, 1); renderBoard(); return;
     }
@@ -2606,7 +2655,7 @@ async function deleteBooking() {
       if (_delMode === 'all' && _gid && r.groupId === _gid) return false;
       return r.id !== b.sfId;
     });
-    sfSave(arr);
+    sfSave(arr, true);   /* SF-DELGUARD-20260831 : 明示的な取り消し */
   }
   /* 画面側も同じ範囲を落とす。スナップショットで自己修復はするが、
      片方が一瞬残ると取り消せたのか分からず二度押しを誘うため。 */
