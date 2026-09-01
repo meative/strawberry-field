@@ -516,6 +516,14 @@ body {
       border:1px solid var(--tiffany,#0ABAB5); user-select:none;
       -webkit-user-select:none; transition:opacity .12s ease; }
     .kinder-chip.off { background:transparent; color:var(--tiffany,#0ABAB5); border-color:var(--tiffany,#0ABAB5); text-decoration:none; opacity:1; } /* SF-KINDER-CHIP-OFF-STYLE-V3-20260701 : outlined & readable (no strikethrough) */
+    /* SF-XPARK-20260901 : 他園所属の生徒のチップ。自園の子と見分けがつくよう破線にし、所属園を添える。 */
+    .kinder-chip.xpark { border-style:dashed; }
+    .kinder-chip .xpark-park { font-size:10px; margin-left:5px; opacity:.85; }
+    .kinder-head.xpark-head { color:var(--mut,#8a8a8a); }
+    .kinder-more { font-size:11px; padding:4px 10px; border-radius:14px; cursor:pointer;
+      border:1px dashed var(--mut,#8a8a8a); color:var(--mut,#8a8a8a); background:transparent;
+      display:inline-flex; align-items:center; min-height:28px; white-space:nowrap;
+      font-family:inherit; letter-spacing:.02em; }
     .kinder-empty { font-size:11px; color:var(--mut,#8a8a8a);
       font-style:italic; }
     /* ===== end SF-KINDER-BOARD-STEP23-20260630 CSS ===== */
@@ -1734,26 +1742,83 @@ function kinderHasBooking(garden, zoneKey, name) {
   }
   return false;
 }
+/* SF-XPARK-20260901 : 園をまたいで使うお子様に対応する。
+
+   白石園所属の幼稚舎生が、朝は白石で早朝を使い、バスで幼稚園へ行き、
+   夕方は月寒で延長を使う、という利用が実際にある。
+   従来チップは linkPark（連携園）が表示中の園と一致する子だけを並べていたので
+   （SF-KINDER-LINKPARK-FILTER-20260701）、月寒のボードに白石の子が出てこなかった。
+
+   SF-AMPMPARK-20260901 : そこで月謝アプリの園児台帳に「早朝の園」「夕方の園」を足した。
+   常態の運用はそこで登録してもらい、**その区分の園が一致する子を今までどおり並べる**。
+   上の例なら、白石の早朝チップと月寒の延長チップの両方に、最初から常時出る。
+   欄が空なら従来どおり連携園を見るので、既存の登録は何も変わらない。
+
+   それ以外の子（たまたま今日だけ他園、など）は「＋ 他園の生徒（n）」に畳んでおく。
+   **その日この園に予約が入っている子は、畳んでいても必ず出す**（一目で分かるように）。
+
+   料金・集計は変更しない。件数は sfKinderExtCounts が gardenId だけで数えるので、
+   実際に預かった園に立つ。実年齢も kinderBirthOf が氏名で名簿を引くだけなのでそのまま出る。 */
+var SF_XPARK_OPEN = { ext_am: false, ext_pm: false };
+function sfXparkToggle(zoneKey) {
+  SF_XPARK_OPEN[zoneKey] = !SF_XPARK_OPEN[zoneKey];
+  if (typeof renderBoard === 'function') renderBoard();
+}
+window.sfXparkToggle = sfXparkToggle;
+function sfXparkLabel(linkPark) {
+  var g = (GARDENS[normGarden(linkPark)] || {}).name || String(linkPark || '');
+  return g.replace(/園$/, '');
+}
+/* SF-AMPMPARK-20260901 : その区分（早朝／延長）で、この子が通う園。
+   台帳の「早朝の園」「夕方の園」が空なら連携園にフォールバックする。 */
+function sfKinderParkFor(r, zoneKey) {
+  if (!r) return '';
+  var p = (zoneKey === 'ext_am') ? r.linkParkAm : r.linkParkPm;
+  return String((p == null || p === '') ? (r.linkPark || '') : p);
+}
 function renderKinderChips(zoneKey) {
   var roster = window.KINDER_ROSTER || [];
   var label = (zoneKey === 'ext_am') ? '早朝' : '延長';
   var h = '<div class="kinder-row"><span class="kinder-head">自園生徒(幼稚舎)・' + label + '</span>';
   var any = false;
+  var others = [];
   for (var i = 0; i < roster.length; i++) {
     var r = roster[i];
     if (!r || !r.name) continue;
     /* SF-KINDER-LINKPARK-FILTER-20260701 */
     if (!r.linkPark) continue;
-    if (normGarden(r.linkPark) !== CURRENT_GARDEN) continue;
-    any = true;
+    var park = sfKinderParkFor(r, zoneKey);   /* SF-AMPMPARK-20260901 */
+    if (!park) continue;
     /* SF-KINDER-BOOK-TOGGLE-STEP2-20260701 : grey reflects booking presence (Method3: booked=solid), not attendance */
     var here = kinderHasBooking(CURRENT_GARDEN, zoneKey, r.name);
+    if (normGarden(park) !== CURRENT_GARDEN) {   /* SF-XPARK-20260901 */
+      others.push({ i: i, r: r, here: here });
+      continue;
+    }
+    any = true;
     var cls = here ? 'kinder-chip' : 'kinder-chip off';
+    /* SF-AMPMPARK-20260901 : この区分だけ他園から来ている子は、所属園を添えて区別する */
+    var _tag = (normGarden(r.linkPark) !== CURRENT_GARDEN)
+      ? '<span class="xpark-park">（' + escapeHtml(sfXparkLabel(r.linkPark)) + '）</span>' : '';
     h += '<span class="' + cls + '" onclick="bookKinder(\'' + zoneKey + '\',' + i + ')">'
-       + escapeHtml(r.name) + '</span>';
+       + escapeHtml(r.name) + _tag + '</span>';
   }
   if (!any) {
     h += '<span class="kinder-empty">連携園の登録なし</span>';
+  }
+  /* SF-XPARK-20260901 : その区分ではこの園に通わない子。ふだんは畳んでおく。 */
+  if (others.length) {
+    var _open = !!SF_XPARK_OPEN[zoneKey];
+    var _show = _open ? others : others.filter(function (o) { return o.here; });
+    if (_show.length) h += '<span class="kinder-head xpark-head">他園</span>';
+    for (var _j = 0; _j < _show.length; _j++) {
+      var _o = _show[_j];
+      h += '<span class="' + (_o.here ? 'kinder-chip xpark' : 'kinder-chip off xpark') +
+           '" onclick="bookKinder(\'' + zoneKey + '\',' + _o.i + ')">' + escapeHtml(_o.r.name) +
+           '<span class="xpark-park">（' + escapeHtml(sfXparkLabel(sfKinderParkFor(_o.r, zoneKey))) + '）</span></span>';
+    }
+    h += '<span class="kinder-more" onclick="sfXparkToggle(\'' + zoneKey + '\')">' +
+         (_open ? '− 他園を閉じる' : '＋ 他園の生徒（' + others.length + '）') + '</span>';
   }
   h += '</div>';
   return h;
@@ -1818,6 +1883,8 @@ function bookKinder(zoneKey, idx) {
              /* SF-KINDER-AGE-20260829 : 名簿に生年月があれば載せる（バーは ageMonthsFromYM で実年齢表示、sfWriteNew も透過） */
              birthY: (r.birthY != null ? r.birthY : null), birthM: (r.birthM != null ? r.birthM : null),
              start: start, end: end, date: boardDateStr(),
+             /* SF-XPARK-20260901 : 所属園を控える。表示に使うだけで、件数はこの園に立つ。 */
+             homePark: (r.linkPark ? normGarden(r.linkPark) : CURRENT_GARDEN),
              affiliation: 'youchisha' };
   /* SF-KINDER-SHARE-STEP3-V5-20260702 : share ON — write to sf storage before push */
   nb.sfId = sfWriteNew(nb);
@@ -1902,7 +1969,10 @@ function renderBoard() {
         const lunch = needsLunch(b) ? '<span class="lunch-mark" title="昼食・軽食をお持ちください">🍙</span>' : '';
         const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
         const provMark = (b.provisional && !(b.info && b.info.name)) ? '<span class="bar-prov">新規・受付待ち</span>' : '';
-        const affilBadge = (b.affiliation === 'youchisha') ? '<span class="affil-badge">幼稚舎</span>' : '';
+        /* SF-XPARK-20260901 : 他園所属なら「幼稚舎・白石」のように所属園を添える */
+        const _hp = (b.affiliation === 'youchisha' && b.homePark && normGarden(b.homePark) !== CURRENT_GARDEN)
+          ? '・' + escapeHtml(sfXparkLabel(b.homePark)) : '';
+        const affilBadge = (b.affiliation === 'youchisha') ? `<span class="affil-badge">幼稚舎${_hp}</span>` : '';
         /* SF-SALONSPLIT-BOARD-20260724 : 区間グループの印。①②と、続く先のサロン名を出す。
            バーの置き場所は zone(サロン)で決まるので、配置そのものは従来のまま2レーンに分かれる。 */
         let grpChip = '';
@@ -2555,6 +2625,7 @@ function sfWriteNew(b) {
     start: b.start, end: b.end, date: boardDateStr(),
     nextReservation: null, provisional: false, info: null, memo: b.memo || '',
     affiliation: b.affiliation || CURRENT_GARDEN,
+    homePark: (b.homePark != null ? b.homePark : null),   /* SF-XPARK-20260901 */
     fromBoard: true,
     /* SF-UPDATEDAT-BOARD-20260830 : いつの版かを記録する。端末間で状態が食い違ったときに
        どちらが新しいかを判断する材料になる（timely の SF-VERGUARD-20260826 と同じ考え方）。
