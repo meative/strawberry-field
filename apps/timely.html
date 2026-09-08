@@ -10156,6 +10156,21 @@ function attemptVerify() {
   });
   
   if (matched.length === 0) {
+    /* SF-VERIFYSYNC-20260908 : クラウドの顧客データがまだ届いていない端末では「該当なし」を
+       信用できない（登録済みでも空振りし、新規登録へ誘導すると重複登録になる。
+       2026-09-07 に同一園児4件を統合した事故の入り口）。購読完了（TL_SNAP_SEEN.customers）
+       までは新規登録ボタンを出さず、待ってもらう。圏外起動などで匿名認証が失敗すると
+       TL_SNAP_SEEN は立たないままだが、その場合もメインメニューの「初めてのご利用」から
+       新規登録には入れるので、本当の初回のお客様を塞ぐことはない。 */
+    if (typeof TL_SNAP_SEEN !== 'undefined' && !TL_SNAP_SEEN.customers) {
+      resultEl.innerHTML = `
+      <div class="alert alert-warn">
+        <strong>顧客データを同期中です。</strong><br>
+        しばらく待ってから、もう一度お試しください。
+      </div>
+      `;
+      return;
+    }
     resultEl.innerHTML = `
       <div class="alert alert-warn">
         <strong>該当する利用者が見つかりません。</strong><br>
@@ -10213,6 +10228,12 @@ function attemptVerify() {
 // ============================================================
 
 function initNewRegistrationScreen() {
+  /* SF-SUBMITLOCK-20260908 / SF-CUSTDUPGUARD-20260908 : 画面を開き直したらフラグを戻す
+     （遷移前にタブを閉じた等でロックが残ると、二度と登録できなくなるため）。 */
+  __regSubmitting = false;
+  __custDupConfirmed = false;
+  const _sb0 = document.getElementById('submitBtn');
+  if (_sb0) _sb0.disabled = false;
   // 生年月日セレクト初期化
   const ySel = document.getElementById('birthY');
   if (ySel && ySel.options.length <= 1) {
@@ -10512,7 +10533,15 @@ function clearSignature() {
 // ============================================================
 // 新規顧客登録
 // ============================================================
+/* SF-SUBMITLOCK-20260908 : 保存処理中フラグ。登録完了トーストから画面遷移までの800msの間も
+   ボタンが押せたままで、押し直しにより同一内容の顧客が2件できていた
+   （2026-08-21 の重複は id のタイムスタンプが313ms差＝この窓の中の二度押し）。 */
+let __regSubmitting = false;
+/* SF-CUSTDUPGUARD-20260908 : 重複確認ダイアログで「別のお子様として登録する」を選んだ印。
+   立っている間だけ重複チェックを飛ばして保存する（双子の2人目の正規登録用）。 */
+let __custDupConfirmed = false;
 function submitNewCustomer() {
+  if (__regSubmitting) return;   /* SF-SUBMITLOCK-20260908 */
   // バリデーション
   const childName = document.getElementById('childName').value.trim();
   const childKana = document.getElementById('childKana').value.trim();
@@ -10546,9 +10575,59 @@ function submitNewCustomer() {
   if (!document.getElementById('newAgreeCheck').checked) return toast('ご利用条件への同意にチェックしてください', true);
   if (!hasSignature) return toast('署名をお願いします', true);
   
+  /* SF-CUSTDUPGUARD-20260908 : 同じ生年月日＋同じ電話下4桁の登録済みのお子様がいたら、
+     保存の前に確認して選ばせる。本人確認は照合の瞬間に端末へ顧客データが届いていないと
+     「該当なし→新規登録」に落ち、同一園児が4件重複登録された（2026-09-07 に統合済み）。
+     照合画面ではなく保存時に置くのは、同期遅延で本人確認をすり抜けた場合の最後の網にするため。
+     判定は本人確認（attemptVerify）と同じ正規化（生年月日は parseInt・電話は数字のみの下4桁）で、
+     判定ズレを作らない。双子は生年月日も電話も同一なのが正規の状態なので、
+     ブロックはせず「別のお子様として登録する」で先へ進める。 */
+  if (!__custDupConfirmed) {
+    const _dupPin = parentTel.replace(/[^0-9]/g, '').slice(-4);
+    const _dupHits = DATA.customers.filter(c => {
+      if (!c) return false;
+      if (parseInt(c.birthY, 10) !== parseInt(birthY, 10)) return false;
+      if (parseInt(c.birthM, 10) !== parseInt(birthM, 10)) return false;
+      if (parseInt(c.birthD, 10) !== parseInt(birthD, 10)) return false;
+      return (c.parentTel || '').replace(/[^0-9]/g, '').slice(-4) === _dupPin;
+    });
+    if (_dupHits.length) {
+      const _esc = (typeof escapeHtml === 'function') ? escapeHtml : (s => String(s == null ? '' : s));
+      const _list = _dupHits.map(c =>
+        '<div style="padding:6px 0; border-bottom:1px solid #EEE6D8;"><strong>' + _esc(c.childName) + '</strong>'
+        + (c.createdAt ? ' <span style="color:#8A7B5C; font-size:12px;">（登録日 ' + _esc(String(c.createdAt).slice(0, 10)) + '）</span>' : '')
+        + '</div>').join('');
+      const _detail = '<div style="text-align:left; display:inline-block; margin:4px auto 0; font-size:13.5px; line-height:1.8;">'
+        + _list
+        + '<div style="margin-top:10px; font-size:12.5px; color:#8A7B5C;">'
+        + (_dupHits.length >= 2
+            ? '複数いらっしゃいます。受付に進む場合は本人確認画面からお選びください。'
+            : 'すでにご登録がある場合は、新しく登録せずそのまま受付に進めます。')
+        + '</div></div>';
+      if (typeof sfSyncPopup === 'function') {
+        const _btns = [{ label: 'キャンセル' }];
+        if (_dupHits.length === 1) {
+          _btns.push({ label: 'このお子様で受付に進む', pri: true, cb: () => selectCustomer(_dupHits[0].id) });
+        }
+        _btns.push({ label: '別のお子様として登録する', cb: () => { __custDupConfirmed = true; submitNewCustomer(); } });
+        sfSyncPopup('ng', '👥', '同じ生年月日・同じ電話で登録済みのお子様がいます', _detail, _btns);
+        return;
+      }
+      /* フォールバック（通常は通らない） */
+      if (!window.confirm('同じ生年月日・同じ電話で登録済みのお子様がいます。別のお子様として登録しますか？')) return;
+    }
+  }
+  __custDupConfirmed = false;
+
+  /* SF-SUBMITLOCK-20260908 : 全バリデーション・重複確認を通過したものだけロックする
+     （入力不備の toast で戻った場合はすぐ押し直せるように、ここより前ではロックしない）。 */
+  __regSubmitting = true;
+  const _submitBtn = document.getElementById('submitBtn');
+  if (_submitBtn) _submitBtn.disabled = true;
+
   // アレルギー項目（チェックボックス）
   const allergyItems = Array.from(document.querySelectorAll('input[name="allergyItems"]:checked')).map(i => i.value);
-  
+
   const customer = {
     id: 'C' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
     branch: DATA.settings.branch,
@@ -10569,6 +10648,9 @@ function submitNewCustomer() {
   
   DATA.customers.push(customer);
   if (!saveData(DATA)) {
+    /* SF-SUBMITLOCK-20260908 : 失敗したらロックを解除して押し直せるようにする */
+    __regSubmitting = false;
+    if (_submitBtn) _submitBtn.disabled = false;
     return toast('保存に失敗しました', true);
   }
   
@@ -10580,6 +10662,9 @@ function submitNewCustomer() {
   setTimeout(() => {
     clearNewForm();
     navigate('visit');
+    /* SF-SUBMITLOCK-20260908 : 遷移が済んだらロック解除 */
+    __regSubmitting = false;
+    if (_submitBtn) _submitBtn.disabled = false;
   }, 800);
 }
 
