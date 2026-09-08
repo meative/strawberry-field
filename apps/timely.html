@@ -5610,7 +5610,7 @@
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
   import {
     getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-    collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+    collection, query, where, onSnapshot, doc, setDoc, deleteDoc, writeBatch
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
@@ -5637,6 +5637,23 @@
     db = getFirestore(app);
   }
   const auth = getAuth(app);
+  /* SF-READWINDOW-20260908 : sf_bookings の購読に日付窓（下限のみ）を付ける。
+     全12ファイルが where も limit も無しで全件購読しており、予約が 900 件まで育った結果、
+     1ページ読み込みごとに全件を読み直して 9/2 に Firestore の読み取り枠が切れた
+     （過去分が 98.6%＝ほぼ死荷重）。窓の開始日は起動時に1回だけ端末時計（JST）で計算する。
+     日をまたいでも張り直さない：窓は下限だけなので「広がる」方向にしかずれず、データが
+     隠れることはない。逆に張り直すと新しいクエリ＝新しいリスナーで全件再読みが走る。
+     where はフィールド欠落 doc を返さないが、date 無しのレコードが 0 件であることは
+     2026-09-08 に確認済み（DESIGN-readwindow.md Phase 0）。
+     このファイルの窓：前月1日から。日報・月報の早朝・延長件数が SF_MIRROR を走査するため。Phase 4 で昨日へ絞る */
+  const SF_WINDOW_START = (function () {
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    d.setMonth(d.getMonth() - 1, 1);
+    const z = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate());
+  })();
+  window.SF_WINDOW_START = SF_WINDOW_START;   // 過去日のオンデマンド読み（Phase 3/4）と検証用
+  console.log('[SF-READWINDOW-20260908] sf_bookings window start =', SF_WINDOW_START);
   const COL = 'sf_bookings'; // board/salon/notify と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
 
   /* SF-TL-CLOUDSYNC-20260722 : 受付アプリの業務データ(visits/customers/students)を Firestore と同期 */
@@ -5693,7 +5710,7 @@
   // 購読が始まるため permission-denied で落ちない。
   signInAnonymously(auth).then(() => {
     // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す
-    onSnapshot(collection(db, COL), (snap) => {
+    onSnapshot(query(collection(db, COL), where('date', '>=', SF_WINDOW_START)), (snap) => {
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
       if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
     }, (e) => console.error('[onSnapshot] subscribe failed', e));
@@ -8736,7 +8753,11 @@ function importBoardReservations() {
        全端末の予約リストから消える。 */
     const sharedIds = new Set(shared.filter(r => r && r.id && !r.tlDone).map(r => r.id));
     const before = DATA.reservations.length;
-    DATA.reservations = DATA.reservations.filter(x => !(x.fromBoard && x.sfId && !sharedIds.has(x.sfId)));
+    /* SF-READWINDOW-20260908 : 共有の購読は日付窓つきなので、窓より前の予約は「共有に無い」ように
+       見えるだけで削除されたわけではない。窓内（reservationDate >= 窓開始）の予約だけを削除対象にする。 */
+    const _winStart = String(window.SF_WINDOW_START || '');
+    DATA.reservations = DATA.reservations.filter(x => !(x.fromBoard && x.sfId && !sharedIds.has(x.sfId)
+      && String(x.reservationDate || '') >= _winStart));
     if (DATA.reservations.length !== before) changed = true;
   }
 

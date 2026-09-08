@@ -277,7 +277,7 @@ button:active { opacity: 0.7; }
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
   import {
     getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-    collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+    collection, query, where, onSnapshot, doc, setDoc, deleteDoc, writeBatch
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
@@ -310,6 +310,23 @@ button:active { opacity: 0.7; }
     db = getFirestore(app);
   }
   const auth = getAuth(app);
+  /* SF-READWINDOW-20260908 : sf_bookings の購読に日付窓（下限のみ）を付ける。
+     全12ファイルが where も limit も無しで全件購読しており、予約が 900 件まで育った結果、
+     1ページ読み込みごとに全件を読み直して 9/2 に Firestore の読み取り枠が切れた
+     （過去分が 98.6%＝ほぼ死荷重）。窓の開始日は起動時に1回だけ端末時計（JST）で計算する。
+     日をまたいでも張り直さない：窓は下限だけなので「広がる」方向にしかずれず、データが
+     隠れることはない。逆に張り直すと新しいクエリ＝新しいリスナーで全件再読みが走る。
+     where はフィールド欠落 doc を返さないが、date 無しのレコードが 0 件であることは
+     2026-09-08 に確認済み（DESIGN-readwindow.md Phase 0）。
+     このファイルの窓：昨日から。前日表示を守る。過去日を参照する画面は無い */
+  const SF_WINDOW_START = (function () {
+    const d = new Date(); d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - 1);
+    const z = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate());
+  })();
+  window.SF_WINDOW_START = SF_WINDOW_START;   // 過去日のオンデマンド読み（Phase 3/4）と検証用
+  console.log('[SF-READWINDOW-20260908] sf_bookings window start =', SF_WINDOW_START);
   const COL = 'sf_bookings'; // board.html と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
   const CAP_COL = 'sf_capacity'; // 年齢別定員（board と共通）。doc "base"=基本設定、doc "YYYY-MM-DD"=日別例外。salonは読み取り専用
 
@@ -329,7 +346,7 @@ button:active { opacity: 0.7; }
   // 購読が始まるため permission-denied で落ちない。
   signInAnonymously(auth).then(() => {
     // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す
-    onSnapshot(collection(db, COL), (snap) => {
+    onSnapshot(query(collection(db, COL), where('date', '>=', SF_WINDOW_START)), (snap) => {
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
       if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
     }, (e) => console.error('[onSnapshot] subscribe failed', e));
