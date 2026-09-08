@@ -54,6 +54,9 @@ Web UI アップロードは使わない（コミット履歴とマーカーが�
   3.9万件/日 ÷ 110件 ≒ **1日350回以上、全データを読み直している**計算
 - 原因の第一候補：**onSnapshot の張り直し・多重登録**と、**全件購読にクエリ絞り込みが無い**こと
 - 調査の入り口：`grep -n "onSnapshot" apps/*.html` で購読箇所を洗い出す
+- **2026-09-08 進捗：Phase 0〜2 完了・本番反映済み**（永続キャッシュを12本全部に、sf_bookings の
+  購読に日付窓 `SF-READWINDOW-20260908`）。残りは実測 → Phase 3（board の過去日オンデマンド読み、
+  **期限 9/30**）→ Phase 4（timely）。設計・状態・作業ログは **`DESIGN-readwindow.md`** が正
 
 ### 作業ログ
 
@@ -197,6 +200,11 @@ sfSave()/sfSaveShared(arr) ─▶ sfChangedOnly(next, 写し) ─▶ fbReconcile
   **送信失敗時は `sfSyncTrack` が該当 id を写しから引き算して巻き戻す**（:8716-8722）ので、
   次の保存で自然に再送される。「写しは常にクラウドと一致する」と仮定したコードを書かないこと。
 - 差分ゼロなら `fbReconcile` を呼ばない（:8378 / :9036）。「保存したのに Promise が返らない」のは正常
+- **`SF-READWINDOW-20260908` 以降、`SF_MIRROR` には日付窓内の予約しか入っていない**
+  （board＝当月1日〜 / salon・notify＝昨日〜 / timely＝前月1日〜。窓開始は `window.SF_WINDOW_START`、
+  起動時に1回計算し日をまたいでも張り直さない）。**「SF_MIRROR は全件」を前提にしたコードを書かないこと。**
+  過去分は Phase 3/4 のオンデマンド読み（未実装）で扱う。timely の fromBoard 削除パスは
+  窓内の予約だけを削除対象にしている（窓外は「削除された」のではなく「購読していない」だけ）
 
 ### 同期コードを持つファイルは12本
 
@@ -204,14 +212,16 @@ sfSave()/sfSaveShared(arr) ─▶ sfChangedOnly(next, 写し) ─▶ fbReconcile
 （board 5 / salon 3 / notify 3 / timely 1）。同期の骨格に手を入れるときの修正対象は最大12ファイル。
 なお `__sfSnapshotReceived` 相当の初回ガードを持つのは **timely だけ**で、他11本にはありません。
 
-### オフライン永続化は timely + board 系の6本（SF-OFFLINE-20260826 / SF-OFFLINE-BOARD-20260830）
+### オフライン永続化は12本すべて（SF-OFFLINE-20260826 / SF-OFFLINE-BOARD-20260830 / SF-OFFLINE-SALON・NOTIFY-20260908）
 
-timely（:5592-5599）と board 5本が `initializeFirestore(app, { localCache: persistentLocalCache({
-tabManager: persistentMultipleTabManager() }) })` で、未送信の書き込みを IndexedDB に永続化します。
-タブを閉じても送信待ちが消えず、電波が戻れば Firestore SDK 自身が再送します。
+timely（:5592-5599）・board 5本・salon 3本・notify 3本の全12本が `initializeFirestore(app,
+{ localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) })` で、
+未送信の書き込みを IndexedDB に永続化します。タブを閉じても送信待ちが消えず、
+電波が戻れば Firestore SDK 自身が再送します（salon / notify は 2026-09-08 に移植。
+`apps/sf_offline_salon_notify_20260908.py`）。
 
-- **salon / notify と園別バリアントの計6本は素の `getFirestore(app)`** のまま。
-  サロン・通知側の書き込みはタブを閉じると送信待ちが消えます
+- 永続キャッシュはリスナー再開時に**変わっていないドキュメントを再送しない**（＝読み取り課金されない）
+  ので、読み取り削減の柱2でもある（→ `DESIGN-readwindow.md`）
 - **この module ブロックより前に `getFirestore(app)` を呼ぶコードを足すと壊れます。**
   `initializeFirestore` が「already started」で同期例外を投げ、catch が既定キャッシュへ落として
   **console.warn 一行だけ残して静かに永続化が無効化されます**。初期化は `<head>` 内のこの位置に置き続けること
