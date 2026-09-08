@@ -430,7 +430,8 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
   import {
-    getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+    getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+    collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
@@ -444,7 +445,24 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
   };
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  /* SF-OFFLINE-NOTIFY-20260908 : オフライン永続化（board の SF-OFFLINE-BOARD-20260830 を移植）。
+     素の getFirestore だと、iPad がタブを再読み込みするたびに sf_bookings 全件（約900件）を
+     サーバーから読み直し、Firestore の読み取り枠を食いつぶしていた（9/2 に枠切れ）。
+     永続キャッシュがあれば、変わっていないドキュメントはリスナー再開時に再送されない。
+     あわせて、電波が切れている間の書き込みもタブを閉じて消えず、電波が戻れば SDK が再送する。
+     同一端末で複数タブを開く運用があるため multiTabManager を使う。
+     IndexedDB が使えない環境（プライベートウィンドウ等）では既定キャッシュに自動で戻す。
+     ※ この module より前に getFirestore(app) を呼ぶコードを足すと "already started" で
+        静かに永続化が無効になる（CLAUDE.md §3）。初期化はこの位置に置き続けること。 */
+  let db;
+  try {
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    });
+  } catch (e) {
+    console.warn('[firestore] 永続キャッシュを使えないため既定キャッシュにフォールバック', e);
+    db = getFirestore(app);
+  }
   const auth = getAuth(app);
   const COL = 'sf_bookings'; // board.html / salon.html と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
 
