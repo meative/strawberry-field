@@ -322,10 +322,31 @@ JSDOM を使う場合の既知のハマりどころ：
 - GitHub Pages 無料版は Public リポジトリ必須。**顧客の個人情報をリポジトリに入れない**
   （データは Firestore、サンプルデータは削除済み）
 
-### push
+### push（2026-09-08 から gh 認証。ワンタイム PAT 運用は廃止）
 
-PAT はワンタイム classic PAT を push URL に直接注入して**ユーザーが素のターミナルで実行**し、
-push 後すぐ revoke する運用。**Claude Code には絶対に貼らない。**
+このMacは `gh`（`/usr/local/bin/gh`、`meative` で repo スコープ・ログイン済み）を
+git の credential helper に登録済み（`gh auth setup-git` 実行済み。`~/.gitconfig` の
+`[credential "https://github.com"]` が `gh auth git-credential` を指す）。
+**Claude Code から `git push origin main` を直接実行してよい。** PAT を貼る必要はない。
+
+push の前後は必ずこの手順：
+
+```bash
+git fetch origin main && git log --oneline HEAD..origin/main   # 空でなければ先に pull（§0）
+git push origin main
+git ls-remote origin main                                        # リモート SHA が HEAD と一致するか
+```
+
+本番へ入るファイルを push したときは、bare clone で実体を確認する（サイズ・MD5・マーカー数）：
+
+```bash
+git clone -q --bare https://github.com/meative/strawberry-field.git /tmp/sf_check
+git --git-dir=/tmp/sf_check show main:apps/timely.html | wc -c
+git --git-dir=/tmp/sf_check show main:apps/timely.html | md5
+git --git-dir=/tmp/sf_check show main:apps/timely.html | grep -c "SF-<マーカー>"
+```
+
+別マシンで gh を使う場合はそちらでも `gh auth login` → `gh auth setup-git` が要る。
 
 ### コミットメッセージ
 
