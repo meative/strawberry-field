@@ -1,4 +1,4 @@
-# DESIGN — Firestore 読み取り削減（SF-READWINDOW-20260907）
+# DESIGN — Firestore 読み取り削減（SF-READWINDOW-20260908）
 
 設計確定 2026-09-07。**2026-09-08 時点：Phase 0〜2 完了・本番反映済み**（`a5fce50` / `8507bdd`）。
 次は実測 → Phase 3（期限 9/30）→ Phase 4。このファイルは実装が進むたびに「状態」欄を更新すること。
