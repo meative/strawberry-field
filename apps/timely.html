@@ -14614,18 +14614,39 @@ function sfRenderKinderTap() {
     ? String(a.start || '').localeCompare(String(b.start || ''))
     : (a.salon === 'ext_am' ? -1 : 1));
   if (!list.length) {
-    box.innerHTML = '<div style="text-align:center; color: var(--ink-soft); padding: 10px 0; font-size: 13px;">この日の予約ボードの早朝・延長予約はありません</div>';
+    /* SF-EXTFEE19-DIAG-20260911 : 現場で「予約はあるのに一覧が空」と報告があったが再現できていない。
+       空になった瞬間の原因（ミラー・日付・園IDのどれで0件になったか）をその場で特定できるよう、
+       内訳をコンソールへ出し、再読み込みボタンを付ける。 */
+    const _all = sfLoadShared();
+    const _kx = _all.filter(r => r && r.affiliation === 'youchisha' && (r.salon === 'ext_am' || r.salon === 'ext_pm'));
+    const _diag = { mirror: _all.length, youchishaExt: _kx.length,
+      dateUsed: date, dateMatch: _kx.filter(r => r.date === date).length,
+      gidUsed: gid, gidMatch: _kx.filter(r => r.date === date && r.gardenId === gid).length };
+    console.log('[SF-EXTFEE19-DIAG-20260911] 一覧0件の内訳', _diag);
+    box.innerHTML = '<div style="text-align:center; color: var(--ink-soft); padding: 10px 0; font-size: 13px;">この日の予約ボードの早朝・延長予約はありません'
+      + '<div style="margin-top:8px;"><button type="button" class="btn btn-secondary" style="padding:6px 14px; font-size:12px;" onclick="sfRenderKinderTap()">一覧を再読み込み</button></div>'
+      + (_kx.length ? `<div style="margin-top:6px; font-size:11px; color: var(--ink-soft);">（幼稚舎の予約 ${_kx.length}件のうち この日=${_diag.dateMatch}件／この園=${_diag.gidMatch}件）</div>` : '')
+      + '</div>';
     return;
   }
   box.innerHTML = list.map(r => {
     const usageKey = (r.salon === 'ext_am') ? 'morning' : 'extension';
     const mf = kinderMonthlyOf(r.name, usageKey);
-    const done = (DATA.visits || []).some(v => v && v.sfId === r.id);
+    /* SF-EXTFEE19-DIAG-20260911 : 受付済み判定に氏名フォールバックを追加。
+       一覧が使えず手入力で受け付けた子（sfId無しvisit）も「受付済み（手入力）」として
+       タップ不可にし、二重受付を防ぐ。同じ日・同じ区分・同じ氏名（trim一致）の
+       内部生visitがあれば受付済みとみなす。 */
+    const _nm = String(r.name || '').trim();
+    const doneById = (DATA.visits || []).some(v => v && v.sfId === r.id);
+    const doneByName = !doneById && (DATA.visits || []).some(v => v && !v.sfId
+      && v.usageType === usageKey && v.visitDate === r.date
+      && String(v.childName || '').trim() === _nm);
+    const done = doneById || doneByName;
     const zone = (r.salon === 'ext_am') ? '早朝' : '延長';
     const monthly = (mf === true) ? '月極' : (mf === false ? '都度' : '—');
     return `<button type="button" class="btn btn-secondary" style="display:flex; justify-content:space-between; gap:10px; width:100%; margin-bottom:6px; padding:10px 14px; font-size:13.5px;${done ? ' opacity:.55; cursor:default;' : ''}" ${done ? 'disabled' : ''} onclick="sfKinderTapIn('${String(r.id).replace(/'/g, '')}')">` +
       `<span>${escapeHtml(r.name || '')}</span>` +
-      `<span style="color: var(--ink-soft);">${zone}／${escapeHtml(r.start || '')}〜／${monthly}${done ? '／<b>受付済み</b>' : ''}</span>` +
+      `<span style="color: var(--ink-soft);">${zone}／${escapeHtml(r.start || '')}〜／${monthly}${doneById ? '／<b>受付済み</b>' : (doneByName ? '／<b>受付済み（手入力）</b>' : '')}</span>` +
       `</button>`;
   }).join('');
 }
@@ -14637,6 +14658,11 @@ function sfKinderTapIn(sfId) {
   if (!r) return toast('予約が見つかりません（画面を更新してください）', true);
   if ((DATA.visits || []).some(v => v && v.sfId === sfId)) { sfRenderKinderTap(); return toast('すでに受付済みです', true); }
   const usageKey = (r.salon === 'ext_am') ? 'morning' : 'extension';
+  /* SF-EXTFEE19-DIAG-20260911 : 手入力で受付済みの子（sfId無しvisit）も二重受付させない（氏名フォールバック） */
+  if ((DATA.visits || []).some(v => v && !v.sfId && v.usageType === usageKey && v.visitDate === r.date
+      && String(v.childName || '').trim() === String(r.name || '').trim())) {
+    sfRenderKinderTap(); return toast('すでに受付済みです（手入力）', true);
+  }
   const type = getUsageType(usageKey);
   const start = (usageKey === 'morning') ? (r.start || (type.startOptions && type.startOptions[0]) || '07:00') : (type.fixedStart || '19:00');
   const end = (usageKey === 'morning') ? (type.fixedEnd || '08:00') : ((type.endOptions && type.endOptions[0]) || '20:00');
