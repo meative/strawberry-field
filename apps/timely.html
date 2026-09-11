@@ -5656,6 +5656,23 @@
   console.log('[SF-READWINDOW-20260908] sf_bookings window start =', SF_WINDOW_START);
   const COL = 'sf_bookings'; // board/salon/notify と共通。1予約レコード＝1ドキュメント、ドキュメントID＝レコードの id
 
+  /* SF-EXTFEE19-20260911 : 幼稚舎名簿（月極フラグ monthlyAm/monthlyPm）を読む。
+     board.html と同じ「2つ目アプリ」方式で strawberry-tuition の公開ミラー
+     kindergarten_public/roster を購読する（ルールで未認証読み取り可・1ドキュメント購読なので
+     読み取りは変更時に1リードだけ）。失敗しても window.KINDER_ROSTER が空のままなので、
+     料金は従来どおり（定額¥700）に自然にフォールバックする。 */
+  try {
+    const tuitionConfig = { apiKey: "AIzaSyBhiSQohbOfKawNukWiMOV1Isk08qSqJPc", projectId: "strawberry-tuition" };
+    const tuitionApp = initializeApp(tuitionConfig, 'tuition');
+    const tuitionDb  = getFirestore(tuitionApp);
+    onSnapshot(doc(tuitionDb, 'kindergarten_public', 'roster'), (snap) => {
+      const data = snap.exists() ? snap.data() : null;
+      window.KINDER_ROSTER = (data && Array.isArray(data.pupils)) ? data.pupils : [];
+      console.log('[SF-EXTFEE19] kinder roster loaded:', window.KINDER_ROSTER.length, 'name(s)');
+      if (typeof window.sfRenderKinderTap === 'function') { try { window.sfRenderKinderTap(); } catch (e) {} }
+    }, (e) => console.error('[SF-EXTFEE19] roster subscribe failed', e));
+  } catch (e) { console.error('[SF-EXTFEE19] tuition app init failed', e); }
+
   /* SF-TL-CLOUDSYNC-20260722 : 受付アプリの業務データ(visits/customers/students)を Firestore と同期 */
   const TL_COLS = { visits: 'sf_visits', customers: 'sf_customers', students: 'sf_students' };
   // tlReconcile から呼ぶ：arr を「あるべき全件」として反映し、deletedIds は削除する。
@@ -6479,10 +6496,25 @@
     <div class="reservation-intro-text">
       自園生徒の早朝・延長利用、または幼稚舎生徒の預かりを記録します。<br>
       ご利用料金: <strong>1時間 ¥700</strong> (1時間単位の切り上げ、5分超は延長料金)<br>
+      <!-- SF-EXTFEE19-20260911 : 料金ルールの案内（時刻の実体は SF_EXT19_CUTOFF 定数） -->
+      延長は<strong>19:05まで全員¥0</strong>・実お迎えが<strong>19:06以降で¥700</strong>（延長月極の子は19:06以降も¥0）。早朝は¥700（早朝月極の子は¥0）。いずれもお会計時の実お迎え時刻で判定<br>
       <span style="color: var(--tiffany-deep);">◆ 記録後はお会計待ちリストに入ります。お迎え時にお会計してください。</span>
     </div>
   </div>
-  
+
+  <!-- SF-EXTFEE19-20260911 : 予約ボードの早朝・延長予約からワンタップで会計待ちへ -->
+  <div class="section-card">
+    <div class="section-header">
+      <div>
+        <div class="section-eyebrow">Board Reservations</div>
+        <div class="section-title">予約ボードの予約</div>
+        <div class="section-title-en">Tap to Check-in</div>
+      </div>
+      <div class="section-icon">◆</div>
+    </div>
+    <div id="kinderTapList"></div>
+  </div>
+
   <!-- 利用区分 -->
   <div class="section-card">
     <div class="section-header">
@@ -6496,8 +6528,8 @@
     
     <div class="field">
       <select id="internalUsageType" onchange="onInternalUsageTypeChange()">
-        <option value="morning">自園生徒・早朝 (1日¥700)</option>
-        <option value="extension">自園生徒・延長 (1日¥700、20時超は延長料金)</option>
+        <option value="morning">自園生徒・早朝 (¥700・月極は¥0)</option>
+        <option value="extension">自園生徒・延長 (19:06以降¥700・月極は¥0)</option><!-- SF-EXTFEE19-20260911 -->
       </select>
     </div>
   </div>
@@ -8423,6 +8455,25 @@ function branchToGardenId(branch) {
 // 更新され、sfLoadShared はここから同期的に読み出す（既存の同期コードと完全互換）。
 // ※ timely 自身の業務データ（timely_school_data_v1 / DATA / saveData）は対象外。
 let SF_MIRROR = [];
+/* SF-EXTFEE19-20260911 : 自園生徒の早朝・延長料金（19時以降ルール）。設計は DESIGN-extfee19.md。
+   - 月極あり: 早朝¥0／延長¥0／実お迎えが SF_EXT19_CUTOFF 以降なら＋¥700（既存の flatRate を使う）
+   - 月極なし: 早朝¥700／延長¥700／同カットオフ以降はさらに＋¥700（計¥1,400）
+   - 19:05 までは追加なし。境目はこの定数だけで変えられる。
+   - 月極の判定は名簿（kindergarten_public/roster）の monthlyAm/monthlyPm。
+     名簿にフラグが無い園児・名簿が読めないときは従来どおり（定額）＝後方互換。 */
+const SF_EXT19_CUTOFF = '19:06'; // 実お迎えがこの時刻以降で19時以降料金（19:05までは無料側）
+window.KINDER_ROSTER = window.KINDER_ROSTER || []; // module側の購読が入れる。未着なら空＝従来料金
+function kinderMonthlyOf(name, usageKey) {
+  try {
+    const roster = window.KINDER_ROSTER || [];
+    const nm = String(name == null ? '' : name).trim();
+    if (!roster.length || !nm) return undefined;
+    const r = roster.find(x => x && String(x.name || '').trim() === nm);
+    if (!r) return undefined;
+    const v = (usageKey === 'morning') ? r.monthlyAm : r.monthlyPm;
+    return (v === true || v === false) ? v : undefined; // フラグが無い名簿は undefined＝従来料金
+  } catch (e) { return undefined; }
+}
 // 初回スナップショット受信済みフラグ。起動直後の空ミラーで importBoardReservations の
 // 削除パスが誤作動するのを防ぐためのガード（ステップ④で参照）。
 window.__sfSnapshotReceived = false;
@@ -8567,6 +8618,8 @@ window.sfApplySnapshot = function(arr) {
   if (typeof importBoardReservations === 'function') {
     try { importBoardReservations(); } catch (e) { console.error(e); }
   }
+  /* SF-EXTFEE19-20260911 : 内部生タブを開いている間に予約が入っても一覧が追いつくように */
+  if (typeof sfRenderKinderTap === 'function') { try { sfRenderKinderTap(); } catch (e) {} }
 };
 // 受付発レコードを共有に upsert（同 id があれば更新、無ければ追加）
 function sfUpsertShared(record) {
@@ -14276,13 +14329,41 @@ function recalcInternalAmount() {
 
 // 自園生徒の料金計算（定額制）
 // 早朝/延長は基本¥700固定。延長は20時超で30分ごと¥350追加。
-function calcInternalAmount(usageKey, start, end) {
+/* SF-EXTFEE19-20260911 : 自園生徒の料金（2026-09-11 現場確認済みの確定版。DESIGN-extfee19.md）。
+   - 早朝: 早朝月極（monthlyAm）は¥0、それ以外は¥700。時刻では変わらない。
+   - 延長: 19:05までは全員¥0。19:06以降（20:00閉園まで）は¥700を1回だけ。
+           ただし延長月極（monthlyPm）は19:06以降も¥0。
+   - 延長で時間以外に金額が変わる要素は無い（旧・20時超+350の加算は自園生徒では行わない）。
+   - 名簿にフラグが無い園児は「月極なし」扱い。金額は既存の flatRate を使う。
+   - 判定は「実お迎え時刻（end）」のみ（予約ボードの時刻は使わない）。 */
+function sfVisitMonthly(v, usageKey) {
+  if (!v) return false;
+  if (v.kinderMonthly === true) return true;   // visit作成時に控えたフラグを最優先
+  if (v.kinderMonthly === false) return false;
+  return kinderMonthlyOf(v.childName, usageKey || v.usageType) === true; // 旧visitは名簿を引き直す
+}
+function calcInternalAmount(usageKey, start, end, visit) {
   const type = getUsageType(usageKey);
+
+  if (usageKey === 'morning' || usageKey === 'extension') {
+    const mf = sfVisitMonthly(visit, usageKey); // 不明は「月極なし」
+    let base = 0, late19 = 0;
+    if (usageKey === 'morning') {
+      base = mf ? 0 : (type.flatRate || 0);
+    } else {
+      base = 0; // 延長は19:05まで全員¥0
+      if (!mf && end && timeToMinutes(end) >= timeToMinutes(SF_EXT19_CUTOFF)) {
+        late19 = type.flatRate || 0; // 19:06以降・月極なしのみ ¥700 を1回だけ
+      }
+    }
+    return { base, extension: late19, late19, total: base + late19, extensionMinutes: 0 };
+  }
+
+  // （自園生徒以外の定額がこの関数に来ることは現状無いが、従来ロジックを保険で残す）
   const base = type.flatRate || 0;
   let extension = 0;
   let extensionMinutes = 0;
-  
-  if (usageKey === 'extension' && type.overTimeThreshold) {
+  if (type.overTimeThreshold) {
     const endMin = timeToMinutes(end);
     const thresholdMin = timeToMinutes(type.overTimeThreshold);
     if (endMin > thresholdMin) {
@@ -14292,13 +14373,7 @@ function calcInternalAmount(usageKey, start, end) {
       extension = overUnits * (type.overTimeRate || 350);
     }
   }
-  
-  return {
-    base,
-    extension,
-    total: base + extension,
-    extensionMinutes,
-  };
+  return { base, extension, late19: 0, total: base + extension, extensionMinutes };
 }
 
 // ============================================================
@@ -14334,6 +14409,12 @@ function initInternalScreen() {
      受付が 8/23 として保存され、会計待ちに残り続けた）。ローカル日付の todayStr() を使う。 */
   document.getElementById('internalDate').value = todayStr();
   document.getElementById('internalMemo').value = '';
+  /* SF-EXTFEE19-20260911 : 予約ボードの予約一覧（ワンタップ受付）。日付を変えたら出し直す */
+  try {
+    const _d = document.getElementById('internalDate');
+    if (_d && !_d._sfTapHook) { _d._sfTapHook = true; _d.addEventListener('change', function () { try { sfRenderKinderTap(); } catch (e) {} }); }
+    sfRenderKinderTap();
+  } catch (e) {}
   const saveReg = document.getElementById('internalSaveToRegistry');
   if (saveReg) saveReg.checked = false;
   
@@ -14488,6 +14569,84 @@ function toggleManualInternalInput() {
   }
 }
 
+/* SF-EXTFEE19-20260911 : 内部生visitの共通ビルダー。手入力（submitInternalUsage）と
+   予約ボードのワンタップ受付（sfKinderTapIn）の両方がここを通り、同じ形のvisitになる。
+   判定に使った月極フラグ（kinderMonthly）を控える。名簿にフラグが無ければ何も付けない＝従来料金。 */
+function sfBuildInternalVisit(o) {
+  const visit = {
+    id: 'V' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    customerId: null,
+    studentId: o.studentId || null,
+    childName: o.childName,
+    className: o.className || '',
+    branch: DATA.settings.branch,
+    createdAt: new Date().toISOString(),
+    visitDate: o.date,
+    visitStart: o.start,
+    visitEnd: o.end,
+    usageType: o.usageKey,
+    visitStaff: '',
+    visitMemo: o.memo || '',
+    items: [],
+    agreed: true,
+    paymentStatus: 'pending',
+  };
+  if (o.sfId) visit.sfId = o.sfId; // ワンタップ受付元の予約id（同じ予約の二重受付を防ぐ）
+  const _mf = kinderMonthlyOf(o.childName, o.usageKey);
+  if (_mf !== undefined) visit.kinderMonthly = _mf;
+  return visit;
+}
+
+/* SF-EXTFEE19-20260911 : 内部生タブ上部の「予約ボードの予約一覧」。
+   対象 = SF_MIRROR のうち affiliation==='youchisha' ∧ この園 ∧ 内部生タブで選択中の日付。
+   延長（ext_pm）は全員、早朝（ext_am）は月極でない子だけ。予約時刻は表示のみで料金判定には使わない。 */
+function sfRenderKinderTap() {
+  const box = document.getElementById('kinderTapList');
+  if (!box) return;
+  const dateEl = document.getElementById('internalDate');
+  const date = (dateEl && dateEl.value) || todayStr();
+  const gid = branchToGardenId(DATA.settings.branch);
+  const rows = sfLoadShared().filter(r => r && r.affiliation === 'youchisha'
+    && (r.salon === 'ext_am' || r.salon === 'ext_pm')
+    && r.date === date && r.gardenId === gid);
+  const list = rows.filter(r => r.salon === 'ext_pm' || kinderMonthlyOf(r.name, 'morning') !== true);
+  list.sort((a, b) => a.salon === b.salon
+    ? String(a.start || '').localeCompare(String(b.start || ''))
+    : (a.salon === 'ext_am' ? -1 : 1));
+  if (!list.length) {
+    box.innerHTML = '<div style="text-align:center; color: var(--ink-soft); padding: 10px 0; font-size: 13px;">この日の予約ボードの早朝・延長予約はありません</div>';
+    return;
+  }
+  box.innerHTML = list.map(r => {
+    const usageKey = (r.salon === 'ext_am') ? 'morning' : 'extension';
+    const mf = kinderMonthlyOf(r.name, usageKey);
+    const done = (DATA.visits || []).some(v => v && v.sfId === r.id);
+    const zone = (r.salon === 'ext_am') ? '早朝' : '延長';
+    const monthly = (mf === true) ? '月極' : (mf === false ? '都度' : '—');
+    return `<button type="button" class="btn btn-secondary" style="display:flex; justify-content:space-between; gap:10px; width:100%; margin-bottom:6px; padding:10px 14px; font-size:13.5px;${done ? ' opacity:.55; cursor:default;' : ''}" ${done ? 'disabled' : ''} onclick="sfKinderTapIn('${String(r.id).replace(/'/g, '')}')">` +
+      `<span>${escapeHtml(r.name || '')}</span>` +
+      `<span style="color: var(--ink-soft);">${zone}／${escapeHtml(r.start || '')}〜／${monthly}${done ? '／<b>受付済み</b>' : ''}</span>` +
+      `</button>`;
+  }).join('');
+}
+
+/* SF-EXTFEE19-20260911 : 予約一覧のワンタップ受付。手入力と同じビルダーで同じ形のvisitを作り会計待ちへ。
+   ext_am→morning／ext_pm→extension。同じ sfId のvisitが既にあれば何もしない（二重受付防止）。 */
+function sfKinderTapIn(sfId) {
+  const r = sfLoadShared().find(x => x && x.id === sfId);
+  if (!r) return toast('予約が見つかりません（画面を更新してください）', true);
+  if ((DATA.visits || []).some(v => v && v.sfId === sfId)) { sfRenderKinderTap(); return toast('すでに受付済みです', true); }
+  const usageKey = (r.salon === 'ext_am') ? 'morning' : 'extension';
+  const type = getUsageType(usageKey);
+  const start = (usageKey === 'morning') ? (r.start || (type.startOptions && type.startOptions[0]) || '07:00') : (type.fixedStart || '19:00');
+  const end = (usageKey === 'morning') ? (type.fixedEnd || '08:00') : ((type.endOptions && type.endOptions[0]) || '20:00');
+  const visit = sfBuildInternalVisit({ usageKey, childName: String(r.name || '').trim(), className: '', studentId: null, date: r.date, start, end, memo: '', sfId: sfId });
+  DATA.visits.push(visit);
+  if (!saveData(DATA)) { DATA.visits.pop(); return toast('保存に失敗しました', true); }
+  toast(`✓ ${type.label}を会計待ちに追加しました`);
+  sfRenderKinderTap();
+}
+
 function submitInternalUsage() {
   const usageKey = document.getElementById('internalUsageType').value;
   let childName = '';
@@ -14543,27 +14702,10 @@ function submitInternalUsage() {
   }
   
   const type = getUsageType(usageKey);
-  
-  // 来園記録として保存
-  const visit = {
-    id: 'V' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
-    customerId: null,
-    studentId: studentId,
-    childName,
-    className,
-    branch: DATA.settings.branch,
-    createdAt: new Date().toISOString(),
-    visitDate: date,
-    visitStart: start,
-    visitEnd: end,
-    usageType: usageKey,
-    visitStaff: '',
-    visitMemo: memo,
-    items: [],
-    agreed: true,
-    paymentStatus: 'pending',
-  };
-  
+
+  // 来園記録として保存（SF-EXTFEE19-20260911 : ワンタップ受付と共通のビルダーを通す）
+  const visit = sfBuildInternalVisit({ usageKey, childName, className, studentId, date, start, end, memo });
+
   DATA.visits.push(visit);
   if (!saveData(DATA)) {
     return toast('保存に失敗しました', true);
@@ -14620,7 +14762,7 @@ function recalcAmount() {
   if (typeInfo.pricingType === 'hourly') {
     amount = calcAmountFromTimes(v.visitStart, v.visitEnd, actualEnd, typeInfo.hourlyRate);
   } else {
-    amount = calcInternalAmount(usageKey, v.visitStart, actualEnd);
+    amount = calcInternalAmount(usageKey, v.visitStart, actualEnd, v); /* SF-EXTFEE19-20260911 : 月極フラグを見る */
   }
   
   // 割引（type, amount をUIから取得）
@@ -14656,14 +14798,24 @@ function recalcAmount() {
         <span class="value">¥${amount.base.toLocaleString()}</span>
       </div>
     `;
-    if (amount.extension > 0) {
+    /* SF-EXTFEE19-20260911 : 19時以降料金は独立した行で見せる（20:00超過の行と混ぜない） */
+    if ((amount.late19 || 0) > 0) {
+      html += `
+        <div class="amount-row extension">
+          <span>延長料金（19時以降）</span>
+          <span class="value">¥${amount.late19.toLocaleString()}</span>
+        </div>
+      `;
+    }
+    const _overAmt = amount.extension - (amount.late19 || 0); /* SF-EXTFEE19 : 20:00超過ぶんだけ */
+    if (_overAmt > 0) {
       const overEndMin = timeToMinutes(actualEnd);
       const thresholdMin = timeToMinutes(typeInfo.overTimeThreshold);
       const overMin = overEndMin - thresholdMin;
       html += `
         <div class="amount-row extension">
           <span>⚠ ${typeInfo.overTimeThreshold} 超過分 (${minutesToHours(overMin)})</span>
-          <span class="value">¥${amount.extension.toLocaleString()}</span>
+          <span class="value">¥${_overAmt.toLocaleString()}</span>
         </div>
       `;
     }
@@ -16030,9 +16182,9 @@ function approvePayment() {
   if (typeInfo.pricingType === 'hourly') {
     amount = calcAmountFromTimes(currentPaymentVisit.visitStart, currentPaymentVisit.visitEnd, actualEnd, typeInfo.hourlyRate);
   } else {
-    amount = calcInternalAmount(usageKey, currentPaymentVisit.visitStart, actualEnd);
+    amount = calcInternalAmount(usageKey, currentPaymentVisit.visitStart, actualEnd, currentPaymentVisit); /* SF-EXTFEE19-20260911 */
   }
-  
+
   // 割引（UIで設定された type と amount を反映）
   const discountInfo = getDiscountFromForm();
   const subTotal = amount.base + amount.extension;
@@ -16040,7 +16192,21 @@ function approvePayment() {
   if (discountAmount > subTotal) discountAmount = subTotal;
   if (discountAmount < 0) discountAmount = 0;
   const finalTotal = Math.max(0, subTotal - discountAmount);
-  
+
+  /* SF-EXTFEE19-20260911 : 月極の子の¥0会計（自園生徒）は会計記録を作らない。
+     tlDeleteVisitExec と同じ「filter＋saveData」で会計待ちから外す（tlReconcile がクラウド側も削除）。
+     件数は sf_bookings（SF_MIRROR）から数えるので、日報・月報の早朝・延長件数は減らない。
+     ※月極でない子の¥0（19:05までのお迎え）は通常どおり¥0の会計記録を残す（経緯が追えるように）。 */
+  if (!isEditingPaid && (usageKey === 'morning' || usageKey === 'extension')
+      && sfVisitMonthly(currentPaymentVisit, usageKey)
+      && subTotal === 0 && finalTotal === 0) {
+    DATA.visits = (DATA.visits || []).filter(v => !(v && v.id === currentPaymentVisit.id));
+    if (!saveData(DATA)) return toast('保存に失敗しました', true);
+    toast('✓ 月極のため会計なし（¥0）で完了しました');
+    setTimeout(() => navigate('home'), 600);
+    return;
+  }
+
   // 来園記録を更新
   const idx = DATA.visits.findIndex(v => v.id === currentPaymentVisit.id);
   if (idx >= 0) {
@@ -16048,6 +16214,7 @@ function approvePayment() {
     DATA.visits[idx].actualEnd = actualEnd;
     DATA.visits[idx].baseAmount = amount.base;
     DATA.visits[idx].extensionAmount = amount.extension;
+    DATA.visits[idx].late19Amount = amount.late19 || 0; /* SF-EXTFEE19-20260911 : 領収書の「延長料金（19時以降）」表記用（extensionAmount に含まれる内数） */
     DATA.visits[idx].discountType = discountInfo.type;       // 'none' | 'normal' | 'salon'
     DATA.visits[idx].discountAmount = discountAmount;        // 割引額
     DATA.visits[idx].totalAmount = finalTotal;
@@ -16178,6 +16345,11 @@ function renderReceipt() {
     if (recTypeInfo.pricingType === 'hourly') {
       const extMinutes = timeToMinutes(v.actualEnd) - timeToMinutes(v.visitEnd);
       extLabel = `延長料金 (${minutesToHours(extMinutes)} 超過分)`;
+      extTimeCol = '-';
+    } else if ((v.late19Amount || 0) > 0) {
+      /* SF-EXTFEE19-20260911 : 19時以降料金は「延長料金（19時以降）」と分かる表記にする */
+      const _over = v.extensionAmount - (v.late19Amount || 0);
+      extLabel = '延長料金（19時以降）' + (_over > 0 ? `・${recTypeInfo.overTimeThreshold} 超過分含む` : '');
       extTimeCol = '-';
     } else {
       const overMin = timeToMinutes(v.actualEnd) - timeToMinutes(recTypeInfo.overTimeThreshold);
