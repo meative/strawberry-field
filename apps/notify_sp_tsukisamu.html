@@ -948,10 +948,21 @@ function sfSave(arr) {
 window.sfApplySnapshot = function(arr) {
   SF_MIRROR = Array.isArray(arr) ? arr : [];
   if (typeof importSharedBookings === 'function') importSharedBookings();
+  /* SF-NFGUARD-20260925 : sf_bookings 初回受信の印。sf_notify が先に届いていた読み込み順では
+     初回アップロードを保留してあるので、ここで実行する。importSharedBookings →
+     nfApplyChildStates を通ったあとなので children は 'reserved' のままではなく
+     クラウドの状態を反映済み＝'reserved' での上書きは起きない。 */
+  const firstBk = !NF_BOOKINGS_SEEN;
+  NF_BOOKINGS_SEEN = true;
+  if (firstBk && NF_SNAP_SEEN && typeof nfSave === 'function') nfSave();
 };
 // サンプル種まきは本番運用のため廃止（seedIfEmpty 削除済み。掃除は起動時の purge で実施）
 // 共有ストレージの予約を children に取り込む（重複は sfId で防ぐ・本日分のみ）
-const TODAY_STR = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })(); // 実時刻の今日
+/* SF-NFGUARD-20260925 : 「今日」は呼ぶたびに実時刻で計算する（JSTローカル日付・toISOString不使用）。
+   従来は const TODAY_STR でページ読み込み時に固定され、iPad を開きっぱなしで日をまたぐと
+   importSharedBookings が当日予約を1件も取り込めず、children が空のまま nfSave が走って
+   園の子状態ドキュメントを全削除する事故の一因になっていた（9/21 月寒・WOODSTOCK）。 */
+function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 // 次回予約オブジェクトを表示用文字列に整形
 function fmtNextReservation(nr) {
   if (!nr) return null;
@@ -971,7 +982,7 @@ function importSharedBookings() {
     // 園で絞り込み（gardenId 無しは月寒園として扱う）。当面は月寒園のみ。
     if (normGarden(r.gardenId) !== CURRENT_GARDEN) return;
     // 本日の予約のみ取り込む（将来の次回予約レコードは対象外）
-    if (r.date && r.date !== TODAY_STR) return;
+    if (r.date && r.date !== todayStr()) return;   /* SF-NFGUARD-20260925 : 実時刻 */
     const nextStr = fmtNextReservation(r.nextReservation);
     const dispName = (r.info && r.info.name) ? r.info.name : r.name;
     // 既に取り込み済みの子？（sfId 優先。なければ同名・同開始）
@@ -993,11 +1004,14 @@ function importSharedBookings() {
       name: dispName, age: r.age, months: r.months, start: r.start, end: r.end,
       /* SF-SALONSPLIT-NOTIFY-20260724 : 区間グループの識別子を保持（従来は捨てていた）。持たない予約は null で従来と同一の扱い。 */
       groupId: r.groupId || null, groupSeq: r.groupSeq || null, groupTotal: r.groupTotal || null,
-      status: 'reserved', sfId: r.id, nextReservation: nextStr, nextResvRaw: r.nextReservation || null, provisional: r.provisional, date: r.date || TODAY_STR
+      status: 'reserved', sfId: r.id, nextReservation: nextStr, nextResvRaw: r.nextReservation || null, provisional: r.provisional, date: r.date || todayStr()
     });
     added = true;
   });
-  if (added || updated) { renderChildren(); renderArrivalList(); renderFeed(null); }
+  /* SF-NFGUARD-20260925 : 取り込みで子を作り直した直後に、クラウドの状態を重ね直す。
+     これが無いと sf_notify が先に届いた読み込み順で 'reserved' のまま画面に出て、
+     保留していた初回 nfSave がクラウドの状態を 'reserved' で上書きしてしまう。 */
+  if (added || updated) { if (typeof nfApplyChildStates === 'function') nfApplyChildStates(); renderChildren(); renderArrivalList(); renderFeed(null); }
   return added || updated;
 }
 // ステータス: reserved(予約済) / waiting(預かり中) / late-hold(電話確認済み・来園予定) / no-show(未到着アラート) / picking(お迎え中) / done(完了)
@@ -1077,7 +1091,7 @@ function sfNextSeg(c) {
   var rows = sfLoad().filter(function (r) {
     return r && r.groupId === c.groupId
       && (typeof normGarden === 'function' ? normGarden(r.gardenId) : r.gardenId) === CURRENT_GARDEN
-      && (!r.date || r.date === TODAY_STR)
+      && (!r.date || r.date === todayStr())
       && (Number(r.groupSeq) || 1) > mySeq;
   }).sort(function (a, b) { return (Number(a.groupSeq) || 1) - (Number(b.groupSeq) || 1); });
   return rows.length ? rows[0] : null;
@@ -1205,7 +1219,7 @@ function openEditResv(i) {
   const c = children[salon][i];
   if (!c) return;
   editChildIdx = i;
-  erDate = c.date || TODAY_STR; // 子のレコード日付（なければ本日）
+  erDate = c.date || todayStr(); // 子のレコード日付（なければ本日）
   document.getElementById('erName').textContent = `${c.name} さん（現在 ${c.start}〜${c.end}）`;
   updateErDateBtn();
   // 開始時刻
@@ -1223,7 +1237,7 @@ function closeEditResv() { document.getElementById('editResvModal').classList.re
 function updateErDateBtn() {
   const d = new Date(erDate + 'T00:00:00');
   const WD = ['日','月','火','水','木','金','土'];
-  const isToday = erDate === TODAY_STR;
+  const isToday = erDate === todayStr();
   document.getElementById('erDateBtn').textContent = `${d.getMonth()+1}月${d.getDate()}日（${WD[d.getDay()]}）${isToday?' ・本日':''} ▾`;
 }
 // 修正用カレンダー
@@ -1269,7 +1283,7 @@ function saveEditResv() {
   const newEnd = tAdd(newStart, dur);
   const a = ACCEPT_EDIT[c.age] || ACCEPT_EDIT['1'];
   if (newEnd > a.close) { showToast(`受付時間（〜${a.close}）を超えています。長さを短くしてください`); return; }
-  const movedDay = (erDate !== (c.date || TODAY_STR));
+  const movedDay = (erDate !== (c.date || todayStr()));
   // 子オブジェクトを更新
   c.start = newStart; c.end = newEnd; c.date = erDate;
   // 共有ストレージも更新（管理ボード・サロン予約一覧に反映）
@@ -1279,7 +1293,7 @@ function saveEditResv() {
     if (rec) { rec.start = newStart; rec.end = newEnd; rec.date = erDate; sfSave(recs); }
   }
   // 別の日に移した場合は本日のリストから外す
-  if (movedDay && erDate !== TODAY_STR) {
+  if (movedDay && erDate !== todayStr()) {
     children[salon] = children[salon].filter((_, idx) => idx !== editChildIdx);
   }
   closeEditResv();
@@ -1299,7 +1313,7 @@ function openEditNextResv(salonKey, i) {
   if (!c || !c.nextResvRaw) { showToast('次回予約の情報が見つかりません'); return; }
   nrChildSalon = salonKey; nrChildIdx = i;
   const raw = c.nextResvRaw;
-  nrDate = raw.date || TODAY_STR;
+  nrDate = raw.date || todayStr();
   document.getElementById('nrName').textContent = `${c.name} さんの次回予約`;
   updateNrDateBtn();
   // 時刻の選択肢（受付時間の広め＝8:00〜18:00、サロンは時間制約ゆるめ）
@@ -1848,8 +1862,8 @@ function tick() {
 setInterval(tick, 1000); tick();
 
 /* ===== SF-NOTIFY-DAYROLL-20260723 : 日付が変わったら自動で当日表示に切り替える =====
-   TODAY_STR はページ読み込み時に固定されるため、iPad を開きっぱなしにすると
-   深夜0時を過ぎても昨日のままになる。1秒ごとの tick に相乗りして検知する。 */
+   日をまたいだら昨日の子・通知・ログを落とし、当日分を取り込み直す。
+   1秒ごとの tick に相乗りして検知する（今日の判定は todayStr() で実時刻。SF-NFGUARD-20260925）。 */
 var __nfDayKey = (function(){ var d=new Date(); return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); })();
 function nfDayRollCheck() {
   var d = new Date();
@@ -1858,14 +1872,11 @@ function nfDayRollCheck() {
   __nfDayKey = key;
   try {
     /* 本日日付を更新（importSharedBookings / 当日リストが参照） */
-    if (typeof TODAY_STR !== 'undefined') {
-      /* TODAY_STR は const のため再代入不可。window 経由の可変版を用意して
-         参照側が拾えるようにするのではなく、ここでは children を作り直して
-         「昨日の子」を落とす。取り込みは importSharedBookings が担う。 */
-    }
+    /* SF-NFGUARD-20260925 : TODAY_STR は todayStr() に置き換え済み。
+       importSharedBookings も実時刻で判定するため、ここでの特別扱いは不要になった。 */
     /* 昨日の予約から作られた children を落とす（本日でないものを除去） */
     var _t = key;  /* getFullYear-getMonth-getDate 形式。TODAY_STR とは別形式なので日付再取得 */
-    var _today = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    var _today = todayStr();   /* SF-NFGUARD-20260925 : 実時刻の今日 */
     ['woodstock','janis'].forEach(function(sk){
       if (!children[sk]) return;
       children[sk] = children[sk].filter(function(c){ return !c || !c.date || c.date === _today; });
@@ -1904,13 +1915,17 @@ let statusLogs = { woodstock: [], janis: [] };
    従来はすべてメモリ上だけで、サロンiPadと保育園iPadで互いに見えなかった。 */
 let NF_MIRROR = {};        // docId -> ドキュメント（Firestore の写し）
 let NF_SNAP_SEEN = false;  // 初回スナップショット受信済みか
+/* SF-NFGUARD-20260925 : sf_bookings の初回受信済みか。children は予約から組み上がるため、
+   これが立つ前に nfSave が走ると children 空＝園の全「c」ドキュメント削除になりうる。 */
+let NF_BOOKINGS_SEEN = false;
 let __nfApplying = false;  // 受信適用中はクラウドへ書かない（往復ループ防止）
 /* SF-NOTIFYRECV-20260830 : すでに知っている通知（key|ts）。新しく届いたものだけ鳴らすための控え。 */
 var __nfSeenKeys = {};
 
 const NF_SALONS = ['woodstock', 'janis'];
 const NF_CHILD_FIELDS = ['status', 'lateMin', 'expectedEnd', 'sentComing', 'lastLateTime',
-                         'callConfirmed', 'callLateMin', 'cancelTs', 'cancelTime', 'cancelled'];
+                         'callConfirmed', 'callLateMin', 'cancelTs', 'cancelTime', 'cancelled',
+                         'stTs' /* SF-NFGUARD-20260925 : 状態を最後に変えた時刻（版ガード用） */];
 
 function nfDocId(kind, key) {
   // ドキュメントIDに使えない文字（/ など）を避ける
@@ -1919,6 +1934,27 @@ function nfDocId(kind, key) {
 function nfTodayStart() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }
 function nfLogKey(e) { return (e && e.ts) + '|' + (e && e.childName) + '|' + (e && e.label); }
 
+/* SF-NFGUARD-20260925 : クラウドの子状態（k:'c'）を children に適用する。版ガード付き。
+   - ドキュメント側の時刻 docTs は max(ドキュメントの ts, data.stTs)
+   - この端末で最後に状態を変えた時刻 c.stTs の方が新しければ適用しない
+     （古い 'reserved' が届いても、手元の 'waiting'/'done'/'late-hold' を戻さない）
+   - importSharedBookings で子が作り直された直後にも呼ばれ、'reserved' に戻るのを防ぐ */
+function nfApplyChildStates() {
+  const st = {};
+  Object.keys(NF_MIRROR).map(k => NF_MIRROR[k])
+    .filter(d => d && d.g === CURRENT_GARDEN && d.k === 'c' && d.data && d.data.sfId)
+    .forEach(d => { st[d.data.sfId] = { data: d.data, ts: d.ts || 0 }; });
+  NF_SALONS.forEach(sk => {
+    (children[sk] || []).forEach(c => {
+      const w = (c && c.sfId) ? st[c.sfId] : null;
+      if (!w) return;
+      const s = w.data;
+      const docTs = Math.max(w.ts || 0, s.stTs || 0);
+      if ((c.stTs || 0) > docTs) return;
+      NF_CHILD_FIELDS.forEach(f => { if (s[f] !== undefined) c[f] = s[f]; });
+    });
+  });
+}
 /* いまの状態から「あるべき全ドキュメント」を組み立てる */
 function nfBuildDocs() {
   const out = {};
@@ -1950,6 +1986,7 @@ function nfBuildDocs() {
 function nfSave() {
   if (__nfApplying) return;
   if (!NF_SNAP_SEEN) return;   // 初回受信前は書かない（空の状態でクラウドを消さないため）
+  if (!NF_BOOKINGS_SEEN) return;   /* SF-NFGUARD-20260925 : 予約の初回取込前は children が空でありえるため書かない */
   if (typeof window.nfWrite !== 'function') return;
   try {
     const want = nfBuildDocs();
@@ -1960,10 +1997,20 @@ function nfSave() {
       const b = sfCanon((NF_MIRROR[id] || {}).data);
       if (a !== b) puts.push(Object.assign({ id: id }, want[id]));
     });
+    /* SF-NFGUARD-20260925 : 子の状態（k:'c'）は今日書かれたドキュメントを絶対に消さない。
+       children が一時的に空・不完全な瞬間に nfSave が走っても、当日の預かり状態が
+       クラウドから消えないための最後の網。昨日以前の分は従来どおり日またぎ掃除で消える。
+       通知（k:'n'）は markPickedUp 等の「消した」を他端末へ伝える必要があるため対象外
+       （n は nfBuildDocs の当日フィルタにより、dels に落ちるのは昨日以前の分だけ）。 */
+    const __nfDayCut = nfTodayStart();
     Object.keys(NF_MIRROR).forEach(id => {
-      if (!(id in want) && (NF_MIRROR[id] || {}).g === CURRENT_GARDEN) dels.push(id);
+      const m = NF_MIRROR[id] || {};
+      if ((id in want) || m.g !== CURRENT_GARDEN) return;
+      if (m.k === 'c' && (m.ts || 0) >= __nfDayCut) return;
+      dels.push(id);
     });
     if (!puts.length && !dels.length) return;
+    if (dels.length) console.log('[SF-NFGUARD] dels=' + dels.length + ' ids=' + dels.join(','));
     puts.forEach(d => { NF_MIRROR[d.id] = d; });   // 楽観更新
     dels.forEach(id => { delete NF_MIRROR[id]; });
     window.nfWrite(puts, dels);
@@ -2013,18 +2060,9 @@ window.nfApplySnapshot = function (arr) {
       statusLogs[sk] = merged.slice(0, 100);
     });
 
-    /* 子の状態：sfId で既存の children に重ねる。sf_bookings 由来の項目は触らない。 */
-    const st = {};
-    mine.filter(d => d.k === 'c').forEach(d => {
-      if (d.data && d.data.sfId) st[d.data.sfId] = d.data;
-    });
-    NF_SALONS.forEach(sk => {
-      (children[sk] || []).forEach(c => {
-        const s = (c && c.sfId) ? st[c.sfId] : null;
-        if (!s) return;
-        NF_CHILD_FIELDS.forEach(f => { if (s[f] !== undefined) c[f] = s[f]; });
-      });
-    });
+    /* 子の状態：sfId で既存の children に重ねる。sf_bookings 由来の項目は触らない。
+       SF-NFGUARD-20260925 : 適用は nfApplyChildStates に一本化（版ガード付き）。 */
+    nfApplyChildStates();
 
     if (typeof renderFeed === 'function') renderFeed(null);
     if (typeof renderArrivalList === 'function') renderArrivalList();
@@ -2063,7 +2101,7 @@ window.nfApplySnapshot = function (arr) {
     }
   } catch (e) { console.error('[SF-NOTIFYRECV-20260830]', e); }
   console.log('[notify] 同期を受信: 通知' + (notifications || []).length + '件');
-  if (first) nfSave();   // 初回：この端末にしか無い分をクラウドへ上げる
+  if (first && NF_BOOKINGS_SEEN) nfSave();   /* SF-NFGUARD-20260925 : 予約初回前は保留。sfApplySnapshot 側が受信後に実行する */
 };
 /* ===== SF-NOTIFY-CLOUD-20260723 ここまで ===== */
 
@@ -2155,6 +2193,7 @@ function checkArrivals() {
   allChildren().forEach(({c, salonKey}) => {
     if (c.status === 'reserved' && nowMin() >= timeStrToMin(c.start) + 5) {
       c.status = 'no-show';
+      c.stTs = Date.now();   /* SF-NFGUARD-20260925 */
       changed = true;
       // 保育園→美容室へ自動アラート
       pushAutoAlert(c, salonKey);
@@ -2266,6 +2305,7 @@ function ackCancel(salonKey, idx, sfId) {
   const c = nfChild(salonKey, idx, sfId);
   if (!c) return;
   c.status = 'done';
+  c.stTs = Date.now();   /* SF-NFGUARD-20260925 */
   // 受信ボードのキャンセル通知を消す
   const key = `${salonKey}|${c.name}`;
   notifications = notifications.filter(x => x.key !== key);
@@ -2295,6 +2335,7 @@ function markArrived(salonKey, idx, sfId) {
   const c = nfChild(salonKey, idx, sfId);
   if (!c) return;
   c.status = 'waiting';
+  c.stTs = Date.now();   /* SF-NFGUARD-20260925 */
   // 電話確認・キャンセルの受信ボード通知が残っていれば消す（来園してお預かり確定したため）
   const key = `${salonKey}|${c.name}`;
   notifications = notifications.filter(x => !(x.key === key && (x.type === 'call' || x.type === 'cancel')));
@@ -2320,6 +2361,7 @@ function markPickedUp(salonKey, idx, sfId) {
   const c = nfChild(salonKey, idx, sfId);
   if (!c) return;
   c.status = 'done';
+  c.stTs = Date.now();   /* SF-NFGUARD-20260925 */
   // 受信ボード（お迎え通知）からこの子のカードを消す
   const key = `${salonKey}|${c.name}`;
   notifications = notifications.filter(x => x.key !== key);
@@ -2380,6 +2422,7 @@ function confirmCall(kind, lateMin) {
   const c = children[salonKey][idx];
   const late = (kind === 'late') ? lateMin : 0;
   c.status = 'late-hold';      // 来園予定（電話確認済み）。未到着アラートを止める
+  c.stTs = Date.now();   /* SF-NFGUARD-20260925 */
   c.callConfirmed = true;
   c.callLateMin = late;
   // 来園が遅れる場合は、来園時刻とお戻り時刻（お預かり終了）の両方を後ろにずらす
@@ -2462,6 +2505,7 @@ function confirmCancel() {
   const c = children[pendingCancel.salonKey][pendingCancel.idx];
   const salonKey = pendingCancel.salonKey;
   c.status = 'cancelled'; // 保育園が確認するまで「キャンセル」で残る
+  c.stTs = Date.now();   /* SF-NFGUARD-20260925 */
   c.cancelled = true; // キャンセル経由であることを記録
   const now = new Date();
   c.cancelTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
