@@ -9744,7 +9744,11 @@ function navigate(screenName) {
     } else if (screenName === 'visit') {
       footer.style.display = 'flex';
       document.getElementById('submitBtn').textContent = '来園記録を保存';
-      document.getElementById('submitBtn').onclick = submitVisit;
+      /* SF-DUPBLOCK-20260925 : onclick に submitVisit を直代入すると第1引数に MouseEvent が渡り、
+         submitVisit(_dupOk) の _dupOk が truthy になって SF-DUPGUARD の確認が丸ごとスキップされていた
+         （9/21 ファクトリーの三重受付はこの経路。ガードは一度も出ていない）。
+         引数なしで呼ぶラッパーに差し替える。submitVisit 側の判定も _dupOk === true に締めてある。 */
+      document.getElementById('submitBtn').onclick = function () { submitVisit(); };
       // 今日の日付をデフォルト
       const today = new Date();
       const y = today.getFullYear();
@@ -11287,7 +11291,12 @@ function sfFindSameDayVisits(cust, branch, date) {
   });
 }
 
+/* SF-SUBMITLOCK-20260925 : 来園記録の保存中フラグ。新規登録の SF-SUBMITLOCK-20260908 と同じ考え方で、
+   保存〜確認モーダル表示のあいだの二度押し（iPad の二度タップ）による二重保存を防ぐ。
+   バリデーション・重複ガードを通過して実際に保存するときだけロックする。 */
+let __visitSubmitting = false;
 function submitVisit(_dupOk) {
+  if (__visitSubmitting) return;   /* SF-SUBMITLOCK-20260925 */
   if (!currentCustomer) return toast('顧客が選択されていません', true);
   
   const visitDate = document.getElementById('visitDate').value;
@@ -11318,10 +11327,45 @@ function submitVisit(_dupOk) {
   if (!agree) return toast('同意確認にチェックを入れてください', true);
 
   /* SF-DUPGUARD-20260830 : すでに同じ日・同じ園で受付されていたら、保存する前に確認する。
-     「それでも受付する」を押せば従来どおり保存される（_dupOk = true で戻ってくる）。 */
-  if (!_dupOk) {
+     「それでも受付する」を押せば従来どおり保存される（_dupOk = true で戻ってくる）。
+     SF-DUPBLOCK-20260925 : 判定を !_dupOk から「_dupOk === true のときだけスキップ」に締める。
+     フッターの保存ボタンが onclick 直代入で MouseEvent を渡していたため、truthy 判定では
+     ボタン経由の保存すべてでこのガードが無効になっていた（9/21 の三重受付の原因）。 */
+  if (_dupOk !== true) {
     try {
       var _dups = sfFindSameDayVisits(currentCustomer, DATA.settings.branch, visitDate);
+      /* SF-DUPBLOCK-20260925 : 同じ顧客ID・同じ日・既存が会計待ち・時間帯が重なる、の全てを
+         満たす場合は「確認」ではなくブロックする。時間帯が重なる＝物理的に同じお預かりで、
+         正当な「1日2回目の利用」ではありえないため、押し切る選択肢は出さない。
+         きょうだいは顧客IDが違うので対象外（従来どおり下の確認だけ）。
+         既存が会計済みの場合も従来どおり確認だけ（本当に2回目の利用がありうる）。
+         時刻が読めない既存記録は安全側に倒してブロックに含める（受付時に時刻必須なので、
+         読めない＝壊れかけの重複である可能性が高い）。 */
+      var _blocks = _dups.filter(function (v) {
+        if (!currentCustomer.id || v.customerId !== currentCustomer.id) return false;
+        if (v.paymentStatus === 'paid') return false;
+        var _bs = timeToMinutes(v.visitStart);
+        var _be = timeToMinutes(v.actualEnd || v.visitEnd);
+        if (!(_be > _bs)) return true;
+        return (sMin < _be) && (_bs < eMin);
+      });
+      if (_blocks.length) {
+        var _b = _blocks[0];
+        var _bName = escapeHtml(_b.childName || currentCustomer.childName || '');
+        var _bDetail = '<b>' + escapeHtml(_b.visitDate || '') + '　' + escapeHtml(_b.visitStart || '')
+          + '〜' + escapeHtml(_b.actualEnd || _b.visitEnd || '') + '（会計待ち）</b><br>'
+          + '<span style="font-size:12.5px; line-height:1.8;">同じ時間帯の会計待ちがあるため、二重受付はできません。<br>'
+          + 'お会計や内容の修正は、お会計待ちの記録から行ってください。</span>';
+        if (typeof sfSyncPopup === 'function') {
+          sfSyncPopup('ng', '⚠', '会計待ちに ' + _bName + ' さんがあります', _bDetail,
+            [{ label: '会計待ちを開く', pri: true, cb: function () { navigate('paymentList'); } },
+             { label: '閉じる' }]);
+        } else {
+          /* フォールバック（通常は通らない） */
+          alert('会計待ちに ' + (_b.childName || '') + ' さんがあります。二重受付はできません。');
+        }
+        return;
+      }
       if (_dups.length) {
         var _d = _dups[0];
         var _st = (_d.paymentStatus === 'paid')
@@ -11345,7 +11389,17 @@ function submitVisit(_dupOk) {
       }
     } catch (e) { console.error('[SF-DUPGUARD-20260830]', e); }
   }
-  
+
+  /* SF-SUBMITLOCK-20260925 : ここから実際の保存に入るのでロックする
+     （入力不備の toast や重複ガードで戻った場合はロックせず、すぐ押し直せる）。 */
+  __visitSubmitting = true;
+  const _visitSubmitBtn = document.getElementById('submitBtn');
+  if (_visitSubmitBtn) _visitSubmitBtn.disabled = true;
+  const _visitUnlock = () => {
+    __visitSubmitting = false;
+    if (_visitSubmitBtn) _visitSubmitBtn.disabled = false;
+  };
+
   // 持ち物
   const items = Array.from(document.querySelectorAll('input[name="items"]:checked')).map(i => i.value);
   
@@ -11544,9 +11598,14 @@ function submitVisit(_dupOk) {
     } catch (e) { console.error('[SF-RESCONSUME-20260830] 予約の受付済み化に失敗', e); }
   }
   if (!saveData(DATA)) {
+    _visitUnlock();   /* SF-SUBMITLOCK-20260925 : 失敗したら解除して押し直せるようにする */
     return toast('保存に失敗しました', true);
   }
-  
+
+  /* SF-SUBMITLOCK-20260925 : モーダルが画面を覆ってから解除する。二度タップの2発目が
+     ボタンに届く猶予（描画までの一瞬）を 800ms で吸収する（登録側と同じ幅）。 */
+  setTimeout(_visitUnlock, 800);
+
   // 保存後の確認モーダル
   showConfirmModal({
     title: '来園記録を保存しました',
@@ -16175,7 +16234,12 @@ function saveHandoverDraft() {
   });
 }
 
+/* SF-SUBMITLOCK-20260925 : 会計確定の処理中フラグ。確定後はクラウド反映の見届け（最長10秒）が
+   挟まり、その間に押し直されると paidAt が書き直されて再送が走る。連番は自分込みで数え直すため
+   単独では変わらないが、間に他端末の会計が届くと番号がズレて重複・飛びを作りうる。 */
+let __payApproving = false;
 function approvePayment() {
+  if (__payApproving) return;   /* SF-SUBMITLOCK-20260925 */
   if (!currentPaymentVisit) return;
   
   const actualEnd = getActualEndValue();
@@ -16219,6 +16283,11 @@ function approvePayment() {
   if (discountAmount < 0) discountAmount = 0;
   const finalTotal = Math.max(0, subTotal - discountAmount);
 
+  /* SF-SUBMITLOCK-20260925 : 全バリデーションを通過し、ここから実際に確定するのでロックする
+     （入力不備の toast で戻る場合はロックしない）。解除は画面遷移が決まった時点。 */
+  __payApproving = true;
+  const _payUnlock = () => { __payApproving = false; };
+
   /* SF-EXTFEE19-20260911 : 月極の子の¥0会計（自園生徒）は会計記録を作らない。
      tlDeleteVisitExec と同じ「filter＋saveData」で会計待ちから外す（tlReconcile がクラウド側も削除）。
      件数は sf_bookings（SF_MIRROR）から数えるので、日報・月報の早朝・延長件数は減らない。
@@ -16227,9 +16296,9 @@ function approvePayment() {
       && sfVisitMonthly(currentPaymentVisit, usageKey)
       && subTotal === 0 && finalTotal === 0) {
     DATA.visits = (DATA.visits || []).filter(v => !(v && v.id === currentPaymentVisit.id));
-    if (!saveData(DATA)) return toast('保存に失敗しました', true);
+    if (!saveData(DATA)) { _payUnlock(); return toast('保存に失敗しました', true); }   /* SF-SUBMITLOCK-20260925 */
     toast('✓ 月極のため会計なし（¥0）で完了しました');
-    setTimeout(() => navigate('home'), 600);
+    setTimeout(() => { navigate('home'); _payUnlock(); }, 600);   /* SF-SUBMITLOCK-20260925 */
     return;
   }
 
@@ -16273,13 +16342,19 @@ function approvePayment() {
     currentPaymentVisit = DATA.visits[idx];
     
     /* SF-SYNCGUARD-20260727 : クラウドに届いたことを見届けてから領収書へ進む。
-       届かなければ赤い画面で知らせ、再送する。 */
+       届かなければ赤い画面で知らせ、再送する。
+       SF-SUBMITLOCK-20260925 : 見届けのポップアップはどの分岐でも最後に onDone（領収書へ）に
+       たどり着くので、ロック解除はそこで行う。待っている間は画面がポップアップに覆われ、
+       かつロックが押し直しを止める。 */
     if (typeof sfConfirmCloudSave === 'function') {
-      sfConfirmCloudSave(isEditingPaid, function () { navigate('receipt'); });
+      sfConfirmCloudSave(isEditingPaid, function () { _payUnlock(); navigate('receipt'); });
     } else {
       toast(isEditingPaid ? '✓ 修正を保存しました' : '✓ お会計を承認しました');
-      setTimeout(() => navigate('receipt'), 600);
+      setTimeout(() => { _payUnlock(); navigate('receipt'); }, 600);
     }
+  } else {
+    /* SF-SUBMITLOCK-20260925 : 対象が見つからず何もしなかった場合はロックを戻す */
+    _payUnlock();
   }
 }
 
