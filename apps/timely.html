@@ -7609,7 +7609,7 @@
 <div id="screen-receipt" class="screen">
   <!-- 上部コントロール -->
   <div class="receipt-controls">
-    <button class="ctrl-btn ctrl-btn-secondary" onclick="window.print()">
+    <button class="ctrl-btn ctrl-btn-secondary" onclick="sfPrintReceipt()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="6 9 6 2 18 2 18 9"/>
         <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
@@ -7651,7 +7651,7 @@
   
   <!-- 下部コントロール -->
   <div class="receipt-controls">
-    <button class="ctrl-btn ctrl-btn-secondary" onclick="window.print()">
+    <button class="ctrl-btn ctrl-btn-secondary" onclick="sfPrintReceipt()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="6 9 6 2 18 2 18 9"/>
         <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
@@ -16361,6 +16361,70 @@ function approvePayment() {
 // ============================================================
 // 領収書画面
 // ============================================================
+/* SF-PRINTFRAME-20260925 : 領収書の印刷を、領収書だけを載せた非表示 iframe から行う。
+   従来は window.print() がアプリ全体（70万バイトの DOM・全画面・transform:scale 付きの
+   @media print）を印刷レイアウトにかけるため、iPad では印刷画面が出るまで非常に遅かった。
+   iframe には #receiptPage の複製と、本体の <style> 全部＋フォントの <link> を載せるので
+   見た目（--receipt-scale 含む）は従来の印刷と同一。DOM が領収書だけなので組版が軽い。
+   失敗時は従来どおり window.print() に落ちる。 */
+function sfPrintReceipt() {
+  const src = document.getElementById('receiptPage');
+  if (!src || !src.innerHTML.trim()) { window.print(); return; }
+  try {
+    const old = document.getElementById('sfPrintFrame');
+    if (old) old.remove();
+    const f = document.createElement('iframe');
+    f.id = 'sfPrintFrame';
+    f.setAttribute('aria-hidden', 'true');
+    f.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0; visibility:hidden;';
+    document.body.appendChild(f);
+    const d = f.contentDocument;
+    d.open();
+    d.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>領収書</title></head><body></body></html>');
+    d.close();
+    /* フォントの link を移植（HTTPキャッシュ済みなので再ダウンロードは起きない） */
+    document.querySelectorAll('link[rel="preconnect"], link[rel="stylesheet"]').forEach(l => {
+      const el = d.createElement('link');
+      el.rel = l.rel; el.href = l.href;
+      if (l.crossOrigin) el.crossOrigin = l.crossOrigin;
+      d.head.appendChild(el);
+    });
+    /* スタイルは丸ごと移植する。領収書に効く CSS を選り分けると取りこぼしで見た目が変わるため。
+       CSS の解析は速く、遅さの原因は「巨大な DOM の印刷組版」の方なのでここは問題にならない。 */
+    document.querySelectorAll('style').forEach(s => {
+      const el = d.createElement('style');
+      el.textContent = s.textContent;
+      d.head.appendChild(el);
+    });
+    /* 印刷スケールを引き継ぐ（@media print の transform: scale(var(--receipt-scale)) 用） */
+    const sc = getComputedStyle(document.documentElement).getPropertyValue('--receipt-scale');
+    if (sc && sc.trim()) d.documentElement.style.setProperty('--receipt-scale', sc.trim());
+    /* .screen.active > .receipt-wrap > .receipt の構造を保って複製（印刷CSSのセレクタと一致させる） */
+    const scr = d.createElement('div'); scr.className = 'screen active';
+    const wrap = d.createElement('div'); wrap.className = 'receipt-wrap';
+    wrap.appendChild(d.importNode(src, true));
+    scr.appendChild(wrap);
+    d.body.appendChild(scr);
+    /* フォントが揃ってから印刷（揃わなくても1.5秒で必ず出す。以降はキャッシュ済みで即時） */
+    let printed = false;
+    const go = () => {
+      if (printed) return;
+      printed = true;
+      try { f.contentWindow.focus(); f.contentWindow.print(); }
+      catch (e) { console.error('[SF-PRINTFRAME-20260925]', e); window.print(); }
+    };
+    if (d.fonts && d.fonts.ready && typeof d.fonts.ready.then === 'function') {
+      d.fonts.ready.then(go);
+      setTimeout(go, 1500);
+    } else {
+      setTimeout(go, 300);
+    }
+  } catch (e) {
+    console.error('[SF-PRINTFRAME-20260925]', e);
+    window.print();   // 失敗時は従来どおり全体印刷
+  }
+}
+
 // 印刷スケールを更新
 function updateReceiptScale() {
   const input = document.getElementById('receiptScaleInput');
