@@ -977,12 +977,81 @@ function fmtNextReservation(nr) {
   if (mp) parts.push(mp);
   return parts.join('・') || null;
 }
+/* SF-CANCELFLAG-20260926 : 美容室の予約画面でキャンセルされた予約が届いたときの処理。
+   - 当日・自園ぶんだけ：受信ボードに「美容室がキャンセルしました」を1回だけ出す
+     （端末ごとに既知IDを localStorage に記憶。通知ドキュメントの id は key で決まるので、
+     複数端末が同時に積んでも1枚に収束する）
+   - すでに取り込んだ子が居れば「キャンセル」状態にして、既存の「確認しました」フローへつなぐ
+   - お迎え通知アプリ発のキャンセル（confirmCancel）の流れはこの関数を通らず従来どおり */
+var NF_CXL_SEEN_KEY = 'nf_cxlseen_v1';
+var __nfCxlSeen = {};
+try { __nfCxlSeen = JSON.parse(localStorage.getItem(NF_CXL_SEEN_KEY) || '{}') || {}; } catch (e) { __nfCxlSeen = {}; }
+function nfCxlSaveSeen() {
+  try {
+    const ks = Object.keys(__nfCxlSeen);
+    if (ks.length > 300) ks.slice(0, ks.length - 300).forEach(k => { delete __nfCxlSeen[k]; });
+    localStorage.setItem(NF_CXL_SEEN_KEY, JSON.stringify(__nfCxlSeen));
+  } catch (e) {}
+}
+function nfCxlEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function nfHandleCancelledBooking(r) {
+  if (normGarden(r.gardenId) !== CURRENT_GARDEN) return;
+  if (r.date && r.date !== todayStr()) return;   // 翌日以降の分はボード側で扱う
+  const name = (r.info && r.info.name) ? r.info.name : r.name;
+  if (!name) return;
+  const list = children[r.salon] || [];
+  const idx = list.findIndex(c => c && c.sfId === r.id);
+  const c = idx >= 0 ? list[idx] : null;
+  let changed = false;
+  /* 取り込み済みの子は「キャンセル」に（お預かり中・完了・お迎え中は触らない） */
+  if (c && (c.status === 'reserved' || c.status === 'no-show' || c.status === 'late-hold')) {
+    const now = new Date();
+    c.status = 'cancelled'; c.cancelled = true; c.stTs = Date.now();
+    c.cancelTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    c.cancelTs = now.getTime();
+    changed = true;
+  }
+  if (!__nfCxlSeen[r.id]) {
+    __nfCxlSeen[r.id] = 1;
+    nfCxlSaveSeen();
+    const key = `${r.salon}|${name}`;
+    const dup = (notifications || []).some(n => n && n.key === key && n.type === 'cancel');
+    if (!dup) {
+      const now2 = new Date();
+      const tm = `${String(now2.getHours()).padStart(2,'0')}:${String(now2.getMinutes()).padStart(2,'0')}`;
+      notifications = (notifications || []).filter(x => x && x.key !== key);
+      notifications.unshift({
+        key, type: 'cancel', salon: SALON_JP[r.salon], salonKey: r.salon, childIdx: idx,
+        sfId: r.id, childName: name, time: tm, ts: now2.getTime(),
+        start: r.start, end: r.end, expectedEnd: r.end, lateMin: 0,
+        badge: '🚫 本日キャンセル',
+        headline: `<span class="child">${nfCxlEsc(name)}</span> さん 美容室がキャンセルしました`,
+        detail: (r.cancelReason ? `理由：${nfCxlEsc(r.cancelReason)}。` : '')
+          + '美容室の予約画面で本日のお預かりがキャンセルされました。確認したら「確認しました」を押してください。',
+      });
+      changed = true;
+      if (typeof renderFeed === 'function') renderFeed(key);
+      try { playSound('late'); } catch (e) {}
+      if (typeof flashAlert === 'function') flashAlert();
+    }
+  }
+  if (changed) {
+    if (typeof renderChildren === 'function') renderChildren();
+    if (typeof renderArrivalList === 'function') renderArrivalList();
+    if (typeof nfSave === 'function') { try { nfSave(); } catch (e) {} }
+  }
+}
 function importSharedBookings() {
   const recs = sfLoad();
   let added = false, updated = false;
   recs.forEach(r => {
     if (!r || !r.salon || !children[r.salon]) return;
-    if (r.cancelled) return;   /* SF-CANCELMARK-20260926 : キャンセル済み予約は取り込まない（従来の削除方式と同じ見え方） */
+    if (r.cancelled) {   /* SF-CANCELFLAG-20260926 : 取り込まず、当日分は「美容室がキャンセルしました」を1回だけ受信ボードへ */
+      try { nfHandleCancelledBooking(r); } catch (e) { console.error('[SF-CANCELFLAG-20260926]', e); }
+      return;
+    }
     // 園で絞り込み（gardenId 無しは月寒園として扱う）。当面は月寒園のみ。
     if (normGarden(r.gardenId) !== CURRENT_GARDEN) return;
     // 本日の予約のみ取り込む（将来の次回予約レコードは対象外）
@@ -992,6 +1061,19 @@ function importSharedBookings() {
     // 既に取り込み済みの子？（sfId 優先。なければ同名・同開始）
     const existing = children[r.salon].find(c => (c.sfId && c.sfId === r.id) || (!c.sfId && c.name === r.name && c.start === r.start));
     if (existing) {
+      /* SF-CANCELFLAG-20260926 : 美容室が（保育園の確認前に）キャンセルを取り消した → 予約済みへ戻す。
+         この端末が予約レコード由来で「キャンセル」にした子だけが対象（__nfCxlSeen で判別）。
+         お迎え通知アプリ発のキャンセル（confirmCancel）は予約レコードに印が無いので触らない。 */
+      if (existing.status === 'cancelled' && __nfCxlSeen[r.id]) {
+        delete __nfCxlSeen[r.id];
+        nfCxlSaveSeen();
+        existing.status = 'reserved'; existing.cancelled = false; existing.stTs = Date.now();
+        const _uk = `${r.salon}|${existing.name}`;
+        notifications = (notifications || []).filter(n => !(n && n.key === _uk && n.type === 'cancel'));
+        if (typeof renderFeed === 'function') renderFeed(null);
+        if (typeof nfSave === 'function') { try { nfSave(); } catch (e) {} }
+        updated = true;
+      }
       // 次回予約・正式氏名・月齢の更新を反映（インフォシート登録など）
       if ((existing.nextReservation || null) !== (nextStr || null)) { existing.nextReservation = nextStr; existing.nextResvRaw = r.nextReservation || null; updated = true; }
       if (existing.name !== dispName) { existing.name = dispName; updated = true; }

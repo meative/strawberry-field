@@ -2100,9 +2100,12 @@ function renderMyBookings() {
   const today = currentDate();
   const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   const arr = sfLoad()
-    .filter(r => normGarden(r.gardenId) === CURRENT_GARDEN && r.salon === salon && (!r.date || r.date === dateStr) && !r.fromNextOf && !r.cancelled)   /* SF-CANCELMARK-20260926 */
+    .filter(r => normGarden(r.gardenId) === CURRENT_GARDEN && r.salon === salon && (!r.date || r.date === dateStr) && !r.fromNextOf)   /* SF-CANCELFLAG-20260926 : キャンセル済みも出す（グレー行・未確認なら復活可） */
     .sort((a,b)=>a.start.localeCompare(b.start));
-  document.getElementById('mbCount').textContent = arr.length + ' 件';
+  /* SF-CANCELFLAG-20260926 : 件数は生きている予約だけ。キャンセルは添えて出す */
+  const _live = arr.filter(b => !b.cancelled);
+  const _cxlN = arr.length - _live.length;
+  document.getElementById('mbCount').textContent = _live.length + ' 件' + (_cxlN ? '（キャンセル ' + _cxlN + '件）' : '');
   const list = document.getElementById('mbList');
   if (!arr.length) { list.innerHTML = '<div class="mb-empty">本日の予約はまだありません。</div>'; return; }
   list.innerHTML = arr.map(b => {
@@ -2122,10 +2125,25 @@ function renderMyBookings() {
     const meta = (b.info && b.info.name)
       ? `隣の保育園でお預かり ・ ✓ 受付済み`
       : (b.provisional ? '隣の保育園でお預かり ・ 来園時に受付（TimelySchool）' : '隣の保育園でお預かり');
+    /* SF-CANCELFLAG-20260926 : キャンセル済みはグレー行。未確認なら「キャンセルを取り消す」で復活できる */
+    if (b.cancelled) {
+      const _ack = !!b.cancelAck;
+      const _st = _ack ? '🚫 キャンセル済み（保育園 確認済み）' : '🚫 キャンセル済み（保育園 未確認）';
+      const _reason = b.cancelReason ? ' ・ 理由: ' + rosterEsc(b.cancelReason) : '';
+      const _act = _ack
+        ? '<span class="mb-cxl-note">復活は新規予約で</span>'
+        : `<button class="mb-cxl-undo" onclick="sfCxlUndo('${b.id}')">キャンセルを取り消す</button>`;
+      return `<div class="mb-item mb-cxl">
+        <div class="mb-time">${b.start} 〜 ${b.end}</div>
+        <div class="mb-main"><div class="mb-name">${displayName}${_seg}</div><div class="mb-meta">${_st}${_reason}</div></div>
+        ${_act}
+      </div>`;
+    }
     return `<div class="mb-item">
       <div class="mb-time">${b.start} 〜 ${b.end}</div>
       <div class="mb-main"><div class="mb-name">${displayName}${lunch}${provBadge}${_seg}</div><div class="mb-meta">${meta}</div></div>
       <span class="mb-age">${ageLabel}</span>${_c0b}
+      <button class="mb-cxl-btn" onclick="sfCxlAsk('${b.id}')">予約をキャンセル</button>
     </div>`;
   }).join('');
 }
@@ -2392,6 +2410,133 @@ switchSalon(salon); // 起動時に園に応じたブランド名・色・ボタ
 // 保育園側でインフォシート登録などがあれば自店予約一覧に反映（別タブ連携＋ポーリング）
 window.addEventListener('storage', (e) => { if (e.key === SF_KEY) renderMyBookings(); });
 setInterval(renderMyBookings, 4000);
+</script>
+<script>
+/* ===== SF-CANCELFLAG-20260926 : 予約のキャンセル（削除ではなく印）と復活 ===== */
+(function () {
+  'use strict';
+  if (window.__sfCancelFlag) return; window.__sfCancelFlag = true;
+
+  var st = document.createElement('style');
+  st.textContent = [
+    '.mb-cxl-btn{margin-left:10px;flex:0 0 auto;background:#fff;border:1px solid #D8B4BA;color:#B23E4C;border-radius:10px;padding:7px 12px;font-size:11.5px;cursor:pointer;font-family:var(--serif-jp,serif);}',
+    '.mb-item.mb-cxl{opacity:.78;background:#F4F5F6;}',
+    '.mb-item.mb-cxl .mb-name{text-decoration:line-through;color:#8A9099;}',
+    '.mb-item.mb-cxl .mb-time{color:#9AA0A6;}',
+    '.mb-cxl-undo{margin-left:10px;flex:0 0 auto;background:var(--tiffany,#0ABAB5);color:#fff;border:none;border-radius:10px;padding:7px 12px;font-size:11.5px;cursor:pointer;font-family:var(--serif-jp,serif);}',
+    '.mb-cxl-note{margin-left:10px;flex:0 0 auto;font-size:11px;color:#9AA0A6;font-family:var(--serif-jp,serif);}',
+    '.sfx-ov{position:fixed;inset:0;background:rgba(26,31,38,.5);display:none;align-items:center;justify-content:center;z-index:700;}',
+    '.sfx-ov.show{display:flex;}',
+    '.sfx-box{background:#fff;border-radius:14px;padding:24px;width:400px;max-width:calc(100vw - 32px);box-shadow:0 16px 50px rgba(0,0,0,.32);font-family:var(--serif-jp,serif);}',
+    '.sfx-box h3{font-size:15px;margin:0 0 8px;color:var(--ink,#1A1F26);}',
+    '.sfx-box .sfx-msg{font-size:13px;line-height:1.8;color:var(--ink-soft,#5b6470);margin-bottom:12px;}',
+    '.sfx-box input{width:100%;box-sizing:border-box;border:1px solid #D9DDE2;border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:16px;font-family:var(--serif-jp,serif);}',
+    '.sfx-btns{display:flex;flex-direction:column;gap:8px;}',
+    '.sfx-btns button{border:none;border-radius:10px;padding:12px;font-size:13.5px;cursor:pointer;font-family:var(--serif-jp,serif);}',
+    '.sfx-btns .danger{background:#B23E4C;color:#fff;font-weight:600;}',
+    '.sfx-btns .plain{background:#EDEEF0;color:var(--ink,#1A1F26);}'
+  ].join('\n');
+  document.head.appendChild(st);
+
+  function ovEl() {
+    var el = document.getElementById('sfxCxlOv');
+    if (el) return el;
+    el = document.createElement('div'); el.id = 'sfxCxlOv'; el.className = 'sfx-ov';
+    el.addEventListener('click', function (e) { if (e.target === el) el.classList.remove('show'); });
+    document.body.appendChild(el);
+    return el;
+  }
+  function closeOv() { var el = document.getElementById('sfxCxlOv'); if (el) el.classList.remove('show'); }
+
+  /* 対象IDの展開。「この子だけ」= その子の全区間（groupId）。「組全員」= 同じ partyId の全レコード
+     （区間持ちの子の区間も partyId を持つので、組展開だけで全区間が含まれる）。
+     cancelledState … キャンセル実行時は false（生きている分）、復活時は true（印の付いた分）を対象にする */
+  function idsFor(rec, scope, cancelledState) {
+    var all = sfLoad(), hit = {};
+    var ok = function (r) { return r && (!!r.cancelled === !!cancelledState); };
+    if (scope === 'party' && rec.partyId != null) {
+      all.forEach(function (r) { if (ok(r) && r.partyId === rec.partyId) hit[r.id] = 1; });
+    } else {
+      hit[rec.id] = 1;
+      if (rec.groupId) all.forEach(function (r) { if (ok(r) && r.groupId === rec.groupId) hit[r.id] = 1; });
+    }
+    return Object.keys(hit);
+  }
+
+  window.sfCxlAsk = function (id) {
+    var rec = sfLoad().find(function (r) { return r && r.id === id; });
+    if (!rec || rec.cancelled) return;
+    var name = (rec.info && rec.info.name) ? rec.info.name : rec.name;
+    /* 組（きょうだい）か？ 子の人数は氏名で畳んで数える（1人=区間2件でも1名） */
+    var kids = {};
+    if (rec.partyId != null) {
+      sfLoad().forEach(function (r) {
+        if (r && !r.cancelled && r.partyId === rec.partyId) kids[(r.info && r.info.name) ? r.info.name : r.name] = 1;
+      });
+    }
+    var nKids = Object.keys(kids).length;
+    var segNote = rec.groupId ? '<br>2つのサロンの区間は、まとめてキャンセルされます。' : '';
+    var btns;
+    if (nKids > 1) {
+      btns = '<button class="danger" onclick="sfCxlExec(\'' + id + '\',\'one\')">この子だけキャンセル</button>'
+           + '<button class="danger" onclick="sfCxlExec(\'' + id + '\',\'party\')">組全員（' + nKids + '名）をキャンセル</button>'
+           + '<button class="plain" onclick="document.getElementById(\'sfxCxlOv\').classList.remove(\'show\')">やめる</button>';
+    } else {
+      btns = '<button class="danger" onclick="sfCxlExec(\'' + id + '\',\'one\')">キャンセルする</button>'
+           + '<button class="plain" onclick="document.getElementById(\'sfxCxlOv\').classList.remove(\'show\')">やめる</button>';
+    }
+    var el = ovEl();
+    el.innerHTML = '<div class="sfx-box"><h3>予約をキャンセルしますか？</h3>'
+      + '<div class="sfx-msg">' + rosterEsc(name) + ' さん ・ ' + rec.start + '〜' + rec.end + '<br>'
+      + '予約は削除されず「キャンセル済み」として保育園のボードに残ります。' + segNote + '</div>'
+      + '<input id="sfxCxlReason" maxlength="40" placeholder="理由（任意・短く）">'
+      + '<div class="sfx-btns">' + btns + '</div></div>';
+    el.classList.add('show');
+  };
+
+  window.sfCxlExec = function (id, scope) {
+    var arr = sfLoad();
+    var rec = arr.find(function (r) { return r && r.id === id; });
+    if (!rec || rec.cancelled) { closeOv(); return; }
+    var reason = '';
+    try { reason = String((document.getElementById('sfxCxlReason') || {}).value || '').trim().slice(0, 40); } catch (e) {}
+    var ids = idsFor(rec, scope, false);
+    var now = Date.now();
+    arr.forEach(function (r) {
+      if (!r || ids.indexOf(r.id) < 0 || r.cancelled) return;
+      r.cancelled = true; r.cancelledAt = now; r.cancelledBy = 'salon';
+      r.cancelReason = reason;
+    });
+    sfSave(arr);
+    closeOv();
+    renderMyBookings();
+    try { checkAvailability(); } catch (e) {}   /* 空き状況を描き直す（枠が戻って◎になる） */
+    showToast('🚫 キャンセルしました（保育園のボードに共有されます）');
+  };
+
+  window.sfCxlUndo = function (id) {
+    var arr = sfLoad();
+    var rec = arr.find(function (r) { return r && r.id === id; });
+    if (!rec || !rec.cancelled) return;
+    var ids = idsFor(rec, 'one', true);   // その子の全区間を戻す
+    var targets = arr.filter(function (r) { return r && ids.indexOf(r.id) >= 0; });
+    /* どれか1区間でも保育園が確認済みなら復活しない（半分だけ生き返る事故を避ける） */
+    if (targets.some(function (r) { return r.cancelAck; })) {
+      renderMyBookings();
+      showToast('保育園が確認済みのため復活できません。新しく予約を取り直してください。');
+      return;
+    }
+    var now = Date.now();
+    targets.forEach(function (r) {
+      r.cancelled = false;               /* 読む側は truthy 判定なので false で生きた予約に戻る */
+      r.uncancelledAt = now;             /* cancelledAt/By/Reason は履歴として残す */
+    });
+    sfSave(arr);
+    renderMyBookings();
+    try { checkAvailability(); } catch (e) {}
+    showToast('予約を復活しました（枠を使います）');
+  };
+})();
 </script>
 </body>
 </html>
