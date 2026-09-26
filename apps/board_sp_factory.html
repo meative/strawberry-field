@@ -920,6 +920,7 @@ body {
       <div class="end-preview" id="endPreview"></div>
     </div>
     <div class="modal-actions">
+      <button class="btn" id="mCancelMark" onclick="cancelBookingMark()" style="display:none; flex:0 0 auto;">キャンセルにする</button><!-- SF-CANCELMARK-20260926 -->
       <button class="btn" id="mDelete" onclick="deleteBooking()" style="display:none; flex:0 0 auto;">削除</button>
       <button class="btn" onclick="closeModal()">キャンセル</button>
       <button class="btn btn-primary" onclick="saveBooking()">確定</button>
@@ -1459,6 +1460,7 @@ function countReservations(garden, age, date, start, end) {
   const rows = [];
   sfLoad().forEach(r => {
     if (!r || !COUNTED_ZONES.has(r.salon)) return;   // 種別ホワイトリスト
+    if (r.cancelled) return;                         /* SF-CANCELMARK-20260926 : キャンセル済みは数えない */
     if (normGarden(r.gardenId) !== g) return;        // 園一致
     if (r.date !== date) return;                     // 対象日厳密一致
     if (consumedSlots(totalMonths(r.age, r.months)).indexOf(a) === -1) return; /* SF-DECREMENT-20260710 減員:枠aを消費する予約か（≤18ヶ月は0/1両方・不明除外） */
@@ -1942,9 +1944,16 @@ function renderBoard() {
     if (zone.key === 'ext_am' || zone.key === 'ext_pm') html += renderKinderChips(zone.key);
     /* SF-EXT-LANES-20260724 : 早朝/延長は実際に使われたレーン数ぶん描画（最小 zone.lanes）。生徒が増えたら縦に伸ばして重ねない。 */
     let _nLanes = zone.lanes;
-    if (zone.key === 'ext_am' || zone.key === 'ext_pm') {
+    {
+      /* SF-CANCELMARK-20260926 : ext に限らず、沈めたキャンセル済みバーのぶんもレーンを伸ばす。
+         表示スイッチで隠している確認済みキャンセルは数えない（余白を作らない）。 */
       let _mx = -1;
-      for (let _i = 0; _i < bookings.length; _i++) { const _b = bookings[_i]; if (_b && _b.zone === zone.key && typeof _b.lane === 'number' && _b.lane > _mx) _mx = _b.lane; }
+      for (let _i = 0; _i < bookings.length; _i++) {
+        const _b = bookings[_i];
+        if (!_b || _b.zone !== zone.key || typeof _b.lane !== 'number') continue;
+        if (_b.cancelled && _b.cancelAck && window.SF_SHOWCXL === false) continue;
+        if (_b.lane > _mx) _mx = _b.lane;
+      }
       _nLanes = Math.max(zone.lanes, _mx + 1);
     }
     for (let ln = 0; ln < _nLanes; ln++) {
@@ -1968,7 +1977,9 @@ function renderBoard() {
         html += `<div class="${cls}" ${open?`onclick="onSlotTap('${zone.key}',${ln},${i})"`:''}></div>`;
       });
       // 予約バー
-      bookings.filter(b => b.zone === zone.key && b.lane === ln).forEach((b) => {
+      bookings.filter(b => b.zone === zone.key && b.lane === ln
+        && !(b.cancelled && b.cancelAck && window.SF_SHOWCXL === false)   /* SF-CANCELMARK-20260926 */
+      ).forEach((b) => {
         const si = slotIndex(b.start), ei = slotIndex(b.end);
         if (si < 0) return;
         const endIdx = ei < 0 ? N : ei;
@@ -1983,6 +1994,11 @@ function renderBoard() {
         let class0Chip = '';
         if (_kb.birthY && _kb.birthM) { const _ci = class0FromBoard(_kb.birthY, _kb.birthM); if (_ci.is0) class0Chip = `<span class="class0-chip">${_ci.label}</span>`; }
         const gidx = bookings.indexOf(b);
+        /* SF-CANCELMARK-20260926 : キャンセル済みバーは専用描画。ハンドル無し・タップで詳細のみ */
+        if (b.cancelled) {
+          if (typeof sfCxlBarHtml === 'function') html += sfCxlBarHtml(b, gidx, left, width, ageLabel);
+          return;
+        }
         const lunch = needsLunch(b) ? '<span class="lunch-mark" title="昼食・軽食をお持ちください">🍙</span>' : '';
         const memo = b.memo ? `<span class="bar-memo">${escapeHtml(b.memo)}</span>` : '';
         const provMark = (b.provisional && !(b.info && b.info.name)) ? '<span class="bar-prov">新規・受付待ち</span>' : '';
@@ -2032,6 +2048,7 @@ let dragState = null;
 
 function attachDragHandlers() {
   document.querySelectorAll('.booking-bar').forEach(bar => {
+    if (bar.classList.contains('is-cxl')) return;   /* SF-CANCELMARK-20260926 : キャンセル済みは動かせない */
     const idx = parseInt(bar.dataset.idx);
     // バー本体のドラッグ＝移動
     const body = bar.querySelector('.bar-body');
@@ -2122,6 +2139,7 @@ function onSlotTap(zoneKey, lane, slotIdx) {
   editingIdx = -1;
   document.getElementById('modalTitle').textContent = '予約を追加';
   document.getElementById('mDelete').style.display = 'none';
+  { const _mc = document.getElementById('mCancelMark'); if (_mc) _mc.style.display = 'none'; }   /* SF-CANCELMARK-20260926 */
   const ctx = document.getElementById('modalCtx');
   ctx.style.display = 'block';
   ctx.innerHTML = `${zoneJp(zoneKey)} ・ ${SLOTS[slotIdx]} 〜`;
@@ -2143,9 +2161,12 @@ function onSlotTap(zoneKey, lane, slotIdx) {
 // ===== 予約バータップ → 編集 =====
 function onBarTap(gidx) {
   const b = bookings[gidx];
+  /* SF-CANCELMARK-20260926 : キャンセル済みは編集させず、詳細（誰が・いつ・理由）だけ出す */
+  if (b && b.cancelled) { if (typeof sfCxlShowDetail === 'function') sfCxlShowDetail(gidx); return; }
   editingIdx = gidx;
   document.getElementById('modalTitle').textContent = '予約を編集';
   document.getElementById('mDelete').style.display = 'block';
+  { const _mc = document.getElementById('mCancelMark'); if (_mc) _mc.style.display = (b && b.sfId) ? 'block' : 'none'; }   /* SF-CANCELMARK-20260926 : 共有予約だけ印にできる */
   const ctx = document.getElementById('modalCtx');
   ctx.style.display = 'none';
   document.getElementById('mName').value = b.name;
@@ -2462,6 +2483,7 @@ function openModal() {
   editingIdx = -1;
   document.getElementById('modalTitle').textContent = '予約を追加';
   document.getElementById('mDelete').style.display = 'none';
+  { const _mc = document.getElementById('mCancelMark'); if (_mc) _mc.style.display = 'none'; }   /* SF-CANCELMARK-20260926 */
   document.getElementById('modalCtx').style.display = 'none';
   document.getElementById('mName').value = '';
   document.getElementById('mZone').value = 'woodstock';
@@ -2538,6 +2560,7 @@ function sfCapFull(age, start, end, date, months) {
       for (var j = 0; j < bookings.length; j++) {
         var x = bookings[j];
         if (!x) continue;
+        if (x.cancelled) continue;   /* SF-CANCELMARK-20260926 : キャンセル済みは数えない */
         if ((x.date || boardDateStr()) !== date) continue;
         if (normGarden(x.gardenId) !== g) continue;
         if (consumedSlots(totalMonths(x.age, x.months)).indexOf(_slot) === -1) continue; /* この枠を消費しない既存予約は数えない（不明除外） */
@@ -2674,7 +2697,7 @@ function findFreeLane(zone, start, end, excludeIdx) {
   const maxLanes = zoneObj ? zoneObj.lanes : 3;
   for (let ln = 0; ln < maxLanes; ln++) {
     const conflict = bookings.some((b, idx) =>
-      idx !== excludeIdx && b.zone === zone && b.lane === ln &&
+      idx !== excludeIdx && !b.cancelled && b.zone === zone && b.lane === ln &&   /* SF-CANCELMARK-20260926 */
       !(end <= b.start || start >= b.end)
     );
     if (!conflict) return ln;
@@ -2876,7 +2899,7 @@ function findFreeLane(zone, start, end) {
   const _limit = (zone === 'ext_am' || zone === 'ext_pm') ? 9999 : lanes;
   for (let ln = 0; ln < _limit; ln++) {
     const clash = bookings.some(b => {
-      if (b.zone !== zone || b.lane !== ln) return false;
+      if (b.cancelled || b.zone !== zone || b.lane !== ln) return false;   /* SF-CANCELMARK-20260926 */
       const bs = slotIndex(b.start), be = (slotIndex(b.end) < 0 ? SLOTS.length : slotIndex(b.end));
       return sIdx < be && bs < eIdx; // 時間が重なる
     });
@@ -2891,7 +2914,7 @@ function importSharedBookings() {
   const curDate = boardDateStr();
   // 共有予約部分のシグネチャ（再構築前後で比較し、変化時のみ再描画する）
   const sig = (a) => a.filter(b => b.sfId != null)
-    .map(b => [b.sfId, b.name, b.start, b.end, b.zone, b.lane, b.provisional, b.months, JSON.stringify(b.info || null)].join('|'))
+    .map(b => [b.sfId, b.name, b.start, b.end, b.zone, b.lane, b.provisional, b.months, b.cancelled?1:0, b.cancelAck?1:0, JSON.stringify(b.info || null)].join('|'))   /* SF-CANCELMARK-20260926 */
     .sort().join('\n');
   const before = sig(bookings);
   const beforeIds = new Set(bookings.filter(b => b.sfId != null).map(b => String(b.sfId)));
@@ -2905,20 +2928,35 @@ function importSharedBookings() {
       && normGarden(r.gardenId) === CURRENT_GARDEN
       && (!r.date || r.date === curDate))
     .sort((a, b) => String(a.start || '').localeCompare(String(b.start || '')));
-  recs.forEach(r => {
-    const zone = r.salon; // woodstock / janis / temp がそのまま zone に対応
-    const lane = findFreeLane(zone, r.start, r.end); // 既に積んだ分も考慮して採番
-    bookings.push({ zone, lane, gardenId: normGarden(r.gardenId),
+  /* SF-CANCELMARK-20260926 : 生きている予約を先にレーン採番し、キャンセル済みは
+     区分の既定レーンより下へ沈める（生きている予約の枠を占有しない・時間帯の位置は保つ）。 */
+  const _mkBk = (r, lane) => ({ zone: r.salon, lane, gardenId: normGarden(r.gardenId),
       name: (r.info && r.info.name) ? r.info.name : r.name, kana: r.kana, age: r.age, months: r.months,
       birthY: r.birthY, birthM: r.birthM, /* SF-AGEMONTH-3PLUS-20260722 : バー表示で実年齢・実月齢を出すため生年月も引き継ぐ */
       start: r.start, end: r.end, date: r.date || curDate, memo: r.memo || '', sfId: r.id,
-      provisional: r.provisional, info: r.info || null, affiliation: r.affiliation });
+      provisional: r.provisional, info: r.info || null, affiliation: r.affiliation,
+      cancelled: !!r.cancelled, cancelledAt: r.cancelledAt || null, cancelledBy: r.cancelledBy || null,
+      cancelReason: r.cancelReason || '', cancelAck: !!r.cancelAck,
+      cancelAckAt: r.cancelAckAt || null, cancelAckBy: r.cancelAckBy || null });
+  recs.filter(r => !r.cancelled).forEach(r => {
+    bookings.push(_mkBk(r, findFreeLane(r.salon, r.start, r.end)));
+  });
+  recs.filter(r => !!r.cancelled).forEach(r => {
+    const zone = r.salon;
+    let ln = ZONE_LANES[zone] || 3;
+    bookings.forEach(b => { if (b && !b.cancelled && b.zone === zone && typeof b.lane === 'number' && b.lane >= ln) ln = b.lane + 1; });
+    const _si = slotIndex(r.start), _ei = (slotIndex(r.end) < 0 ? SLOTS.length : slotIndex(r.end));
+    while (bookings.some(b => b.cancelled && b.zone === zone && b.lane === ln
+      && _si < (slotIndex(b.end) < 0 ? SLOTS.length : slotIndex(b.end)) && slotIndex(b.start) < _ei)) ln++;
+    bookings.push(_mkBk(r, ln));
   });
 
   // 変化があったときだけ再描画（4秒ポーリングでの無駄な再描画・ちらつきを防ぐ）
   if (sig(bookings) !== before) renderBoard();
-  // 新たに増えた共有予約があるか（サロン新着ポップアップ判定用）
-  return bookings.some(b => b.sfId != null && !beforeIds.has(String(b.sfId)));
+  /* SF-CANCELMARK-20260926 : 未確認キャンセルの帯・チャイムを更新（写し全体＝全日付が対象） */
+  if (typeof sfCxlScan === 'function') { try { sfCxlScan(); } catch (e) { console.error('[SF-CANCELMARK]', e); } }
+  // 新たに増えた共有予約があるか（サロン新着ポップアップ判定用）。キャンセル済みは新着扱いしない
+  return bookings.some(b => b.sfId != null && !b.cancelled && !beforeIds.has(String(b.sfId)));
 }
 
 // 初期化
@@ -3273,6 +3311,7 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     }
     chimeNow(c);
   }
+  window.__sfBoardChime = chime;   /* SF-CANCELMARK-20260926 : キャンセル着信も同じチャイムを使う */
   function chimeNow(c) {
     try {
       function tone(freq, start, dur) {
@@ -3378,6 +3417,223 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
     try { scan(); } catch (e) {}
     renderBanner();
   }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+</script>
+<script>
+/* ===== SF-CANCELMARK-20260926 : キャンセル印の表示・確認・保育園側キャンセル =====
+   自己完結ブロック。CSS/DOM は JS で注入し、既存関数（bookings / sfLoad / sfSave /
+   importSharedBookings / renderBoard / sfConfirm / sfChoose / escapeHtml など）を利用する。 */
+(function () {
+  'use strict';
+  if (window.__sfCancelMark) return; window.__sfCancelMark = true;
+
+  /* 表示スイッチ（既定は表示・端末ごとに記憶） */
+  try { window.SF_SHOWCXL = (localStorage.getItem('sf_board_showcxl_v1') !== '0'); }
+  catch (e) { window.SF_SHOWCXL = true; }
+
+  var st = document.createElement('style');
+  st.textContent = [
+    '.booking-bar.is-cxl{background:#EDEEF0 !important;border:1px solid #C9CDD3 !important;box-shadow:none !important;opacity:.9;}',
+    '.booking-bar.is-cxl .bar-name{text-decoration:line-through;color:#8A9099;}',
+    '.booking-bar.is-cxl .age-chip{background:#E2E5E9;color:#8A9099;}',
+    '.booking-bar.is-cxl.is-cxl-unack{border:2px solid #B23E4C !important;background:#FBEFF1 !important;opacity:1;}',
+    '.booking-bar.is-cxl.is-cxl-unack .bar-name{color:#8A2734;}',
+    '.cxl-badge{display:inline-block;font-size:9.5px;line-height:1.4;padding:1px 6px;border-radius:8px;background:#AEB4BC;color:#fff;margin-left:4px;white-space:nowrap;}',
+    '.cxl-badge.unack{background:#B23E4C;}',
+    '.cxl-time{font-size:10px;color:#9AA0A6;margin-left:4px;}',
+    '#sfCxlBand .sf-cxl-bar{display:flex;align-items:center;gap:14px;padding:6px 14px;}',
+    '.sf-cxl-count{background:#B23E4C;color:#fff;border:none;border-radius:16px;padding:7px 16px;font-family:var(--serif-jp,serif);font-size:13px;font-weight:600;cursor:pointer;}',
+    '.sf-cxl-toggle{margin-left:auto;font-family:var(--serif-jp,serif);font-size:12px;color:var(--ink-soft,#5b6470);display:flex;align-items:center;gap:6px;cursor:pointer;}',
+    '.sf-cxl-ov{position:fixed;inset:0;background:rgba(26,31,38,.5);display:none;align-items:center;justify-content:center;z-index:600;}',
+    '.sf-cxl-ov.show{display:flex;}',
+    '.sf-cxl-box{background:#fff;border-radius:14px;padding:22px;width:480px;max-width:calc(100vw - 32px);max-height:80vh;overflow:auto;box-shadow:0 16px 50px rgba(0,0,0,.32);font-family:var(--serif-jp,serif);}',
+    '.sf-cxl-box h3{font-size:15px;margin:0 0 10px;color:#8A2734;}',
+    '.sf-cxl-row{display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid #EEE6D8;font-size:13px;}',
+    '.sf-cxl-row .who{flex:1;line-height:1.5;}',
+    '.sf-cxl-row .reason{color:#8A9099;font-size:12px;}',
+    '.sf-cxl-ack-btn{background:var(--tiffany,#0ABAB5);color:#fff;border:none;border-radius:10px;padding:7px 12px;font-size:12px;cursor:pointer;flex:0 0 auto;}',
+    '.sf-cxl-close{margin-top:14px;text-align:right;}',
+    '.sf-cxl-close button{background:#EDEEF0;border:none;border-radius:10px;padding:8px 18px;font-size:13px;cursor:pointer;}'
+  ].join('\n');
+  document.head.appendChild(st);
+
+  function fmtTs(ts) {
+    if (!ts) return '—';
+    var d = new Date(ts);
+    return (d.getMonth() + 1) + '/' + d.getDate() + ' '
+      + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  function byLabel(by) {
+    if (by === 'garden') return '保育園';
+    if (by === 'salon') return '美容室';
+    return by ? String(by) : '美容室';
+  }
+  function salonJpOf(key) {
+    try { if (typeof zoneEn === 'function' && (key === 'woodstock' || key === 'janis')) return zoneEn(key); } catch (e) {}
+    try { if (typeof zoneJp === 'function') return zoneJp(key); } catch (e) {}
+    return String(key || '');
+  }
+
+  window.sfCxlBarHtml = function (b, gidx, left, width, ageLabel) {
+    var unack = !b.cancelAck;
+    var badge = unack
+      ? '<span class="cxl-badge unack">美容室からキャンセル・未確認</span>'
+      : '<span class="cxl-badge">キャンセル済み</span>';
+    return '<div class="booking-bar is-cxl ' + (unack ? 'is-cxl-unack ' : '') + b.zone + '" data-idx="' + gidx + '"'
+      + ' title="' + escapeHtml(b.name) + '（キャンセル）' + b.start + '〜' + b.end + '"'
+      + ' style="left:' + left + '%; width:calc(' + width + '% - 4px); margin-left:2px;">'
+      + '<span class="bar-body" onclick="sfCxlShowDetail(' + gidx + ')">'
+      + '<span class="bar-lines"><span class="bar-line1"><span class="bar-name">' + escapeHtml(b.name) + '</span>' + badge + '</span>'
+      + '<span class="bar-line2"><span class="age-chip">' + ageLabel + '</span><span class="cxl-time">' + b.start + '〜' + b.end + '</span></span></span>'
+      + '</span></div>';
+  };
+
+  window.sfCxlShowDetail = function (gidx) {
+    var b = bookings[gidx]; if (!b) return;
+    var msg = b.name + ' さん\n'
+      + (b.date || '') + ' ' + b.start + '〜' + b.end + '（' + salonJpOf(b.zone) + '）\n'
+      + 'キャンセル：' + byLabel(b.cancelledBy) + '（' + fmtTs(b.cancelledAt) + '）\n'
+      + '理由：' + (b.cancelReason || '—')
+      + (b.cancelAck ? '\n確認済み：' + (b.cancelAckBy || '') + '（' + fmtTs(b.cancelAckAt) + '）' : '');
+    if (!b.cancelAck && typeof sfConfirm === 'function') {
+      sfConfirm(msg, { okText: '確認しました', cancelText: '閉じる' })
+        .then(function (ok) { if (ok) window.sfCxlAck(b.sfId); });
+    } else if (typeof sfAlert === 'function') {
+      sfAlert(msg);
+    }
+  };
+
+  window.sfCxlAck = function (sfId) {
+    if (!sfId) return;
+    var arr = sfLoad();
+    var rec = arr.find(function (r) { return r && r.id === sfId; });
+    if (!rec || !rec.cancelled || rec.cancelAck) return;
+    rec.cancelAck = true;
+    rec.cancelAckAt = Date.now();
+    rec.cancelAckBy = (typeof gardenName === 'function') ? gardenName(CURRENT_GARDEN) : '保育園';
+    sfSave(arr);
+    importSharedBookings();
+    renderBoard();
+    if (typeof sfCxlScan === 'function') sfCxlScan();
+  };
+
+  /* 保育園側から「キャンセルにする」（削除しない）。自園操作なので確認済みとして扱う */
+  window.cancelBookingMark = async function () {
+    if (typeof editingIdx === 'undefined' || editingIdx < 0) return;
+    var b = bookings[editingIdx]; if (!b || !b.sfId || b.cancelled) return;
+    var mode = 'one';
+    var sibs = (b.groupId) ? sfLoad().filter(function (r) { return r && r.groupId === b.groupId && !r.cancelled; }) : [];
+    if (sibs.length > 1) {
+      var c = await sfChoose('この予約は ' + sibs.length + ' つの区間に分かれています。\nどちらをキャンセルにしますか。',
+        { okText: 'すべてキャンセル', altText: 'この区間だけ', cancelText: 'やめる', danger: true });
+      if (c === 'cancel') return;
+      mode = (c === 'ok') ? 'all' : 'one';
+    } else {
+      if (!(await sfConfirm(b.name + ' さんの予約をキャンセルにしますか？\n（バーは消えず「キャンセル済み」として残ります）',
+        { okText: 'キャンセルにする', danger: true }))) return;
+    }
+    var now = Date.now();
+    var by = (typeof gardenName === 'function') ? gardenName(CURRENT_GARDEN) : '保育園';
+    var arr = sfLoad();
+    arr.forEach(function (r) {
+      if (!r || r.cancelled) return;
+      var hit = (mode === 'all' && b.groupId) ? (r.groupId === b.groupId) : (r.id === b.sfId);
+      if (!hit) return;
+      r.cancelled = true; r.cancelledAt = now; r.cancelledBy = 'garden';
+      r.cancelReason = r.cancelReason || '';
+      r.cancelAck = true; r.cancelAckAt = now; r.cancelAckBy = by;
+    });
+    sfSave(arr);
+    if (typeof closeModal === 'function') closeModal();
+    importSharedBookings();
+    renderBoard();
+  };
+
+  /* ---- 未確認キャンセルの帯・一覧・チャイム ---- */
+  /* 既知の未確認 id は端末に記憶する（サロン新着ログと同じ考え方）。
+     メモリだけだと、リロードのたびに既存の未確認キャンセルで鳴り直してしまい、
+     逆に「初回スナップショットでは鳴らさない」方式だと本当の新着まで黙ってしまう。 */
+  var SEEN_KEY = 'sf_board_cxlseen_v1';
+  var seen = {};
+  try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {}; } catch (e) { seen = {}; }
+  function unackedRows() {
+    return sfLoad().filter(function (r) {
+      return r && r.cancelled && !r.cancelAck && normGarden(r.gardenId) === CURRENT_GARDEN;
+    }).sort(function (a, b) {
+      return String(a.date || '').localeCompare(String(b.date || ''))
+        || String(a.start || '').localeCompare(String(b.start || ''));
+    });
+  }
+  function ensureBand() {
+    var el = document.getElementById('sfCxlBand');
+    if (el) return el;
+    el = document.createElement('div'); el.id = 'sfCxlBand';
+    var board = document.getElementById('board');
+    if (board && board.parentNode) board.parentNode.insertBefore(el, board);
+    else document.body.appendChild(el);
+    return el;
+  }
+  function renderBand(rows) {
+    var el = ensureBand();
+    el.innerHTML = '<div class="sf-cxl-bar">'
+      + (rows.length ? '<button class="sf-cxl-count" onclick="sfCxlOpenList()">⚠ 未確認のキャンセル ' + rows.length + '件</button>' : '')
+      + '<label class="sf-cxl-toggle"><input type="checkbox" ' + (window.SF_SHOWCXL !== false ? 'checked' : '')
+      + ' onchange="sfCxlToggle(this.checked)"> キャンセル済みを表示</label>'
+      + '</div>';
+  }
+  window.sfCxlScan = function () {
+    var rows = unackedRows();
+    var fresh = rows.filter(function (r) { return !seen[r.id]; });
+    rows.forEach(function (r) { seen[r.id] = 1; });
+    if (fresh.length) {
+      if (typeof window.__sfBoardChime === 'function') window.__sfBoardChime();
+      try {
+        var ks = Object.keys(seen);
+        if (ks.length > 300) ks.slice(0, ks.length - 300).forEach(function (k) { delete seen[k]; });
+        localStorage.setItem(SEEN_KEY, JSON.stringify(seen));
+      } catch (e) {}
+    }
+    renderBand(rows);
+  };
+  window.sfCxlToggle = function (on) {
+    window.SF_SHOWCXL = !!on;
+    try { localStorage.setItem('sf_board_showcxl_v1', on ? '1' : '0'); } catch (e) {}
+    renderBoard();
+  };
+
+  function ensureOv() {
+    var ov = document.getElementById('sfCxlOv');
+    if (ov) return ov;
+    ov = document.createElement('div'); ov.id = 'sfCxlOv'; ov.className = 'sf-cxl-ov';
+    ov.addEventListener('click', function (e) { if (e.target === ov) ov.classList.remove('show'); });
+    document.body.appendChild(ov);
+    return ov;
+  }
+  window.sfCxlOpenList = function () {
+    var ov = ensureOv();
+    var rows = unackedRows();
+    var body = rows.map(function (r) {
+      var nm = (r.info && r.info.name) ? r.info.name : r.name;
+      return '<div class="sf-cxl-row">'
+        + '<div class="who"><strong>' + escapeHtml(nm) + '</strong> さん<br>'
+        + escapeHtml(r.date || '') + ' ' + escapeHtml(r.start || '') + '〜' + escapeHtml(r.end || '')
+        + '（' + escapeHtml(salonJpOf(r.salon)) + '）'
+        + '<div class="reason">理由：' + (r.cancelReason ? escapeHtml(r.cancelReason) : '—') + '</div></div>'
+        + '<button class="sf-cxl-ack-btn" onclick="sfCxlAckFromList(\'' + String(r.id).replace(/'/g, '') + '\')">確認しました</button>'
+        + '</div>';
+    }).join('');
+    ov.innerHTML = '<div class="sf-cxl-box"><h3>⚠ 未確認のキャンセル</h3>'
+      + (body || '<div style="padding:14px 0; color:#8A9099;">未確認のキャンセルはありません。</div>')
+      + '<div class="sf-cxl-close"><button onclick="document.getElementById(\'sfCxlOv\').classList.remove(\'show\')">閉じる</button></div></div>';
+    ov.classList.add('show');
+  };
+  window.sfCxlAckFromList = function (id) {
+    window.sfCxlAck(id);
+    window.sfCxlOpenList();   // 一覧を描き直す（残りの未確認を出す）
+  };
+
+  function boot() { try { window.sfCxlScan(); } catch (e) {} }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();
 </script>

@@ -689,6 +689,7 @@ function countReservations(garden, slot, date) {
     if (!r || !COUNTED_ZONES.has(r.salon)) return;
     if (normGarden(r.gardenId) !== g) return;
     if (r.date !== date) return;
+    if (r.cancelled) return;   /* SF-CANCELMARK-20260926 : キャンセル済みは数えない */
     if (consumedSlots(totalMonths(r.age, r.months)).indexOf(s) === -1) return; // その枠を消費する予約か（≤18ヶ月は0/1両方・不明除外）
     c++;
   });
@@ -756,6 +757,7 @@ function rebuildUsed() {
     if (!r || !COUNTED_ZONES.has(r.salon)) return;
     if (normGarden(r.gardenId) !== g) return;
     if (r.date !== ds) return;
+    if (r.cancelled) return;   /* SF-CANCELMARK-20260926 : キャンセル済みは数えない */
     const slots = consumedSlots(totalMonths(r.age, r.months));
     if (!slots.length) return;
     const si = slotIdx(r.start), ei = slotIdx(r.end);
@@ -2098,7 +2100,7 @@ function renderMyBookings() {
   const today = currentDate();
   const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   const arr = sfLoad()
-    .filter(r => normGarden(r.gardenId) === CURRENT_GARDEN && r.salon === salon && (!r.date || r.date === dateStr) && !r.fromNextOf)
+    .filter(r => normGarden(r.gardenId) === CURRENT_GARDEN && r.salon === salon && (!r.date || r.date === dateStr) && !r.fromNextOf && !r.cancelled)   /* SF-CANCELMARK-20260926 */
     .sort((a,b)=>a.start.localeCompare(b.start));
   document.getElementById('mbCount').textContent = arr.length + ' 件';
   const list = document.getElementById('mbList');
@@ -2332,7 +2334,7 @@ function switchMode(mode) {
 // ===== 次回予約：モーダル内で本日のお客様を選ぶ =====
 let nextCustId = null; // 次回予約の紐付け先（本日の予約レコードid）
 function renderModalCustList() {
-  const recs = sfLoad().filter(r => normGarden(r.gardenId) === CURRENT_GARDEN && r.salon === salon && (!r.date || r.date === todayStr()) && !r.fromNextOf);
+  const recs = sfLoad().filter(r => normGarden(r.gardenId) === CURRENT_GARDEN && r.salon === salon && (!r.date || r.date === todayStr()) && !r.fromNextOf && !r.cancelled);   /* SF-CANCELMARK-20260926 */
   const el = document.getElementById('modalCustList');
   if (!recs.length) {
     el.innerHTML = '<div class="next-empty">本日のご予約がありません。先に「今回の予約」を入れてください。</div>';

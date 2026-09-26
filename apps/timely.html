@@ -8730,6 +8730,7 @@ function importBoardReservations() {
     /* SF-SALON-INTAKE-20260722 : サロン発（bk_接頭辞・fromBoard 無し）も取り込む。
        受付アプリはサロン割引の自動適用まで実装済みで、取り込み口だけが塞がっていた。 */
     if (r.tlDone) return false;                            // 受付済み（当日入力に取り込み済み）は出さない
+    if (r.cancelled) return false;                         /* SF-CANCELMARK-20260926 : キャンセル済みは出さない */
     if (gardenIdToBranch(r.gardenId) !== branch) return false; // 現在の園のものだけ
     /* SF-KINDER-TIMELY-HIDE-STEP4-V6-20260702 : 幼稚舎児の早朝/延長は TimelySchool に出さない */
     if (r.affiliation === 'youchisha' && (r.salon === 'ext_am' || r.salon === 'ext_pm')) return false;
@@ -8804,7 +8805,7 @@ function importBoardReservations() {
     /* SF-SALON-INTAKE-20260722 : サロン発も取り込むため、fromBoard での絞り込みをやめる。
        tlDone（受付済み）を除外することで、当日入力に取り込んだ予約が
        全端末の予約リストから消える。 */
-    const sharedIds = new Set(shared.filter(r => r && r.id && !r.tlDone).map(r => r.id));
+    const sharedIds = new Set(shared.filter(r => r && r.id && !r.tlDone && !r.cancelled).map(r => r.id));   /* SF-CANCELMARK-20260926 : キャンセル済みも「消えた」扱い */
     const before = DATA.reservations.length;
     /* SF-READWINDOW-20260908 : 共有の購読は日付窓つきなので、窓より前の予約は「共有に無い」ように
        見えるだけで削除されたわけではない。窓内（reservationDate >= 窓開始）の予約だけを削除対象にする。 */

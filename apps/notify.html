@@ -982,6 +982,7 @@ function importSharedBookings() {
   let added = false, updated = false;
   recs.forEach(r => {
     if (!r || !r.salon || !children[r.salon]) return;
+    if (r.cancelled) return;   /* SF-CANCELMARK-20260926 : キャンセル済み予約は取り込まない（従来の削除方式と同じ見え方） */
     // 園で絞り込み（gardenId 無しは月寒園として扱う）。当面は月寒園のみ。
     if (normGarden(r.gardenId) !== CURRENT_GARDEN) return;
     // 本日の予約のみ取り込む（将来の次回予約レコードは対象外）

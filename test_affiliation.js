@@ -52,7 +52,9 @@ check('バッジCSS .affil-badge', /\.affil-badge\s*\{/.test(boardSrc));
 check('入力トグル #mYouchisha', /id="mYouchisha"/.test(boardSrc));
 check('新規nbに affiliation', /const nb = \{[\s\S]*?affiliation:/.test(boardSrc));
 check('共有保存 sfWriteNew に affiliation', /affiliation: b\.affiliation \|\| CURRENT_GARDEN/.test(boardSrc));
-check('共有復元 rehydrate に affiliation', /affiliation: r\.affiliation \}\)/.test(boardSrc));
+/* SF-CANCELMARK-20260926 : 取り込みが _mkBk 化され affiliation の後ろに cancelled 系が続く形になったため、
+   行末 `})` に固定せず「affiliation: r.affiliation が引き継がれていること」だけを見る */
+check('共有復元 rehydrate に affiliation', /affiliation: r\.affiliation[,\s]/.test(boardSrc));
 
 // --- [4] timely.html の配線 ---
 console.log('[4] timely.html の配線');
