@@ -55,8 +55,9 @@ Web UI アップロードは使わない（コミット履歴とマーカーが�
 - 原因の第一候補：**onSnapshot の張り直し・多重登録**と、**全件購読にクエリ絞り込みが無い**こと
 - 調査の入り口：`grep -n "onSnapshot" apps/*.html` で購読箇所を洗い出す
 - **2026-09-08 進捗：Phase 0〜2 完了・本番反映済み**（永続キャッシュを12本全部に、sf_bookings の
-  購読に日付窓 `SF-READWINDOW-20260908`）。残りは実測 → Phase 3（board の過去日オンデマンド読み、
-  **期限 9/30**）→ Phase 4（timely）。設計・状態・作業ログは **`DESIGN-readwindow.md`** が正
+  購読に日付窓 `SF-READWINDOW-20260908`）
+- **2026-09-30：Phase 3・4 完了・本番反映済み**（過去月のオンデマンド読み `SF-ARCHIVE-BOARD-20260930` /
+  `SF-ARCHIVE-TIMELY-20260930`）。購読窓は据え置き。設計・状態・作業ログは **`DESIGN-readwindow.md`** が正
 
 ### 作業ログ
 
@@ -212,8 +213,13 @@ sfSave()/sfSaveShared(arr) ─▶ sfChangedOnly(next, 写し) ─▶ fbReconcile
 - **`SF-READWINDOW-20260908` 以降、`SF_MIRROR` には日付窓内の予約しか入っていない**
   （board＝当月1日〜 / salon・notify＝昨日〜 / timely＝前月1日〜。窓開始は `window.SF_WINDOW_START`、
   起動時に1回計算し日をまたいでも張り直さない）。**「SF_MIRROR は全件」を前提にしたコードを書かないこと。**
-  過去分は Phase 3/4 のオンデマンド読み（未実装）で扱う。timely の fromBoard 削除パスは
+  過去分は Phase 3/4 のオンデマンド読み（`SF-ARCHIVE-BOARD-20260930` / `SF-ARCHIVE-TIMELY-20260930`、
+  下の 2026-09-30 の表）で扱う。timely の fromBoard 削除パスは
   窓内の予約だけを削除対象にしている（窓外は「削除された」のではなく「購読していない」だけ）
+- **board の `sfLoad()` は SF_MIRROR ＋ 過去月アーカイブ（`SF_ARCHIVE`）の合成ビュー**（SF-ARCHIVE-BOARD-20260930）。
+  写しだけが要るときは `sfLoadLive()`。`sfSave()` は窓内／過去月に振り分け、**削除対象の算出は SF_MIRROR だけ**
+  （アーカイブ由来は差分計算で決して削除されない。明示削除は `sfArchiveDeleteExplicit`）。
+  **アーカイブを SF_MIRROR に混ぜるコード・アーカイブを削除計算に入れるコードを書かないこと**
 
 ### 同期コードを持つファイルは12本
 
@@ -536,6 +542,8 @@ fix: 会計レポートの日別・月別サマリーに割引列を追加。基
 | マーカー | 内容 | 対象 |
 |---|---|---|
 | `SF-RESMATCH-20260930` | ボード由来（`sf:` キー）の予約から「当日入力を開く」で、**先に DATA.customers を探す**（guestName / guestKana を `sfDupKata` で正規化、完全一致＋2文字以上の前方一致）。完全一致1件→当日入力（`_pendingResSfId` 保持でサロン割引・tlDone 消費は従来どおり）／前方一致だけ・複数→生年月日つき選択モーダル（`sfSyncPopup`）／0件→`TL_SNAP_SEEN.customers` が立っていれば新規登録、未同期なら「顧客データを同期中です」で止まる。従来は無条件に新規登録へ飛ばしており、顧客重複（9/8・9/30）の入口だった | timely |
+| `SF-ARCHIVE-BOARD-20260930` | **過去月のオンデマンド読み（Phase 3）**。表示日付が窓より前になったら、その月の sf_bookings を `getDocs` で1回だけ読み `SF_ARCHIVE['YYYY-MM']` に月単位でキャッシュ（クエリは date 範囲のみ。gardenId 条件は複合インデックスが要るので手元で絞る）。`sfLoad()` は合成ビュー、`sfSave()` は振り分け＋削除計算は写しのみ。過去月は閲覧専用（帯「過去の月（閲覧のみ）」、「この月を編集可能にする」で解除）。カレンダーは読み込んだ月だけドット、未読込は薄く＋「この月を読み込む」 | board 5本 |
+| `SF-ARCHIVE-TIMELY-20260930` | **日報・月報の過去月（Phase 4）**。窓より前の日付／月を選んだら同じ方式で `SF_ARCHIVE_TL` に読み、`sfKinderExtCounts` の集計元だけ「写し＋アーカイブ」に（件数のみ・金額は sf_visits・CSV も同じ数）。DATA.reservations・削除パス・予約リストは無改変 | timely |
 | `SF-WAKESYNC-20260930` | タブが前面に戻ったら（visibilitychange / pageshow persisted）`disableNetwork`→`enableNetwork` で接続を張り直す。最終受信から90秒以上なら ヘッダーに「同期待ち」（`#sfWakeBadge`）を出し、サーバー確定（fromCache=false）の snapshot で消す。iPad で同一 origin の複数タブを開くと multiTab のプライマリタブが凍結される疑い（9/30 朝の同時空白）への対処。`persistentSingleTabManager` への切替は現場の切り分け待ち | 12本すべて |
 
 顧客重複の再検出は読み取り専用スクリプト（クラウドの sf_customers / sf_visits を匿名認証で読むだけ）で行い、

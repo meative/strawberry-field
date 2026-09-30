@@ -1,7 +1,35 @@
 # DESIGN — Firestore 読み取り削減（SF-READWINDOW-20260908）
 
-設計確定 2026-09-07。**2026-09-08 時点：Phase 0〜2 完了・本番反映済み**（`a5fce50` / `8507bdd`）。
-次は実測 → Phase 3（期限 9/30）→ Phase 4。このファイルは実装が進むたびに「状態」欄を更新すること。
+設計確定 2026-09-07。**2026-09-30 時点：Phase 0〜4 すべて完了・本番反映済み**
+（Phase 0〜2 = `a5fce50` / `8507bdd`、Phase 3 = SF-ARCHIVE-BOARD-20260930、Phase 4 = SF-ARCHIVE-TIMELY-20260930）。
+購読窓は **暫定広窓のまま据え置き**（board＝当月1日 / timely＝前月1日。「最終」列の「昨日へ絞る」は未実施・
+必要になったら別途判断）。このファイルは実装が進むたびに「状態」欄を更新すること。
+
+## 2026-09-30 の作業ログ（Phase 3・4）
+
+- 現場から「7・8月の予約ボード・日報・月報を確認したい」と要望。10/1 で board の窓（当月1日）から
+  9月が外れるため同日に投入。**判定エンジン・Firebase 設定・購読窓は無改変**
+- Phase 3（board 5本）：表示日付が窓より前になったら、その月の sf_bookings を **getDocs で1回だけ**読み
+  `SF_ARCHIVE['YYYY-MM']` に月単位でキャッシュ（`sfArchiveEnsure`）。onSnapshot は張らない。
+  クエリは **date の範囲だけ**（`gardenId ==` を同じクエリに入れると複合インデックスが要り Firebase
+  コンソール作業になるため）。園の絞り込みは従来どおり手元。1月あたり全園ぶん数百件・1回、開かなければ 0
+- `sfLoad()` は SF_MIRROR ＋ アーカイブの合成ビュー（同じ id は写し優先）。`sfLoadLive()` が写しだけ。
+  **SF_MIRROR には決して混ぜない**（不変条件維持）。キャンセル帯（`unackedRows`）は写しだけを見る
+- `sfSave()` は `sfArchiveSplit` で窓内／過去月に振り分け、変わったレコードだけ書く。
+  **削除対象の算出は SF_MIRROR だけ**（アーカイブ由来は差分計算で決して削除されない）。
+  明示的な削除（削除ボタン・幼稚舎チップのオフ）は `sfArchiveDeleteExplicit` が id を列挙して消す（上限 SF_DELGUARD_MAX）
+- 過去月は閲覧専用：新規（＋ボタン・空きコマ）・ドラッグ・確定・削除・キャンセルにする・幼稚舎チップ・
+  受付内容の反映（syncFromTimelySchool）を止め、日付バーの下に帯「過去の月（閲覧のみ）」。
+  帯の「この月を編集可能にする」でその月だけ（端末内・その場限り）編集を許可。バーのタップは閲覧のみでも
+  内容を見られる（確定・削除・キャンセルにする を隠す）
+- カレンダーのドット：窓内はリアルタイム、過去月は読み込んだ月だけ。未読込の月は薄く表示し「この月を読み込む」
+- Phase 4（timely）：日報・月報で窓より前の日付／月を選んだら同じ方式で `SF_ARCHIVE_TL` に読み、
+  `sfKinderExtCounts` の集計元だけを「写し＋アーカイブ」に差し替え（件数のみ。金額は sf_visits）。
+  区分別CSVも同じ関数を通るので同じ数。importBoardReservations・削除パス・予約リスト・DATA.reservations は無改変
+- 検証：Playwright（Firebase スタブ・ネット遮断）`tests/playwright/test_archive_board.js`（5本 × 22項目：
+  1回だけ読む／キャッシュ／閲覧専用ガード／編集可能にした月の差分書き込み／陰性対照＝アーカイブを含まない配列を
+  allowDelete=true で保存しても削除ゼロ（素朴な差分だと5件消える）／窓内は pristine と #board・カレンダーが DOM 一致／
+  読み込み失敗と再試行）、`test_archive_timely.js`（10項目）
 
 ## 2026-09-08 の作業ログ
 
@@ -112,8 +140,8 @@ JST（端末時計）で計算する。
 | 1 | persistentLocalCache 移植 | salon 3本 + notify 3本 | **完了 2026-09-08** `a5fce50`（sf_offline_salon_notify_20260908.py。Playwright で7本の IndexedDB 起動を確認） |
 | 2 | 日付窓（暫定広窓）。パッチスクリプト sf_readwindow_20260908.py（アンカー出現1回検証・2フェーズ書き込み・バックアップ・node --check・期待差分の機械算出）。timely は fromBoard 削除パスの窓ガードも同時に投入 | 12本全部 | **完了 2026-09-08** `8507bdd`（Playwright 12/12、本番4画面で確認合格） |
 | — | **Firebase 使用状況を実測**し Phase 3・4 の要否を数字で判断 | — | **次のアクション**：9/9 以降に Firebase コンソールで読み取り数/日を確認（比較基準 9/4：3.9万件/日） |
-| 3 | 過去日ナビ＋カレンダードットのオンデマンド読み → board の窓を昨日へ。**期限：9/30 より前**（月末に今月より前のボードを見る運用のため） | board 5本 | 未着手 |
-| 4 | レポートのオンデマンド読み（SF_ARCHIVE）→ timely の窓を昨日へ（fromBoard 削除パスの窓ガードは Phase 2 で投入済み） | timely 1本 | 未着手 |
+| 3 | 過去日ナビ＋カレンダードットのオンデマンド読み（board の窓は当月1日のまま据え置き） | board 5本 | **完了 2026-09-30** SF-ARCHIVE-BOARD-20260930（`apps/sf_archive_board_20260930.py`。Playwright 5本 × 22項目） |
+| 4 | レポートのオンデマンド読み（SF_ARCHIVE_TL）。timely の窓は前月1日のまま据え置き（fromBoard 削除パスの窓ガードは Phase 2 で投入済み） | timely 1本 | **完了 2026-09-30** SF-ARCHIVE-TIMELY-20260930（`apps/sf_archive_timely_20260930.py`。Playwright 10項目） |
 
 ## Phase 0 検出スニペット（ASCII のみ・board.html のコンソールで実行）
 
