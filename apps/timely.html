@@ -5611,7 +5611,8 @@
   import {
     getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
     disableNetwork, enableNetwork,   /* SF-WAKESYNC-20260930 */
-    collection, query, where, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+    collection, query, where, onSnapshot, doc, setDoc, deleteDoc, writeBatch,
+    getDocs   /* SF-ARCHIVE-TIMELY-20260930 */
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
@@ -5775,6 +5776,14 @@
 
   // sfSaveShared から呼ぶ：arr を「あるべき全件」として Firestore に反映。
   // deletedIds（写しから消えた id）は削除する。writeBatch で一括コミット。
+  /* SF-ARCHIVE-TIMELY-20260930 : 過去月の sf_bookings を1回だけ読む（日報・月報の早朝・延長件数用）。
+     gardenId の等価条件を同じクエリに入れると複合インデックスが要る（本番設定は触らない）ので、
+     date の範囲だけで引き、園と区分の絞り込みは sfKinderExtCounts が従来どおり手元で行う。 */
+  window.fbFetchArchive = async (ym) => {
+    const snap = await getDocs(query(collection(db, COL),
+      where('date', '>=', ym + '-01'), where('date', '<=', ym + '-31')));
+    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  };
   /* SF-SYNCGUARD-20260727 : 成否を返す。握りつぶさない。 */
   window.fbReconcile = async (arr, deletedIds) => {
     try {
@@ -8443,10 +8452,59 @@ const SF_KINDER_EXT_ZONE = { ext_am: 'morning', ext_pm: 'extension' };
    として数えた人数。日報ならその日の実人数、月報なら日ごとの実人数の積み上げ（延べ人日）になる。
    早朝行・延長行はそれぞれの利用実数を出すため重複排除しない（合計だけを実人数にする）。
    同一園・同一日で名簿の氏名が一致すれば同じ園児とみなす（予約は名簿チップから作られるため）。 */
+/* SF-ARCHIVE-TIMELY-20260930 : 過去月の共有予約（集計専用キャッシュ）。
+   SF_MIRROR には購読窓（前月1日〜）のレコードしか無いため、それより前の日報・月報では
+   早朝・延長の件数が 0 になっていた。窓より前の月を選んだら getDocs で1回だけ読み、
+   SF_ARCHIVE_TL['YYYY-MM'] に置く。SF_MIRROR にも DATA.reservations にも流さない
+   （予約取込・削除パス・予約リストは無改変）。読み終えたら、その月を表示している画面だけ描き直す。 */
+var SF_ARCHIVE_TL = {};        // { 'YYYY-MM': [records] }
+var SF_ARCHIVE_TL_STATE = {};  // { 'YYYY-MM': 'loading' | 'loaded' | 'error' }
+function sfArchiveTlIsPast(dateStr) {
+  var w = String(window.SF_WINDOW_START || '');
+  return !!w && !!dateStr && String(dateStr) < w;
+}
+function sfArchiveEnsureTl(ym) {
+  ym = String(ym || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) return false;
+  if (!sfArchiveTlIsPast(ym + '-01')) return false;                       // 窓内は写しにある
+  var st = SF_ARCHIVE_TL_STATE[ym];
+  if (st === 'loaded' || st === 'loading') return false;
+  if (typeof window.fbFetchArchive !== 'function') return false;           // 認証前。次の描画で再試行
+  SF_ARCHIVE_TL_STATE[ym] = 'loading';
+  window.__sfArchiveFetchCount = (window.__sfArchiveFetchCount || 0) + 1;
+  window.fbFetchArchive(ym).then(function (rows) {
+    SF_ARCHIVE_TL[ym] = (rows || []).filter(function (r) { return r && r.id != null && sfArchiveTlIsPast(r.date); });
+    SF_ARCHIVE_TL_STATE[ym] = 'loaded';
+    console.log('[SF-ARCHIVE-TIMELY-20260930] loaded', ym, SF_ARCHIVE_TL[ym].length, 'record(s)');
+    try {
+      var rd = document.getElementById('reportDate');
+      if (rd && String(rd.value || '').slice(0, 7) === ym && typeof renderDailyReport === 'function') renderDailyReport();
+      var rm = document.getElementById('reportMonth');
+      if (rm && String(rm.value || '') === ym && typeof renderMonthlyReport === 'function') renderMonthlyReport();
+    } catch (e) { console.error('[SF-ARCHIVE-TIMELY-20260930] re-render failed', e); }
+  }).catch(function (e) {
+    console.error('[SF-ARCHIVE-TIMELY-20260930] fetch failed', ym, e);
+    SF_ARCHIVE_TL_STATE[ym] = 'error';
+    if (typeof toast === 'function') toast('過去月の予約データを読み込めませんでした（早朝・延長の件数が 0 のままです）', true);
+  });
+  return true;
+}
+/* 集計用：写し（窓内）＋読み込み済みの過去月。同じ id は写しを優先 */
+function sfLoadSharedWithArchive() {
+  var live = sfLoadShared();
+  var keys = Object.keys(SF_ARCHIVE_TL);
+  if (!keys.length) return live;
+  var ids = Object.create(null);
+  live.forEach(function (r) { if (r && r.id != null) ids[String(r.id)] = 1; });
+  keys.forEach(function (k) {
+    (SF_ARCHIVE_TL[k] || []).forEach(function (r) { if (r && r.id != null && !ids[String(r.id)]) { ids[String(r.id)] = 1; live.push(r); } });
+  });
+  return live;
+}
 function sfKinderExtCounts(branch, match) {
   const counts = { morning: 0, extension: 0, unique: 0 };
   let shared = [];
-  try { shared = sfLoadShared(); } catch (e) { console.error('sfKinderExtCounts error:', e); return counts; }
+  try { shared = sfLoadSharedWithArchive(); } catch (e) { console.error('sfKinderExtCounts error:', e); return counts; }   /* SF-ARCHIVE-TIMELY-20260930 */
   const seen = Object.create(null);
   shared.forEach(function (r) {
     if (!r) return;
@@ -17111,6 +17169,7 @@ function renderDailyReport() {
     el.innerHTML = '<div class="empty">日付を選択してください</div>';
     return;
   }
+  sfArchiveEnsureTl(dateStr.slice(0, 7));   /* SF-ARCHIVE-TIMELY-20260930 : 過去月なら1回だけ読み、届いたら描き直す */
   
   // 該当日かつ会計済みの来園記録を取得
   const visits = DATA.visits.filter(v => 
@@ -17309,6 +17368,7 @@ function renderMonthlyReport() {
     el.innerHTML = '<div class="empty">月を選択してください</div>';
     return;
   }
+  sfArchiveEnsureTl(monthStr);   /* SF-ARCHIVE-TIMELY-20260930 : 過去月なら1回だけ読み、届いたら描き直す */
   
   const [y, m] = monthStr.split('-').map(Number);
   const monthLabel = `${y}年 ${m}月`;
