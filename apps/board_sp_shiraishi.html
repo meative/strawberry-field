@@ -541,6 +541,7 @@ body {
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
   import {
     getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+    disableNetwork, enableNetwork,   /* SF-WAKESYNC-20260930 */
     collection, query, where, onSnapshot, doc, setDoc, deleteDoc, writeBatch
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
@@ -613,6 +614,72 @@ body {
   /* ===== end SF-KINDER-BOARD-STEP23-20260630 モジュール側 ===== */
 
   const auth = getAuth(app);
+  /* SF-WAKESYNC-20260930 : タブが前面に戻ったら Firestore の接続を張り直す。
+     iPad の Safari で同一 origin のタブを複数開くと、persistentMultipleTabManager の
+     プライマリタブ（サーバーと唯一つながるタブ）が背面で凍結され、前面のタブに更新が
+     届かなくなる疑いがある（9/30 朝、board / notify / timely が同時に空になり 11 時ごろ復旧）。
+     visibilitychange（前面復帰）と bfcache 復帰（pageshow persisted）で
+     disableNetwork → enableNetwork を呼び、リスナーのストリームを再確立させる。
+     判定・書き込みの経路は一切変えない。
+     最終スナップショット受信から SF_WAKE_STALE_MS 以上たっていたときだけ、ヘッダーに
+     小さく「同期待ち」を出す。消すのは「サーバー確定（fromCache=false）の snapshot が届いた
+     とき」：静かな時間帯は新しいデータが来ないのが正常なので、データ到着だけを待つと
+     帯が消えなくなる。確認用の一回きりリスナーは購読中と同じクエリなので、SDK 内で同じ
+     ターゲットを共有し、追加の読み取りは発生しない。
+     persistentSingleTabManager への切替は現場の切り分け結果を待つ（未着手）。 */
+  const SF_WAKE_STALE_MS = 90 * 1000;
+  let sfWakeLastSnap = Date.now();   // 起動時刻を初期値に（未受信のまま放置されても「古い」と判定できる）
+  let sfWakeBusy = false, sfWakeUnsub = null;
+  const sfWakeBadgeSet = (on) => {
+    const b = document.getElementById('sfWakeBadge');
+    if (b) b.classList.toggle('show', !!on);
+  };
+  const sfWakeDropConfirm = () => {
+    if (sfWakeUnsub) { try { sfWakeUnsub(); } catch (e) {} sfWakeUnsub = null; }
+  };
+  window.sfWakeMarkSnapshot = function () {
+    sfWakeLastSnap = Date.now();
+    window.__sfWakeLastSnap = sfWakeLastSnap;
+    sfWakeBadgeSet(false);
+    sfWakeDropConfirm();
+  };
+  const sfWakeConfirm = () => {
+    sfWakeDropConfirm();
+    try {
+      sfWakeUnsub = onSnapshot(
+        query(collection(db, COL), where('date', '>=', SF_WINDOW_START)),
+        { includeMetadataChanges: true },
+        (snap) => { if (!(snap.metadata && snap.metadata.fromCache)) window.sfWakeMarkSnapshot(); },
+        (e) => { console.warn('[SF-WAKESYNC-20260930] confirm listener failed', e); sfWakeDropConfirm(); });
+    } catch (e) { console.warn('[SF-WAKESYNC-20260930] confirm listener failed', e); }
+  };
+  window.sfWakeSync = function (why) {
+    if (sfWakeBusy) return Promise.resolve(false);
+    sfWakeBusy = true;
+    window.__sfWakeCount = (window.__sfWakeCount || 0) + 1;
+    const stale = (Date.now() - sfWakeLastSnap) >= SF_WAKE_STALE_MS;
+    if (stale) sfWakeBadgeSet(true);
+    return disableNetwork(db).then(() => enableNetwork(db)).then(() => {
+      console.log('[SF-WAKESYNC-20260930] reconnected (' + (why || '') + ')' + (stale ? ' / waiting for server snapshot' : ''));
+      if (stale) sfWakeConfirm();
+      return true;
+    }).catch((e) => {
+      console.warn('[SF-WAKESYNC-20260930] reconnect failed', e);
+      return false;
+    }).then((ok) => { sfWakeBusy = false; return ok; });
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') window.sfWakeSync('visibilitychange');
+  });
+  window.addEventListener('pageshow', (e) => { if (e && e.persisted) window.sfWakeSync('pageshow'); });
+  (function () {   // 「同期待ち」バッジの見た目（ヘッダー内の小さなピル）
+    const s = document.createElement('style');
+    s.textContent = '.sf-wake-badge{display:none;font-family:Inter,"Noto Serif JP",sans-serif;font-size:11px;'
+      + 'letter-spacing:.04em;line-height:1;padding:4px 9px;border-radius:999px;border:1px solid #C9A961;'
+      + 'color:#8A6D2B;background:#FFF8E6;white-space:nowrap;vertical-align:middle}'
+      + '.sf-wake-badge.show{display:inline-block}';
+    document.head.appendChild(s);
+  })();
   /* SF-READWINDOW-20260908 : sf_bookings の購読に日付窓（下限のみ）を付ける。
      全12ファイルが where も limit も無しで全件購読しており、予約が 900 件まで育った結果、
      1ページ読み込みごとに全件を読み直して 9/2 に Firestore の読み取り枠が切れた
@@ -668,6 +735,7 @@ body {
     }, function(e){ console.error('[kinder] attendance subscribe failed', e); });
     // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す（丸ごと置き換え）
     onSnapshot(query(collection(db, COL), where('date', '>=', SF_WINDOW_START)), (snap) => {
+      window.sfWakeMarkSnapshot();   /* SF-WAKESYNC-20260930 : 受信の刻印 */
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
       if (typeof window.sfApplySnapshot === 'function') window.sfApplySnapshot(arr);
     }, (e) => console.error('[onSnapshot] subscribe failed', e));
@@ -720,6 +788,7 @@ body {
     <span class="jp"><span id="gardenLabel">月寒園</span> ・ 予約管理ボード</span>
   </div>
   <div class="header-right">
+    <span id="sfWakeBadge" class="sf-wake-badge">同期待ち</span>
     <div class="live-badge"><span class="live-dot"></span>サロンと同期中 ・ Live</div>
     <button class="cap-open-btn" onclick="openCapSettings()">⚙ 保育園管理設定</button>
     <button class="fab" onclick="openModal()">＋ 予約を追加</button>
