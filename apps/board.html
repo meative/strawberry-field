@@ -541,7 +541,8 @@ body {
   import {
     getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
     disableNetwork, enableNetwork,   /* SF-WAKESYNC-20260930 */
-    collection, query, where, onSnapshot, doc, setDoc, deleteDoc, writeBatch
+    collection, query, where, onSnapshot, doc, setDoc, deleteDoc, writeBatch,
+    getDocs   /* SF-ARCHIVE-BOARD-20260930 */
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
@@ -709,6 +710,16 @@ body {
     } catch (e) { console.error('[fbReconcile] write failed', e); }
   };
 
+  /* SF-ARCHIVE-BOARD-20260930 : 過去月の sf_bookings を1回だけ読む（onSnapshot は張らない）。
+     gardenId の等価条件と date の範囲条件を同じクエリに入れると複合インデックスが必要になり、
+     Firebase コンソールでの作成が要る（本番設定は触らない方針）。date の範囲だけで引き、
+     園の絞り込みは従来どおり手元（normGarden === CURRENT_GARDEN）で行う。1月あたり数百件・1回。 */
+  window.fbFetchArchive = async (ym) => {
+    const snap = await getDocs(query(collection(db, COL),
+      where('date', '>=', ym + '-01'), where('date', '<=', ym + '-31')));
+    return snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  };
+
   const CAP_COL = 'sf_capacity'; // 年齢別定員。doc "base"=基本設定、doc "YYYY-MM-DD"=日別例外
 
   // 定員ドキュメントの書き込み（ドキュメント単位。sf_bookings の配列reconcileとは別の軽いAPI）
@@ -772,6 +783,8 @@ body {
   <button class="cur cur-btn" id="curDate" onclick="toggleCalendar()" title="タップで日付を選ぶ"><span class="cal-caret">▾</span></button>
   <button onclick="changeDay(1)">翌日 →</button>
 </div>
+<!-- SF-ARCHIVE-BOARD-20260930 : 過去月の帯（窓内では非表示） -->
+<div id="sfArchiveBand" class="sf-archive-band" style="display:none"></div>
 
 <!-- 自作カレンダー（月表示） -->
 <!-- SF-CAPDIFF-20260706 : 特定日設定バッジの表示枠（内容は renderCapSummary が入れる） -->
@@ -961,7 +974,7 @@ body {
       <button class="btn" id="mCancelMark" onclick="cancelBookingMark()" style="display:none; flex:0 0 auto;">キャンセルにする</button><!-- SF-CANCELMARK-20260926 -->
       <button class="btn" id="mDelete" onclick="deleteBooking()" style="display:none; flex:0 0 auto;">削除</button>
       <button class="btn" onclick="closeModal()">キャンセル</button>
-      <button class="btn btn-primary" onclick="saveBooking()">確定</button>
+      <button class="btn btn-primary" id="mSave" onclick="saveBooking()">確定</button><!-- SF-ARCHIVE-BOARD-20260930 -->
     </div>
     <div class="ts-note" id="tsNote" style="display:none;">📋 新規のお客様です。来園時に <strong>一時預かり受付（TimelySchool）</strong> を記入すると、正式なお名前・月齢・アレルギーがこの予約表に自動で反映されます。</div>
   </div>
@@ -1050,10 +1063,214 @@ let SF_MIRROR = [];
 
 // 旧 localStorage 版と同じく、毎回ディープコピーを返す（呼び出し側が中身を書き換えて
 // sfSave に渡すため、写し本体を直接いじらせない）。同期関数のまま維持。
-function sfLoad() {
+/* ============================================================
+   SF-ARCHIVE-BOARD-20260930 : 過去月のオンデマンド読み（DESIGN-readwindow.md Phase 3）
+
+   SF_MIRROR には購読窓（当月1日〜）のレコードしか無い。窓より前の日を表示するときは、
+   その月の sf_bookings を getDocs で1回だけ読み、SF_ARCHIVE['YYYY-MM'] に月単位で持つ。
+   - SF_MIRROR には決して混ぜない（次のスナップショットで消える・sfSave の差分/削除計算に絡む）
+   - sfLoad() は SF_MIRROR ＋ アーカイブの合成ビュー（読み取り）。sfLoadLive() は SF_MIRROR だけ
+   - 過去月は閲覧専用。帯の「この月を編集可能にする」を押した月だけ編集できる
+   - 書き込みは sfSave() が窓内／過去月に振り分ける。削除対象の算出は SF_MIRROR だけで行い、
+     アーカイブ由来は決して削除しない。明示的な削除は sfArchiveDeleteExplicit() で id を列挙する
+   ============================================================ */
+let SF_ARCHIVE = {};          // { 'YYYY-MM': [records] } 読み込み済みの月（全園ぶん。園の絞り込みは下流で従来どおり）
+let SF_ARCHIVE_STATE = {};    // { 'YYYY-MM': 'loading' | 'loaded' | 'error' }
+let SF_ARCHIVE_EDIT = {};     // { 'YYYY-MM': true } 「この月を編集可能にする」を押した月（端末内・その場限り）
+function sfArchiveYm(dateStr) { return String(dateStr || '').slice(0, 7); }
+function sfArchiveIsPast(dateStr) {
+  const w = String(window.SF_WINDOW_START || '');
+  return !!w && !!dateStr && String(dateStr) < w;
+}
+function sfArchiveAll() {
+  let out = [];
+  Object.keys(SF_ARCHIVE).forEach(k => { out = out.concat(SF_ARCHIVE[k] || []); });
+  return out;
+}
+function sfArchiveIdSet() {
+  const s = new Set();
+  sfArchiveAll().forEach(r => { if (r && r.id != null) s.add(String(r.id)); });
+  return s;
+}
+function sfLoadLive() {
   try { return JSON.parse(JSON.stringify(SF_MIRROR)); }
   catch(e) { return []; }
 }
+function sfLoad() {
+  try {
+    const live = JSON.parse(JSON.stringify(SF_MIRROR));
+    const arch = sfArchiveAll();
+    if (!arch.length) return live;
+    const ids = new Set(live.map(r => (r && r.id != null) ? String(r.id) : null));
+    const extra = arch.filter(r => r && r.id != null && !ids.has(String(r.id)));   // 同じ id は写し（最新）を優先
+    return live.concat(JSON.parse(JSON.stringify(extra)));
+  } catch(e) { return []; }
+}
+/* 表示中の日付の状態：'live'（窓内・従来どおり）/ 'readonly'（過去月・閲覧のみ）/ 'editable'（過去月・編集許可中） */
+function sfArchiveMode(dateStr) {
+  const d = dateStr || boardDateStr();
+  if (!sfArchiveIsPast(d)) return 'live';
+  return SF_ARCHIVE_EDIT[sfArchiveYm(d)] ? 'editable' : 'readonly';
+}
+/* 書き込み系の入口で呼ぶ。閲覧のみなら知らせて false */
+function sfArchiveCanEdit(what) {
+  if (sfArchiveMode() !== 'readonly') { sfArchiveApplyModal(false); return true; }
+  if (typeof sfAlert === 'function') {
+    sfAlert('過去の月は閲覧のみです。\n直す必要があるときは、上の帯の「この月を編集可能にする」を押してください。');
+  }
+  return false;
+}
+/* 編集モーダルのボタンを閲覧のみに合わせる（確定・削除・キャンセルにする を隠す） */
+function sfArchiveApplyModal(readonly) {
+  const s = document.getElementById('mSave'); if (s) s.style.display = readonly ? 'none' : '';
+  if (readonly) {
+    ['mDelete', 'mCancelMark'].forEach(id => { const e = document.getElementById(id); if (e) e.style.display = 'none'; });
+    const t = document.getElementById('modalTitle'); if (t) t.textContent = '予約の内容（閲覧のみ）';
+  }
+}
+/* その日付の月がまだ読まれていなければ読む（1回だけ）。読み終えたら再取り込み・再描画 */
+function sfArchiveEnsure(dateStr) {
+  if (!sfArchiveIsPast(dateStr)) return false;
+  const ym = sfArchiveYm(dateStr);
+  if (SF_ARCHIVE_STATE[ym] === 'loaded' || SF_ARCHIVE_STATE[ym] === 'loading') return false;
+  if (typeof window.fbFetchArchive !== 'function') return false;   // 起動直後（認証前）。次の呼び出しで再試行
+  SF_ARCHIVE_STATE[ym] = 'loading';
+  window.__sfArchiveFetchCount = (window.__sfArchiveFetchCount || 0) + 1;
+  sfArchiveRenderBand();
+  window.fbFetchArchive(ym).then(rows => {
+    /* 窓内の日付が混ざっていても捨てる（それは写しにある）。SF_MIRROR には決して入れない */
+    SF_ARCHIVE[ym] = (rows || []).filter(r => r && r.id != null && sfArchiveIsPast(r.date));
+    SF_ARCHIVE_STATE[ym] = 'loaded';
+    console.log('[SF-ARCHIVE-BOARD-20260930] loaded', ym, SF_ARCHIVE[ym].length, 'record(s)');
+    if (typeof importSharedBookings === 'function') importSharedBookings();   // 変化があれば描画される
+    sfArchiveRenderBand();
+    const ov = document.getElementById('calOverlay');
+    if (ov && ov.classList.contains('show') && typeof renderCalendar === 'function') renderCalendar();
+  }).catch(e => {
+    console.error('[SF-ARCHIVE-BOARD-20260930] fetch failed', ym, e);
+    SF_ARCHIVE_STATE[ym] = 'error';
+    sfArchiveRenderBand();
+    const ov = document.getElementById('calOverlay');
+    if (ov && ov.classList.contains('show') && typeof renderCalendar === 'function') renderCalendar();
+  });
+  return true;
+}
+/* カレンダーの「この月を読み込む」用（日付を選ばずにドットだけ見たいとき） */
+function sfArchiveLoadMonth(ym) {
+  if (SF_ARCHIVE_STATE[ym] === 'error') delete SF_ARCHIVE_STATE[ym];
+  sfArchiveEnsure(ym + '-01');
+  if (typeof renderCalendar === 'function') renderCalendar();
+}
+function sfArchiveRetry() {
+  const ym = sfArchiveYm(boardDateStr());
+  if (SF_ARCHIVE_STATE[ym] !== 'loaded') delete SF_ARCHIVE_STATE[ym];
+  sfArchiveEnsure(boardDateStr());
+}
+function sfArchiveSetEdit(on) {
+  const ym = sfArchiveYm(boardDateStr());
+  if (on) SF_ARCHIVE_EDIT[ym] = true; else delete SF_ARCHIVE_EDIT[ym];
+  sfArchiveRenderBand();
+  if (typeof renderBoard === 'function') renderBoard();   // ドラッグ可否を付け直す
+}
+function sfArchiveStatusText(ym) {
+  const st = SF_ARCHIVE_STATE[ym];
+  if (st === 'loaded') {
+    const n = (SF_ARCHIVE[ym] || []).filter(r => r && normGarden(r.gardenId) === CURRENT_GARDEN).length;
+    return '読み込み済み ・ ' + n + ' 件';
+  }
+  if (st === 'loading') return '読み込み中…';
+  if (st === 'error') return '読み込みに失敗しました（電波を確かめてください）';
+  return '未読込';
+}
+/* 日付バーの下の帯。窓内では出さない */
+function sfArchiveRenderBand() {
+  const el = document.getElementById('sfArchiveBand'); if (!el) return;
+  const d = boardDateStr(); const mode = sfArchiveMode(d); const ym = sfArchiveYm(d);
+  document.body.classList.toggle('sf-archive-readonly', mode === 'readonly');
+  document.body.classList.toggle('sf-archive-editable', mode === 'editable');
+  if (mode === 'live') { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const ymLabel = ym.slice(0, 4) + '年' + Number(ym.slice(5, 7)) + '月';
+  const st = SF_ARCHIVE_STATE[ym];
+  const stHtml = '<span class="st">' + ymLabel + ' ・ ' + sfArchiveStatusText(ym) + '</span>';
+  if (mode === 'readonly') {
+    el.className = 'sf-archive-band';
+    el.innerHTML = '<span class="en">Archive</span><b>過去の月（閲覧のみ）</b>' + stHtml
+      + (st === 'error' ? '<button type="button" onclick="sfArchiveRetry()">もう一度読み込む</button>' : '')
+      + '<button type="button" class="edit-btn" onclick="sfArchiveSetEdit(true)">この月を編集可能にする</button>';
+  } else {
+    el.className = 'sf-archive-band edit';
+    el.innerHTML = '<span class="en">Archive</span><b>過去の月（編集可能 ・ ご注意ください）</b>' + stHtml
+      + '<button type="button" onclick="sfArchiveSetEdit(false)">閲覧のみに戻す</button>';
+  }
+  el.style.display = '';
+}
+/* sfSave の振り分け：id がアーカイブにある／写しに無くて日付が窓より前 → アーカイブ側 */
+function sfArchiveSplit(next) {
+  const archIds = sfArchiveIdSet();
+  const mirrorIds = new Set(SF_MIRROR.map(r => (r && r.id != null) ? String(r.id) : null));
+  const live = [], arch = [];
+  (next || []).forEach(r => {
+    if (!r) return;
+    const id = (r.id != null) ? String(r.id) : null;
+    const isArch = (id && archIds.has(id)) || (!(id && mirrorIds.has(id)) && sfArchiveIsPast(r.date));
+    (isArch ? arch : live).push(r);
+  });
+  return { live: live, arch: arch };
+}
+/* 書いたレコードをアーカイブのキャッシュに反映（読み込み済みの月だけ。id は1つの月にしか置かない） */
+function sfArchiveAbsorb(rows) {
+  (rows || []).forEach(r => {
+    if (!r || r.id == null) return;
+    const id = String(r.id);
+    Object.keys(SF_ARCHIVE).forEach(k => { SF_ARCHIVE[k] = (SF_ARCHIVE[k] || []).filter(x => !(x && String(x.id) === id)); });
+    const ym = sfArchiveYm(r.date);
+    if (SF_ARCHIVE_STATE[ym] === 'loaded' && sfArchiveIsPast(r.date)) {
+      try { SF_ARCHIVE[ym].push(JSON.parse(JSON.stringify(r))); } catch (e) { SF_ARCHIVE[ym].push(r); }
+    }
+  });
+}
+/* 明示的な削除（削除ボタン・幼稚舎チップのオフ）。before に有って after に無いアーカイブ由来の id だけを消す。
+   sfSave の削除計算はアーカイブを一切見ないので、ここを通らない限りアーカイブ由来は消えない。 */
+function sfArchiveDeleteExplicit(before, after) {
+  const archIds = sfArchiveIdSet();
+  if (!archIds.size) return [];
+  const afterIds = new Set((after || []).map(r => (r && r.id != null) ? String(r.id) : null));
+  const ids = [];
+  (before || []).forEach(r => {
+    if (!r || r.id == null) return;
+    const id = String(r.id);
+    if (archIds.has(id) && !afterIds.has(id) && ids.indexOf(id) < 0) ids.push(id);
+  });
+  if (!ids.length) return [];
+  if (ids.length > SF_DELGUARD_MAX) {
+    console.error('[SF-ARCHIVE-BOARD-20260930] 過去月のレコードを一度に ' + ids.length + ' 件消そうとしました（上限 ' + SF_DELGUARD_MAX + ' 件）。削除は行いません。', ids);
+    return [];
+  }
+  Object.keys(SF_ARCHIVE).forEach(k => { SF_ARCHIVE[k] = (SF_ARCHIVE[k] || []).filter(x => !(x && ids.indexOf(String(x.id)) >= 0)); });
+  if (typeof window.fbReconcile === 'function') window.fbReconcile([], ids);
+  console.log('[SF-ARCHIVE-BOARD-20260930] explicit delete', ids);
+  return ids;
+}
+(function () {   // 帯・カレンダーの見た目
+  const s = document.createElement('style');
+  s.textContent = ''
+    + '.sf-archive-band{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px;padding:8px 14px;'
+    + 'border:1px solid #C9A961;border-left:4px solid #C9A961;background:#FFF8E6;color:#1A1F26;font-size:13px;border-radius:2px}'
+    + '.sf-archive-band .en{font-family:"Cormorant Garamond",serif;font-style:italic;font-size:12px;color:#8A6D2B;letter-spacing:.06em}'
+    + '.sf-archive-band b{font-family:"Noto Serif JP",serif;font-weight:600}'
+    + '.sf-archive-band .st{color:#5C6470;font-size:12px}'
+    + '.sf-archive-band button{margin-left:auto;font-family:inherit;font-size:12px;padding:6px 12px;border-radius:2px;'
+    + 'border:1px solid #C9A961;background:#fff;color:#8A6D2B;cursor:pointer;min-height:36px}'
+    + '.sf-archive-band button+button{margin-left:0}'
+    + '.sf-archive-band.edit{border-color:#B23E4C;border-left-color:#B23E4C;background:#FDF0F2}'
+    + '.sf-archive-band.edit .en{color:#B23E4C}.sf-archive-band.edit button{border-color:#B23E4C;color:#B23E4C}'
+    + 'body.sf-archive-readonly .fab{opacity:.45}'
+    + '.cal-day.arc-unloaded{opacity:.35}'
+    + '#sfArchiveCalNote{font-size:11.5px;color:#8A6D2B;text-align:center;margin:2px 0 6px;display:none}'
+    + '#sfArchiveCalNote button{font-family:inherit;font-size:11px;padding:3px 9px;margin-left:6px;border-radius:999px;'
+    + 'border:1px solid #C9A961;background:#fff;color:#8A6D2B;cursor:pointer}';
+  document.head.appendChild(s);
+})();
 // arr を「あるべき全件」として Firestore へ反映する。
 // 写し(SF_MIRROR)と比較して消えた id を削除対象に含め、楽観的に写しも即時更新する。
 // 実書き込みは window.fbReconcile（module側）へ委譲。read→save は同期実行で
@@ -1156,9 +1373,18 @@ function sfSave(arr, allowDelete) {
       .map(r => r && r.id)
       .filter(id => id != null && !newIds.has(String(id)));
     deletedIds = sfDelGuard(next, deletedIds, allowDelete, SF_MIRROR);   /* SF-DELGUARD-20260831 */
+    /* SF-ARCHIVE-BOARD-20260930 : 窓内（写し）と過去月（アーカイブ）に振り分ける。
+       削除対象（deletedIds）の算出は上の SF_MIRROR だけで済んでおり、アーカイブ由来のレコードは
+       ここでは決して削除対象にならない（sfLoad() に混ざって見えていても、写しに無いだけで
+       「消えた」とは扱わない）。アーカイブ由来は SF_MIRROR に入れず、変わったぶんだけ書く。 */
+    const _split = sfArchiveSplit(next);
     /* SF-WRITEDIFF-20260724 : 写しを置き換える前に差分を取る */
-    const toWrite = sfChangedOnly(next, SF_MIRROR);
-    SF_MIRROR = next; // 楽観更新（次の sfLoad に即反映）
+    const toWrite = sfChangedOnly(_split.live, SF_MIRROR).concat(sfChangedOnly(_split.arch, sfArchiveAll()));
+    SF_MIRROR = _split.live; // 楽観更新（次の sfLoad に即反映）
+    sfArchiveAbsorb(_split.arch);
+    /* 窓内のレコードの日付を過去月へ変えた場合：次のスナップショットで写しから外れるので、
+       読み込み済みの月ならアーカイブにも写しておく（その日を開いたとき消えて見えないように） */
+    sfArchiveAbsorb(_split.live.filter(r => r && sfArchiveIsPast(r.date)));
     if (typeof window.fbReconcile === 'function') {
       if (toWrite.length || deletedIds.length) window.fbReconcile(toWrite, deletedIds);
     } else {
@@ -1977,6 +2203,7 @@ function toggleKinder(zoneKey, idx) {
 window.toggleKinder = toggleKinder;
 /* SF-KINDER-BOOK-STEP1-20260701 : 幼稚舎チップ→予約モーダル。openModalに相乗りし名前/所属/区分/時刻を事前セット。共有条件は変更しない(段階1) */
 function bookKinder(zoneKey, idx) {
+  if (!sfArchiveCanEdit('kinder')) return;   /* SF-ARCHIVE-BOARD-20260930 */
   /* SF-KINDER-BOOK-PLANC-20260701 : create booking directly without opening modal. name from roster, time fixed to zone. */
   var r = (window.KINDER_ROSTER || [])[idx];
   if (!r || !r.name) return;
@@ -1989,6 +2216,7 @@ function bookKinder(zoneKey, idx) {
       /* SF-KINDER-SHARE-STEP3-V5-20260702 : also remove from shared storage (same as deleteBooking) */
       if (_b.sfId) {
         var _arr = sfLoad().filter(function(r){ return r.id !== _b.sfId; });
+        sfArchiveDeleteExplicit(sfLoad(), _arr);   /* SF-ARCHIVE-BOARD-20260930 */
         sfSave(_arr, true);   /* SF-DELGUARD-20260831 : 明示的な取り消し */
       }
       bookings.splice(_k, 1); renderBoard(); return;
@@ -2152,6 +2380,8 @@ function attachDragHandlers() {
   document.querySelectorAll('.booking-bar').forEach(bar => {
     if (bar.classList.contains('is-cxl')) return;   /* SF-CANCELMARK-20260926 : キャンセル済みは動かせない */
     const idx = parseInt(bar.dataset.idx);
+    /* SF-ARCHIVE-BOARD-20260930 : 閲覧のみの月は動かせない。タップで内容を見るだけ */
+    if (sfArchiveMode() === 'readonly') { bar.addEventListener('click', () => onBarTap(idx)); return; }
     // バー本体のドラッグ＝移動
     const body = bar.querySelector('.bar-body');
     body.addEventListener('pointerdown', e => startDrag(e, idx, 'move'));
@@ -2238,6 +2468,7 @@ function renderBoardLive(idx) {
 // ===== スロットタップ → 新規予約 =====
 let editingIdx = -1;
 function onSlotTap(zoneKey, lane, slotIdx) {
+  if (!sfArchiveCanEdit('new')) return;   /* SF-ARCHIVE-BOARD-20260930 */
   editingIdx = -1;
   document.getElementById('modalTitle').textContent = '予約を追加';
   document.getElementById('mDelete').style.display = 'none';
@@ -2285,6 +2516,7 @@ function onBarTap(gidx) {
   if (tsNote) tsNote.style.display = (b.sfId && b.provisional && !(b.info && b.info.name)) ? 'block' : 'none';
   document.getElementById('modal').classList.add('show');
   document.getElementById('modal').dataset.lane = b.lane;
+  sfArchiveApplyModal(sfArchiveMode() === 'readonly');   /* SF-ARCHIVE-BOARD-20260930 */
 }
 
 // ===== TimelySchool（一時預かり受付）連携 =====
@@ -2339,6 +2571,7 @@ function ageMonthsFromYM(by, bm) {
 }
 // TimelySchool受付内容を新規（仮）予約に取り込む
 function syncFromTimelySchool() {
+  if (sfArchiveMode() === 'readonly') return false;   /* SF-ARCHIVE-BOARD-20260930 : 閲覧のみの月には書かない */
   const data = tsLoad();
   if (!data || !Array.isArray(data.customers)) return false;
   let changed = false;
@@ -2582,6 +2815,7 @@ function filterByKana(row) {
 }
 
 function openModal() {
+  if (!sfArchiveCanEdit('new')) return;   /* SF-ARCHIVE-BOARD-20260930 */
   editingIdx = -1;
   document.getElementById('modalTitle').textContent = '予約を追加';
   document.getElementById('mDelete').style.display = 'none';
@@ -2691,6 +2925,7 @@ function sfZoneChanged() {
 }
 window.sfZoneChanged = sfZoneChanged;
 async function saveBooking() {
+  if (!sfArchiveCanEdit('save')) return;   /* SF-ARCHIVE-BOARD-20260930 */
   const name = document.getElementById('mName').value.trim();
   if (!name) { sfAlert('お子様氏名を入力してください'); return; }
   const zone = document.getElementById('mZone').value;
@@ -2809,6 +3044,7 @@ function findFreeLane(zone, start, end, excludeIdx) {
 
 async function deleteBooking() {
   if (editingIdx < 0) return;
+  if (!sfArchiveCanEdit('delete')) return;   /* SF-ARCHIVE-BOARD-20260930 */
   const b = bookings[editingIdx];
   /* SF-SALONSPLIT-BOARD-20260724 : 区間グループ（美容室＋JANIS の続き利用）の取り消し。
      「予約ごとやめる」と「片方の施術だけやめる」は別の操作なので、まとめず選ばせる。
@@ -2835,6 +3071,7 @@ async function deleteBooking() {
       if (_delMode === 'all' && _gid && r.groupId === _gid) return false;
       return r.id !== b.sfId;
     });
+    sfArchiveDeleteExplicit(sfLoad(), arr);   /* SF-ARCHIVE-BOARD-20260930 : 過去月のぶんは id を列挙して消す */
     sfSave(arr, true);   /* SF-DELGUARD-20260831 : 明示的な取り消し */
   }
   /* 画面側も同じ範囲を落とす。スナップショットで自己修復はするが、
@@ -2958,6 +3195,11 @@ function renderCalendar() {
   const today = new Date(BOARD_BASE);
   const todayStr = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
   const booked = datesWithBookings();
+  /* SF-ARCHIVE-BOARD-20260930 : 過去月は読み込んだ月だけドットが点く。未読込は薄く表示して読み込むボタンを出す */
+  const _arcYm = `${calViewYear}-${String(calViewMonth+1).padStart(2,'0')}`;
+  const _arcPast = sfArchiveIsPast(_arcYm + '-01');
+  const _arcSt = SF_ARCHIVE_STATE[_arcYm];
+  const _arcUnloaded = _arcPast && _arcSt !== 'loaded';
   let html = '';
   for (let i = 0; i < startDow; i++) html += '<div class="cal-day empty"></div>';
   for (let d = 1; d <= daysInMonth; d++) {
@@ -2970,9 +3212,23 @@ function renderCalendar() {
     if (key === todayStr) cls.push('today');
     if (key === selStr) cls.push('selected');
     if (booked.has(bk)) cls.push('has-booking');
+    if (_arcUnloaded) cls.push('arc-unloaded');   /* SF-ARCHIVE-BOARD-20260930 */
     html += `<div class="${cls.join(' ')}" style="position:relative;" onclick="calPickDay(${d})">${d}</div>`;
   }
   document.getElementById('calGrid').innerHTML = html;
+  /* SF-ARCHIVE-BOARD-20260930 : 未読込の案内（カレンダーの目盛りの上） */
+  {
+    const grid = document.getElementById('calGrid');
+    let note = document.getElementById('sfArchiveCalNote');
+    if (!note && grid && grid.parentNode) { note = document.createElement('div'); note.id = 'sfArchiveCalNote'; grid.parentNode.insertBefore(note, grid); }
+    if (note) {
+      if (!_arcPast) { note.style.display = 'none'; note.innerHTML = ''; }
+      else if (_arcSt === 'loaded') { note.style.display = 'none'; note.innerHTML = ''; }
+      else if (_arcSt === 'loading') { note.style.display = 'block'; note.textContent = '過去の月を読み込み中…'; }
+      else { note.style.display = 'block'; note.innerHTML = '過去の月（' + (_arcSt === 'error' ? '読み込みに失敗' : '未読込') + '）'
+        + '<button type="button" onclick="sfArchiveLoadMonth(\'' + _arcYm + '\')">この月を読み込む</button>'; }
+    }
+  }
 }
 function calPickDay(d) {
   const sel = new Date(calViewYear, calViewMonth, d);
@@ -3014,6 +3270,8 @@ function findFreeLane(zone, start, end) {
 // 延長保育など sfId を持たないローカル専用予約は対象外として保持する。
 function importSharedBookings() {
   const curDate = boardDateStr();
+  sfArchiveEnsure(curDate);        /* SF-ARCHIVE-BOARD-20260930 : 過去月なら1回だけ読む */
+  sfArchiveRenderBand();
   // 共有予約部分のシグネチャ（再構築前後で比較し、変化時のみ再描画する）
   const sig = (a) => a.filter(b => b.sfId != null)
     .map(b => [b.sfId, b.name, b.start, b.end, b.zone, b.lane, b.provisional, b.months, b.cancelled?1:0, b.cancelAck?1:0, JSON.stringify(b.info || null)].join('|'))   /* SF-CANCELMARK-20260926 */
@@ -3527,6 +3785,7 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
   /* 保育園側から「キャンセルにする」（削除しない）。自園操作なので確認済みとして扱う */
   window.cancelBookingMark = async function () {
     if (typeof editingIdx === 'undefined' || editingIdx < 0) return;
+    if (!sfArchiveCanEdit('cancel')) return;   /* SF-ARCHIVE-BOARD-20260930 */
     var b = bookings[editingIdx]; if (!b || !b.sfId || b.cancelled) return;
     var mode = 'one';
     var sibs = (b.groupId) ? sfLoad().filter(function (r) { return r && r.groupId === b.groupId && !r.cancelled; }) : [];
@@ -3564,7 +3823,7 @@ setInterval(() => { importSharedBookings(); syncFromTimelySchool(); }, 4000); //
   var seen = {};
   try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {}; } catch (e) { seen = {}; }
   function unackedRows() {
-    return sfLoad().filter(function (r) {
+    return sfLoadLive().filter(function (r) {   /* SF-ARCHIVE-BOARD-20260930 : 過去月の古いキャンセルで帯・チャイムを出さない */
       return r && r.cancelled && !r.cancelAck && normGarden(r.gardenId) === CURRENT_GARDEN;
     }).sort(function (a, b) {
       return String(a.date || '').localeCompare(String(b.date || ''))

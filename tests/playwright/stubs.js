@@ -30,7 +30,19 @@ export function writeBatch(db) {
 export function disableNetwork(db) { S.calls.push(['disableNetwork', Date.now()]); return Promise.resolve(); }
 export function enableNetwork(db) { S.calls.push(['enableNetwork', Date.now()]); return Promise.resolve(); }
 export function getDoc() { return Promise.resolve({ exists: () => false, data: () => null }); }
-export function getDocs() { return Promise.resolve({ docs: [] }); }
+export function getDocs(q) {
+  // window.__cloud[collection] から where 条件で絞って返す（==, >=, <=, >, <）。window.__cloudFail が真なら失敗させる
+  const name = q.kind === 'query' ? q.ref.name : q.name;
+  const cons = (q.kind === 'query' ? q.c : []).filter(c => c && c.f);
+  S.calls.push(['getDocs', name, cons.map(c => c.f + c.op + c.v).join('&')]);
+  if (window.__cloudFail) return Promise.reject(new Error('stub: getDocs failed'));
+  const rows = ((window.__cloud || {})[name] || []).filter(r => cons.every(c => {
+    const v = r[c.f];
+    if (c.op === '==') return v === c.v; if (c.op === '>=') return v >= c.v; if (c.op === '<=') return v <= c.v;
+    if (c.op === '>') return v > c.v; if (c.op === '<') return v < c.v; return true;
+  }));
+  return Promise.resolve({ docs: rows.map(r => ({ id: r.id, data: () => r })), size: rows.length, empty: !rows.length });
+}
 export function updateDoc() { return Promise.resolve(); }
 export function serverTimestamp() { return new Date().toISOString(); }
 // test helper: emit a snapshot to every active listener on a collection name
