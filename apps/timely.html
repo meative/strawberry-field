@@ -13326,16 +13326,36 @@ function selectFromReservation(reservationKey) {
        元の予約を特定できず（取り込み予約は customerId が null）、
        登録後に予約が残って二重に見えてしまうため。 */
     window._pendingResSfId = sfId;
-    // 新規登録画面へ遷移し、氏名・ふりがなをプリセット
-    isJustRegistered = false;
-    currentCustomer = null;
-    navigate('new');
-    setTimeout(() => {
-      const nm = document.getElementById('childName');
-      const kn = document.getElementById('childKana');
-      if (nm && reservation.guestName) nm.value = reservation.guestName;
-      if (kn && reservation.guestKana) kn.value = reservation.guestKana;
-    }, 0);
+    /* SF-RESMATCH-20260930 : ボード由来の予約でも、まず登録済みのお子様を探す。
+       従来はここで無条件に新規登録へ飛ばしていたため、登録済みの子まで毎回「新規登録」され、
+       顧客の重複（9/8 に同一園児4件・9/30 に再発）の入口になっていた。
+       予約の氏名・ふりがなを sfDupKata で正規化し、顧客の氏名・ふりがなと突き合わせる
+       （完全一致のほか、ボードのカタカナ仮名は姓だけのことがあるので前方一致も拾う）。
+       - 完全一致が1件だけ → その子で当日入力へ。_pendingResSfId・_reservedTimes は
+         従来どおり保持し、サロン割引の判定と共有レコードの tlDone 消費は今までどおり効く
+       - 前方一致だけの1件・複数件 → 生年月日つきの選択モーダル（別人を自動では選ばない。
+         受付してしまうと予約を消費し、ボードの氏名まで別人に書き換わるため）
+       - 0件 → 顧客データの同期完了（TL_SNAP_SEEN.customers）を確認してから従来どおり新規登録へ。
+         同期前は「該当なし」を信用できない（SF-VERIFYSYNC-20260908 と同じ理由）。 */
+    const _rm = sfResMatchCustomers(reservation);
+    if (_rm.exact.length === 1 && _rm.all.length === 1) {
+      sfResMatchOpenVisit(_rm.exact[0]);
+      return;
+    }
+    if (_rm.all.length >= 1) {
+      sfResMatchChoose(reservation, _rm.all);
+      return;
+    }
+    if (typeof TL_SNAP_SEEN !== 'undefined' && !TL_SNAP_SEEN.customers) {
+      window._pendingResSfId = null;
+      window._reservedTimes = null;
+      sfSyncPopup('ng', '☁', '顧客データを同期中です',
+        '登録済みのお子様かどうかを、まだ確かめられません。<br>' +
+        'しばらく待ってから、もう一度「当日入力を開く」を押してください。',
+        [{ label: '閉じる', pri: true }]);
+      return;
+    }
+    sfResMatchOpenNew(reservation);
     return;
   }
 
@@ -13362,6 +13382,71 @@ function selectFromReservation(reservationKey) {
   }
   isJustRegistered = false;
   navigate('visit');
+}
+
+/* SF-RESMATCH-20260930 : 予約レコードの氏名・ふりがなから登録済みの顧客を探す。
+   戻り値 { all: [...], exact: [...] }。exact は正規化後の完全一致、all は前方一致を含む全候補。
+   前方一致は両方が2文字以上のときだけ（1文字では誰にでも当たるため）。園は問わない
+   （他園で登録済みの子が来ることがあり、顧客検索も園を跨いで探す設計のため）。 */
+function sfResMatchKeys(reservation) {
+  var raw = [reservation && reservation.guestName,
+             reservation && reservation.guestKana,
+             reservation && reservation.info && reservation.info.name];
+  var keys = [];
+  raw.forEach(function (s) { var k = sfDupKata(s); if (k && keys.indexOf(k) < 0) keys.push(k); });
+  return keys;
+}
+function sfResMatchCustomers(reservation) {
+  var keys = sfResMatchKeys(reservation);
+  var all = [], exact = [];
+  if (!keys.length) return { all: all, exact: exact };
+  var pre = function (a, b) {
+    return !!a && !!b && a.length >= 2 && b.length >= 2 && (a.indexOf(b) === 0 || b.indexOf(a) === 0);
+  };
+  (DATA.customers || []).forEach(function (c) {
+    if (!c) return;
+    var cn = sfDupKata(c.childName), ck = sfDupKata(c.childKana);
+    var isExact = keys.some(function (k) { return (!!cn && k === cn) || (!!ck && k === ck); });
+    var isPre = isExact || keys.some(function (k) { return pre(k, cn) || pre(k, ck); });
+    if (isExact) exact.push(c);
+    if (isPre) all.push(c);
+  });
+  return { all: all, exact: exact };
+}
+function sfResMatchLabel(c) {
+  var bd = (c.birthY && c.birthM && c.birthD)
+    ? (c.birthY + '年' + c.birthM + '月' + c.birthD + '日生') : '生年月日未登録';
+  var br = (c.branch && DATA.settings && c.branch !== DATA.settings.branch) ? '・' + c.branch : '';
+  return (c.childName || '(氏名未登録)') + (c.childKana ? '（' + c.childKana + '）' : '') + '　' + bd + br;
+}
+function sfResMatchOpenVisit(c) {
+  currentCustomer = c;
+  isJustRegistered = false;
+  navigate('visit');
+}
+function sfResMatchOpenNew(reservation) {
+  // 新規登録画面へ遷移し、氏名・ふりがなをプリセット（従来の動き）
+  isJustRegistered = false;
+  currentCustomer = null;
+  navigate('new');
+  setTimeout(() => {
+    const nm = document.getElementById('childName');
+    const kn = document.getElementById('childKana');
+    if (nm && reservation.guestName) nm.value = reservation.guestName;
+    if (kn && reservation.guestKana) kn.value = reservation.guestKana;
+  }, 0);
+}
+function sfResMatchChoose(reservation, cands) {
+  var btns = cands.map(function (c) {
+    return { label: sfResMatchLabel(c), cb: function () { sfResMatchOpenVisit(c); } };
+  });
+  btns.push({ label: '別のお子様として新規登録', cb: function () { sfResMatchOpenNew(reservation); } });
+  btns.push({ label: 'やめる', cb: function () { window._pendingResSfId = null; window._reservedTimes = null; } });
+  var nm = escapeHtml(reservation.guestName || reservation.guestKana || '');
+  sfSyncPopup('ok', '👤', '登録済みのお子様ですか？',
+    'ご予約「<b>' + nm + '</b>」に近いお名前の登録が <b>' + cands.length + ' 件</b>あります。<br>' +
+    '生年月日を確かめて選んでください。違うお子様なら「別のお子様として新規登録」へ。',
+    btns);
 }
 
 // 現在の予約リストを描画(モードに応じてフィルター)
