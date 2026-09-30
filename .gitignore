@@ -55,3 +55,6 @@ apps/kinder_*.py
 # 数字サフィックスのバックアップ（例: HANDOFF.md.bk2 / notify.html.backup2）
 *.bk[0-9]*
 *.backup[0-9]*
+
+# ローカルメモ（顧客名を含む作業ログ・重複検出レポート。CLAUDE.md §0.5 参照）
+claude/

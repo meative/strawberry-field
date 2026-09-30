@@ -1,7 +1,7 @@
 # CLAUDE.md — Claude Code 向け開発ガイド
 
 STRAWBERRY FIELD 予約システムを Claude Code で扱うときに、最初に読んでください。
-（最終更新 2026-09-07 / 全面改訂は 2026-08-28）
+（最終更新 2026-09-30 / 全面改訂は 2026-08-28）
 
 ---
 
@@ -305,6 +305,7 @@ timely（:5592-5599）・board 5本・salon 3本・notify 3本の全12本が `in
 | `test_affiliation.js` / `test_caseA_write.js` / `test_garden_4.js` | HTMLソースへの **grep ベースの配線チェック**（jsdom不要） | `node test_xxx.js` で動く。ただし `test_affiliation.js` は **既知の1件FAIL**（`新規予約 push に affiliation`） |
 | `tests/board/test_board.js` | JSDOM ベース | **jsdom 未インストールのため動かない**（`node_modules` なし・`package.json` なし） |
 | `tests/README.md` に列挙された timely の148件 | 過去セッションの遺産 | **ファイルが存在しない** |
+| `tests/playwright/` | **Playwright**。`stubs.js` が gstatic の Firebase を偽物に差し替えるので本番に触れない（2026-09-30〜） | `npm i -D playwright && npx playwright install chromium` の後 `node tests/playwright/test_*.js` |
 
 新しくテストを書くなら、**grep ベースの配線チェック方式**（ルートの `test_*.js`）が
 このプロジェクトで実際に動く唯一の形です。JSDOM を使うなら先に `npm i -D jsdom` が必要。
@@ -529,6 +530,16 @@ fix: 会計レポートの日別・月別サマリーに割引列を追加。基
 | `SF-EXTFEE19-20260911` | **自園生徒の早朝・延長料金を実お迎え時刻で判定**（設計: DESIGN-extfee19.md）。延長は19:05まで全員¥0・19:06以降（20:00閉園まで）¥700を1回だけ（延長月極 `monthlyPm` の子は常に¥0）。早朝は¥700（早朝月極 `monthlyAm` は¥0）。旧・20時超+350の加算は自園生徒では廃止。月極判定は月謝アプリの公開名簿 `kindergarten_public/roster`（timely も board と同じ2つ目アプリで購読）。フラグ無しは「月極なし」扱い。**月極の¥0会計は会計記録を作らない**（件数は SF_MIRROR から数えるので日報・月報は不変）。内部生タブ上部にボード予約のワンタップ受付（ext_am は月極でない子だけ・visit に sfId を控え二重受付防止）。境目は `SF_EXT19_CUTOFF`、金額は `USAGE_TYPES.*.flatRate` | timely のみ |
 
 ⚠ 料金・集計の前提: 早朝・延長の**件数**は従来どおり sf_bookings（`sfKinderExtCounts`）、**金額**は会計記録（visits）。SF-EXTFEE19 で金額側の決まり方だけが変わり、件数集計・売上合計の集計方法・youchisha×ext の取込除外（SF-KINDER-TIMELY-HIDE-STEP4-V6）は無改変。
+
+### 2026-09-30 に入った機能
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-RESMATCH-20260930` | ボード由来（`sf:` キー）の予約から「当日入力を開く」で、**先に DATA.customers を探す**（guestName / guestKana を `sfDupKata` で正規化、完全一致＋2文字以上の前方一致）。完全一致1件→当日入力（`_pendingResSfId` 保持でサロン割引・tlDone 消費は従来どおり）／前方一致だけ・複数→生年月日つき選択モーダル（`sfSyncPopup`）／0件→`TL_SNAP_SEEN.customers` が立っていれば新規登録、未同期なら「顧客データを同期中です」で止まる。従来は無条件に新規登録へ飛ばしており、顧客重複（9/8・9/30）の入口だった | timely |
+| `SF-WAKESYNC-20260930` | タブが前面に戻ったら（visibilitychange / pageshow persisted）`disableNetwork`→`enableNetwork` で接続を張り直す。最終受信から90秒以上なら ヘッダーに「同期待ち」（`#sfWakeBadge`）を出し、サーバー確定（fromCache=false）の snapshot で消す。iPad で同一 origin の複数タブを開くと multiTab のプライマリタブが凍結される疑い（9/30 朝の同時空白）への対処。`persistentSingleTabManager` への切替は現場の切り分け待ち | 12本すべて |
+
+顧客重複の再検出は読み取り専用スクリプト（クラウドの sf_customers / sf_visits を匿名認証で読むだけ）で行い、
+結果と統合手順は `claude/dup_report_20260930.md`（git 管理外・顧客名を含む）に置いた。
 
 これにより以前の懸案のうち **board のオフライン永続化・日付のUTCズレ・予約の消化漏れ・
 二重受付**は解決済み。§3 の「オフライン永続化」「落とし穴」を読むときはこの表も前提にすること。
