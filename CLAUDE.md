@@ -18,7 +18,7 @@ STRAWBERRY FIELD 予約システムを Claude Code で扱うときに、最初�
 これを実行してください。**古いファイルを編集すると本番の変更を巻き戻します。**
 
 ```bash
-cd ~/Documents/strawberry-field
+cd ~/dev/strawberry-field
 git fetch origin main
 git log --oneline HEAD..origin/main   # 空でなければ、このMacが遅れている
 git log --oneline origin/main..HEAD   # 空でなければ、未pushがある
@@ -567,7 +567,9 @@ fix: 会計レポートの日別・月別サマリーに割引列を追加。基
 
 ### 環境
 
-- ローカル：`~/Documents/strawberry-field`（**作業マシンは2台。必ず pull から始める → §0**）
+- ローカル：`~/dev/strawberry-field`（**作業マシンは2台。必ず pull から始める → §0**）
+  - 2026-10-02 に iCloud 同期（`~/Documents/`）の外へ引っ越し。旧フォルダは `~/Documents/strawberry-field_OLD_iCloud/` に残置（編集禁止）。Mac mini 側でも同様に `~/dev/` へ clone し直すこと
+  - 姉妹リポジトリ strawberry-tuition- も同じく `~/dev/strawberry-tuition-/` に引っ越し済み
 - 開発：Mac / Terminal.app / Claude Code
 - ブラウザ実機操作・スクリーンショット・コンソール実行は**ユーザー側**が行う（Chrome DevTools）
 - Chrome のコンソールは `allow pasting` を一度打つと貼り付け可。
