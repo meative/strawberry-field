@@ -14937,8 +14937,16 @@ function sfKinderTapIn(sfId) {
     sfRenderKinderTap(); return toast('すでに受付済みです（手入力）', true);
   }
   const type = getUsageType(usageKey);
-  const start = (usageKey === 'morning') ? (r.start || (type.startOptions && type.startOptions[0]) || '07:00') : (type.fixedStart || '19:00');
+  let start = (usageKey === 'morning') ? (r.start || (type.startOptions && type.startOptions[0]) || '07:00') : (type.fixedStart || '19:00');
   const end = (usageKey === 'morning') ? (type.fixedEnd || '08:00') : ((type.endOptions && type.endOptions[0]) || '20:00');
+  /* SF-EXTFEE19-STARTFIX-20261002 : ボードの早朝予約が fixedEnd(08:00) 以降の start を持っていると、
+     visit が「08:15〜08:00」のように逆転したまま会計待ちに並ぶ（2026-09-14 月寒で実発生）。
+     早朝の end は固定なので、start が end 以降なら既定開始へ落とす。
+     延長側は start も end も固定値（fixedStart / endOptions）から組み、予約の時刻を
+     使わないため逆転は起きない。金額は flatRate 定額で時刻に依らず不変。 */
+  if (usageKey === 'morning' && timeToMinutes(start) >= timeToMinutes(end)) {
+    start = (type.startOptions && type.startOptions[0]) || '07:00';
+  }
   const visit = sfBuildInternalVisit({ usageKey, childName: String(r.name || '').trim(), className: '', studentId: null, date: r.date, start, end, memo: '', sfId: sfId });
   DATA.visits.push(visit);
   if (!saveData(DATA)) { DATA.visits.pop(); return toast('保存に失敗しました', true); }
