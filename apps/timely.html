@@ -9336,18 +9336,26 @@ try {
   window.addEventListener('online', function () { if (SF_SYNC.queue.length) sfSyncRetry(false); });
 } catch (e) {}
 
-// 移行前の localStorage を一度だけ退避しておく（事故時にこのキーから復元できる）
-(function tlPreMigrationBackup() {
+/* SF-LSQUOTA-20261007 : 移行前退避（_premig_20260722）は起動時に削除する（以前はここで作成していた）。
+   退避は 2026-07-22 の Firestore 移行時の保険で、DATA 全量のコピー。移行から2か月半が経ち
+   業務データの正本はクラウドなので、もう要らない。むしろ署名画像の肥大と合わせて
+   iPad Safari の localStorage 上限（約5MB・UTF-16換算）を圧迫し、saveData の保存失敗
+   →会計・受付の消失（10/5 資生館・10/6-7 月寒）の一因になっていた。 */
+(function tlPreMigrationCleanup() {
   try {
     var bk = STORAGE_KEY + '_premig_20260722';
-    if (localStorage.getItem(bk) === null) {
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw !== null) {
-        localStorage.setItem(bk, raw);
-        console.log('[tlPreMigrationBackup] 移行前データを ' + bk + ' に退避しました');
-      }
+    if (localStorage.getItem(bk) !== null) {
+      localStorage.removeItem(bk);
+      console.log('[SF-LSQUOTA] 移行前退避 ' + bk + ' を削除しました');
     }
-  } catch (e) { console.error('[tlPreMigrationBackup]', e); }
+    /* 診断：localStorage の実消費（UTF-16 ＝ 文字数×2バイト）を起動時に1回残す */
+    var total = 0;
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      total += (k.length + String(localStorage.getItem(k) || '').length) * 2;
+    }
+    console.log('[SF-LSQUOTA] bytes=' + total + ' (localStorage 使用量・UTF-16換算 ≒ ' + (total / 1024 / 1024).toFixed(2) + ' MB)');
+  } catch (e) { console.error('[SF-LSQUOTA]', e); }
 })();
 
 function tlIdSet(arr) {
@@ -9387,7 +9395,13 @@ function tlMergeByVersion(kind, local, cloud) {
     } else if (tlRecTime(l) > tlRecTime(c)) {
       keepLocal = true;                               // (2) 版ガード：手元のほうが新しい
     }
-    if (keepLocal) { rows.push(l); localWins.push(l); }
+    if (keepLocal) {
+      /* SF-LSQUOTA-20261007 : localStorage 由来の手元レコードには signature が無い
+         （saveDataLocalOnly が除いて保存するため）。手元優先でクラウドへ送り返すとき、
+         クラウドにだけ残っている署名を消してしまわないよう、クラウド側の署名を移植する。 */
+      if (kind === 'customers' && c.signature && !l.signature) l.signature = c.signature;
+      rows.push(l); localWins.push(l);
+    }
     else { rows.push(c); }
   });
   return { rows: rows, localWins: localWins };
@@ -9416,19 +9430,85 @@ function tlReconcile(kind, arr) {
   }
 }
 
+/* SF-LSQUOTA-20261007 : 「この端末の保存領域がいっぱいです」の赤い帯。
+   未送信の帯（#sfSyncBar・画面上部）とは別物で、こちらは localStorage の失敗を知らせる。
+   記録はクラウドへ送信済みなので失われないが、端末への保存が効いていないことを
+   スタッフに見せ続ける（放置すると再読み込みのたびにクラウド復元に頼ることになる）。 */
+var __sfLsQuotaShown = false;
+function sfLsQuotaShow() {
+  try {
+    __sfLsQuotaShown = true;
+    var bar = document.getElementById('sfLsQuotaBar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'sfLsQuotaBar';
+      bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9998;' +
+        'background:#C0553F;color:#fff;font-size:14px;letter-spacing:.04em;' +
+        'padding:11px 16px;text-align:center;box-shadow:0 -2px 10px rgba(0,0,0,.25)';
+      document.body.appendChild(bar);
+    }
+    bar.innerHTML = '<b style="font-size:16px">⚠ この端末の保存領域がいっぱいです</b>' +
+      '<span style="display:block;font-size:11.5px;opacity:.9;margin-top:2px">' +
+      '記録はクラウドへ送信しているため失われませんが、この端末への保存に失敗しています。</span>';
+    bar.style.display = 'block';
+  } catch (e) {}
+}
+function sfLsQuotaClear() {
+  if (!__sfLsQuotaShown) return;
+  __sfLsQuotaShown = false;
+  try {
+    var bar = document.getElementById('sfLsQuotaBar');
+    if (bar) bar.style.display = 'none';
+  } catch (e) {}
+}
+
 // localStorage だけに保存する（クラウドへ書き戻さない経路）
 function saveDataLocalOnly(data) {
+  /* SF-LSQUOTA-20261007 : localStorage には signature（登録時の署名画像 dataURL）を除いた
+     写しを置く。実測で 67人全員が署名を持ち、署名だけで約4.8MB（UTF-16換算）。
+     iPad Safari の上限（約5MB）を署名だけでほぼ使い切り、setItem が QuotaExceededError で
+     失敗していた。署名はメモリと クラウド（sf_customers）に残り、表示に使う画面は無い。
+     localStorage 由来の customers に signature が無いのは正常（tlMergeByVersion が
+     クラウド側の署名を移植して守る）。 */
+  var json;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    json = JSON.stringify(data, function (key, value) {
+      return key === 'signature' ? undefined : value;
+    });
+  } catch (e) {
+    console.error('[SF-LSQUOTA] stringify error:', e);
+    return false;
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, json);
+    sfLsQuotaClear();
     return true;
   } catch (e) {
-    console.error('saveData error:', e);
+    console.error('[SF-LSQUOTA] quota error bytes=' + (json.length * 2) + ' :', e);
+    /* 上限超過なら、残っていれば移行前退避（_premig_20260722）を捨てて1回だけ再試行 */
+    try {
+      var bk = STORAGE_KEY + '_premig_20260722';
+      if (localStorage.getItem(bk) !== null) {
+        localStorage.removeItem(bk);
+        localStorage.setItem(STORAGE_KEY, json);
+        console.warn('[SF-LSQUOTA] ' + bk + ' を削除して再試行 → 成功');
+        sfLsQuotaClear();
+        return true;
+      }
+    } catch (e2) { console.error('[SF-LSQUOTA] 再試行も失敗:', e2); }
+    sfLsQuotaShow();
     return false;
   }
 }
 
 function saveData(data) {
-  if (!saveDataLocalOnly(data)) return false;
+  /* SF-LSQUOTA-20261007 : localStorage の成否とクラウド送信を切り離す。
+     従来は localStorage が失敗すると即 return false で、下のクラウド送信
+     （tlReconcile）に到達せず、会計・受付が端末にもクラウドにも残らなかった
+     （10/5 資生館の延長会計・10/6-7 月寒の早朝延長受付の実事故）。
+     失敗しても送信は必ず行い、失敗は sfLsQuotaShow の赤い帯で知らせる。
+     戻り値は「記録を保てたか」：送信まで進めば true（送信済みなら記録は失われない）。 */
+  saveDataLocalOnly(data);
   if (__tlApplying) return true;              // スナップショット適用中は書き戻さない
   /* SF-SYNCGUARD-20260727 : この1回の保存で発生する送信を集め直す */
   __sfSaveWaits = [];
