@@ -28,6 +28,15 @@
   起動後もクラウドへ送信されない）・5（TL_READY ゲートの閉→開）・6（pending-over-paid 拒否）・
   9（全画面一巡の pageerror ゼロ）を追加し **26項目 ALL PASS**。既存 Playwright 6本 ALL PASS
   （test_resmatch は TL_READY 読み替えのみ）。root の grep テストは既知の3件 FAIL のみ（変更前と同一）
+- **本番 E2E（35374e9 配信後・Playwright headed・スタブ無し）22項目 ALL PASS**：起動ゲート閉→開／
+  当日入力 +1 → 会計¥0（同 doc 更新）→ 日報削除 −1 → リロードで復活なし／封印確認／
+  陰性対照（キャッシュ種まき→送信ゼロ）／ファクトリーの会計待ち2件（5/29・8/10）を削除し
+  REST で 105→103 件・id 集合がその2件減のみを確認（手順は各段階を REST 読み取りで裏取り）
+- **E2E で確認した未決事項2の精密化**：真の圏外（匿名認証ごと失敗）では購読が始まらず
+  ゲートは閉じたまま（設計どおり）。一方 **認証だけ成功して Firestore が不達**の場合、
+  persistentLocalCache が**空の fromCache snapshot を配り TL_READY が立つ**（＝空のビューで
+  ゲートが開く）。これは旧 TL_SNAP_SEEN と同一の挙動で Step 2 による変化は無いが、
+  「初回起動の端末では snapshot ＝サーバー確定とは限らない」点は Step 4 の切替手順書に残すこと
 
 ## 2026-10-07 の作業ログ（Step 1）
 
