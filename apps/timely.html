@@ -9026,6 +9026,9 @@ function importBoardReservations() {
 // 受領者スタッフ名のデフォルト
 const DEFAULT_STAFF = ['細野', '佐藤', '伊藤', '小野', '水野', '小林'];
 
+/* SF-CLOUDFIRST-S2-20261007 : loadData の戻り値は「初回 snapshot が届くまでの仮表示」専用。
+   クラウドへ書き戻す材料には使わない（送り返しは全廃）。書き込みを伴う操作は
+   TL_READY が揃うまで tlGateWrite / tlPut / tlDel で止まる。 */
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -9052,9 +9055,11 @@ function loadData() {
    settings は端末ごとの園設定なので同期しない。
    reservations は sf_bookings からの派生データなので同期しない。 */
 var TL_KINDS = ['visits', 'customers', 'students'];
-var TL_MIRROR = { visits: [], customers: [], students: [] };   // クラウドの既知状態の写し
-var TL_SNAP_SEEN = { visits: false, customers: false, students: false };
-var __tlApplying = false;   // スナップショット適用中フラグ（書き戻しループ防止）
+/* SF-CLOUDFIRST-S2-20261007 : TL_MIRROR（クラウド既知状態の写し）と __tlApplying は撤去。
+   差分・削除の算出が無くなり「写し」という概念ごと不要になったため。
+   TL_SNAP_SEEN は TL_READY に改名：役割を「初回 snapshot が届くまで書き込み操作を
+   止めるゲート」に一本化（SF-RESMATCH の同期待ちと同じ思想の全書き込み版）。 */
+var TL_READY = { visits: false, customers: false, students: false };
 
 /* ============================================================
    SF-SYNCGUARD-20260727
@@ -9156,12 +9161,11 @@ function sfSyncTrack(scope, kind, rows, deletedIds, promise) {
       SF_SYNC.lastError = sfSyncErrText(res.error);
       SF_SYNC.queue.push({ scope: scope, kind: kind, rows: rows || [],
                            deletedIds: deletedIds || [], tries: 1 });
-      // 写しから外して、次の保存でも自然に再送されるようにする
+      /* SF-CLOUDFIRST-S2-20261007 : tl 側の写し（TL_MIRROR）は撤去した。tl の1件書きの再送は
+         未送信箱（SF_SYNC.queue）だけが担う。sf_bookings 側は従来どおり写しから外して、
+         次の保存でも自然に再送されるようにする。 */
       try {
-        if (scope === 'tl') {
-          var ids = {}; (rows || []).forEach(function (r) { if (r && r.id) ids[r.id] = 1; });
-          TL_MIRROR[kind] = (TL_MIRROR[kind] || []).filter(function (x) { return !(x && ids[x.id]); });
-        } else {
+        if (scope !== 'tl') {
           var ids2 = {}; (rows || []).forEach(function (r) { if (r && r.id) ids2[r.id] = 1; });
           SF_MIRROR = (SF_MIRROR || []).filter(function (x) { return !(x && ids2[x.id]); });
         }
@@ -9302,13 +9306,13 @@ function sfConfirmCloudSave(isEditingPaid, onDone) {
 /* ============================================================
    SF-TLDELETE-20260827 : 会計記録の1件削除（明細一覧の「削除」ボタン）。
    会計・売上データのため削除前に必ず確認ダイアログ（氏名・日付・金額を表示）を出す。
-   削除は「保存の逆」：対象 visit を DATA.visits から除いて saveData() すると、
-   tlReconcile が deletedIds を計算し fbReconcileTl→deleteDoc で sf_visits からも消える。
-   SF-VERGUARD-20260826 のマージは cloud を土台にし「cloud に無い id は落とす（削除を尊重）」
-   ため、削除は他端末の onSnapshot でも復活しない。SYNCGUARD により反映の成否を見届け、
+   削除は tlDel('visits', id) の deleteDoc 1件（SF-CLOUDFIRST-S1-20261007）。
+   読み側は snapshot の丸ごと置換（SF-CLOUDFIRST-S2-20261007）なので、クラウドから
+   消えた記録は全端末の次の snapshot で消え、復活しない。SYNCGUARD により反映の成否を見届け、
    失敗時は赤帯＋再送で拾う。方針：完全削除＋再入力（間違えたら受付画面から入れ直す）。
    ============================================================ */
 function tlDeleteVisit(arg) {
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   var id = (arg && arg.dataset) ? arg.dataset.vid : arg;
   if (id == null || id === '') return;
   var v = (DATA.visits || []).find(function (x) { return x && String(x.id) === String(id); });
@@ -9441,6 +9445,10 @@ function tlIdSet(arr) {
   return s;
 }
 
+/* SF-CLOUDFIRST-S2-20261007 : ここから下の tlRecTime / tlMergeByVersion / tlReconcile は
+   旧読み込み層の死骸（もう呼ばれない。tlIdSet も tlReconcile 専用）。挙動の参照用に残し、
+   Step 3 で削除する。tlReconcile は撤去済みの TL_MIRROR を参照するため、
+   誤って呼べば ReferenceError で即気づける。 */
 /* ============================================================
    SF-VERGUARD-20260826 : スナップショット適用時のレコード単位マージ。
    従来は tlApplySnapshot が DATA[kind]=cloud と手元を無条件に破棄していたため、
@@ -9582,20 +9590,30 @@ function saveDataLocalOnly(data) {
    SF-CLOUDFIRST-S1-20261007 : 書き込み層の作り直し（DESIGN-cloudfirst.md Step 1）。
    操作1回＝その1件だけを書く。saveData（配列まるごとの突き合わせ）は廃止し、
    呼び残し検出のため throw する殻だけを残す（Step 3 で削除）。
-   読み側（tlApplySnapshot / TL_MIRROR / 初回送り返し）は Step 2 まで旧のまま。
-   tlPut された doc は snapshot で全端末に配られ、旧マージも後勝ちで受け入れるので共存できる。
+   読み側は Step 2（SF-CLOUDFIRST-S2-20261007）で置換済み：snapshot 丸ごと置換・
+   マージと初回送り返しの全廃・TL_READY ゲート。tlPut された doc は snapshot で全端末に配られる。
    ============================================================ */
 function tlPut(kind, rec) {
   if (TL_KINDS.indexOf(kind) < 0 || !rec || rec.id == null) {
     console.error('[SF-CLOUDFIRST-S1-20261007] tlPut: 引数が不正です', kind, rec);
     return null;
   }
-  /* 会計ガード（SF-VERGUARD-20260826 の新形態）：クラウド既知（TL_MIRROR）が paid の visit を
-     pending で上書きする書き込みは拒否する。正規の操作に paid→pending は存在しないため常に安全。 */
+  if (!TL_READY[kind]) {
+    /* SF-CLOUDFIRST-S2-20261007 : 初回 snapshot 前の書き込みは拒否（入り口ゲート tlGateWrite の
+       最終防衛線）。同期前の DATA は仮表示用キャッシュで、これを土台に書くと古い内容で
+       クラウドを上書きしうる。 */
+    console.error('[SF-CLOUDFIRST-S2-20261007] 同期前の書き込みを拒否しました', kind, rec.id);
+    tlSyncingPopup();
+    return null;
+  }
+  /* 会計ガード（SF-VERGUARD-20260826 の新形態）：クラウドビュー（DATA＝snapshot の写し）で
+     paid になっている visit を pending で上書きする書き込みは拒否する。正規の操作に
+     paid→pending は存在しないため常に安全。rec 自身（呼び出し側が DATA 上で編集した
+     同一オブジェクト）は比較対象にしない。 */
   if (kind === 'visits' && rec.paymentStatus === 'pending') {
-    var _known = (TL_MIRROR.visits || []).find(function (x) { return x && String(x.id) === String(rec.id); });
+    var _known = (DATA.visits || []).find(function (x) { return x && x !== rec && String(x.id) === String(rec.id); });
     if (_known && _known.paymentStatus === 'paid') {
-      console.error('[SF-CLOUDFIRST-S1-20261007] 会計済み(paid)を会計待ち(pending)で上書きする書き込みを拒否しました', rec.id);
+      console.error('[SF-CLOUDFIRST-S2-20261007] 会計済み(paid)を会計待ち(pending)で上書きする書き込みを拒否しました', rec.id);
       return null;
     }
   }
@@ -9612,6 +9630,12 @@ function tlPut(kind, rec) {
 }
 function tlDel(kind, id) {
   if (TL_KINDS.indexOf(kind) < 0 || id == null || id === '') return null;
+  if (!TL_READY[kind]) {
+    /* SF-CLOUDFIRST-S2-20261007 : 同期前の削除も拒否（tlPut と同じ最終防衛線） */
+    console.error('[SF-CLOUDFIRST-S2-20261007] 同期前の削除を拒否しました', kind, id);
+    tlSyncingPopup();
+    return null;
+  }
   saveDataLocalOnly(DATA);
   var p = null;
   if (typeof window.fbDeleteTl === 'function') {
@@ -9631,57 +9655,59 @@ function saveSettings() {
 function tlOpBegin() {
   __sfSaveWaits = [];
 }
+/* ============================================================
+   SF-CLOUDFIRST-S2-20261007 : 書き込み操作のゲート。
+   クラウドの初回 snapshot（TL_READY）が3コレクションぶん揃うまで、書き込みを伴う操作
+   （新規登録・受付・会計・下書き・編集・削除）を入り口で止めて「同期中です」を知らせる。
+   SF-VERIFYSYNC-20260908 / SF-RESMATCH-20260930 の「顧客データを同期中です」と同じ扱いを
+   全書き込み操作へ広げたもの。既設の端末は persistentLocalCache（SF-OFFLINE-20260826）が
+   あるため、圏外でも IndexedDB から fromCache の snapshot が即届いてゲートはすぐ開く。
+   止まり続けるのは「初回起動（IndexedDB 空）＋圏外」の端末だけ（DESIGN-cloudfirst.md 未決事項2）。
+   ============================================================ */
+function tlReadyAll() {
+  return !!(TL_READY.visits && TL_READY.customers && TL_READY.students);
+}
+function tlSyncingPopup() {
+  if (typeof sfSyncPopup === 'function') {
+    sfSyncPopup('ng', '☁', 'クラウドと同期中です',
+      '最新のデータをクラウドから受信しています。<br>' +
+      'しばらく待ってから、もう一度お試しください。',
+      [{ label: '閉じる', pri: true }]);
+  } else {
+    try { toast('クラウドと同期中です。しばらくお待ちください', true); } catch (e) {}
+  }
+}
+function tlGateWrite() {
+  if (tlReadyAll()) return true;
+  tlSyncingPopup();
+  return false;
+}
 function saveData(data) {
   /* SF-CLOUDFIRST-S1-20261007 : 廃止。呼び残しをテストと実機の pageerror で炙り出すため throw する（Step 3 で削除） */
   throw new Error('SF-CLOUDFIRST: saveData は廃止されました（tlPut / tlDel / saveDataLocalOnly を使う）');
 }
 
 // module 側の onSnapshot から呼ばれる
+/* ============================================================
+   SF-CLOUDFIRST-S2-20261007 : 読み込み層の作り直し（DESIGN-cloudfirst.md Step 2）。
+   snapshot は正本（Firestore）の写しそのもの。マージしない・送り返さない。
+   - DATA[kind] は丸ごと置換。persistentLocalCache のレイテンシ補償により、自端末の
+     書き込み（tlPut 直後の楽観反映）は hasPendingWrites 付きで即エコーされるので、
+     置換しても自分の未送信ぶんは消えない
+   - 初回の和集合マージと localOnly 送り返しは全廃。「未送信レコードの救済」は SDK の
+     オフラインキュー（SF-OFFLINE-20260826 の IndexedDB）が担う。localStorage では
+     「クラウドに無い＝削除された」と「＝未送信」を区別できないが、SDK のキューは
+     区別できる。これが削除復活（2026-09-25 / 10-02）の根治
+   - 入力中画面（new/visit/payment/receipt）を再描画しない方針（tlRerender）は従来どおり
+   ============================================================ */
 window.tlApplySnapshot = function (kind, rows) {
   if (TL_KINDS.indexOf(kind) < 0) return;
-  var cloud = Array.isArray(rows) ? rows : [];
-  __tlApplying = true;
-  try {
-    if (!TL_SNAP_SEEN[kind]) {
-      // 初回だけ：置換ではなく id での和集合マージ。
-      // この端末にしか無い記録（未アップロードの会計履歴など）を消さないため。
-      TL_SNAP_SEEN[kind] = true;
-      var cloudIds = tlIdSet(cloud);
-      var localOnly = (DATA[kind] || []).filter(function (x) {
-        return x && x.id && !cloudIds[x.id];
-      });
-      /* SF-VERGUARD-20260826 : 翌朝の再読み込みはこの初回経路を通る。
-         ここでもレコード単位マージし、会計済みをクラウドの会計待ちで潰さない。 */
-      var mg0 = tlMergeByVersion(kind, DATA[kind] || [], cloud);
-      DATA[kind] = mg0.rows.concat(localOnly);
-      TL_MIRROR[kind] = sfCloneRows(cloud);   /* SF-WRITEDIFF-20260724 : 深いコピー */
-      saveDataLocalOnly(DATA);
-      console.log('[tlApplySnapshot] 初回マージ ' + kind +
-                  ': クラウド' + cloud.length + '件 + この端末のみ' + localOnly.length +
-                  '件 + 手元優先' + mg0.localWins.length + '件');
-      var push0 = mg0.localWins.concat(localOnly);
-      if (push0.length && typeof window.fbReconcileTl === 'function') {
-        window.fbReconcileTl(kind, push0, []);   // 端末固有分＋手元が新しいぶんを上げる（削除は送らない）
-      }
-    } else {
-      /* SF-VERGUARD-20260826 : クラウドで無条件に上書きしない。レコード単位で判定し、
-         「手元が会計済み・クラウドが会計待ち」は絶対に巻き戻さない。手元が新しいものも残す。 */
-      var mg1 = tlMergeByVersion(kind, DATA[kind] || [], cloud);
-      DATA[kind] = mg1.rows;
-      TL_MIRROR[kind] = sfCloneRows(cloud);   /* SF-WRITEDIFF-20260724 : 深いコピー */
-      saveDataLocalOnly(DATA);
-      if (mg1.localWins.length && typeof window.fbReconcileTl === 'function') {
-        window.fbReconcileTl(kind, mg1.localWins, []);   // 手元優先ぶんをクラウドへ送り直す
-      }
-    }
-  } catch (e) {
-    console.error('[tlApplySnapshot] error', kind, e);
-  } finally {
-    __tlApplying = false;
-  }
+  DATA[kind] = Array.isArray(rows) ? rows : [];
+  TL_READY[kind] = true;
+  saveDataLocalOnly(DATA);   // 表示キャッシュ（signature 除外・失敗しても業務影響なし）
   /* SF-ROSTER-PUBLISH-20260722 : Firebaseコンソールでの直接削除など、
      ローカル保存を伴わない変更にも名簿を追従させる */
-  if (kind === 'customers') rosterPublishIfChanged();
+  if (kind === 'customers') { try { rosterPublishIfChanged(); } catch (e) { console.error(e); } }
   tlRerender();
 };
 
@@ -9719,7 +9745,7 @@ function rosterBuild(customers) {
 
 function rosterPublishIfChanged() {
   // 初回スナップショット受信前は発行しない（空配列でクラウドの名簿を消さないため）
-  if (!TL_SNAP_SEEN.customers) return;
+  if (!TL_READY.customers) return;
   if (typeof window.fbPublishRoster !== 'function') return;
   try {
     var items = rosterBuild(DATA.customers);
@@ -10557,11 +10583,11 @@ function attemptVerify() {
   if (matched.length === 0) {
     /* SF-VERIFYSYNC-20260908 : クラウドの顧客データがまだ届いていない端末では「該当なし」を
        信用できない（登録済みでも空振りし、新規登録へ誘導すると重複登録になる。
-       2026-09-07 に同一園児4件を統合した事故の入り口）。購読完了（TL_SNAP_SEEN.customers）
+       2026-09-07 に同一園児4件を統合した事故の入り口）。購読完了（TL_READY.customers）
        までは新規登録ボタンを出さず、待ってもらう。圏外起動などで匿名認証が失敗すると
-       TL_SNAP_SEEN は立たないままだが、その場合もメインメニューの「初めてのご利用」から
+       TL_READY は立たないままだが、その場合もメインメニューの「初めてのご利用」から
        新規登録には入れるので、本当の初回のお客様を塞ぐことはない。 */
-    if (typeof TL_SNAP_SEEN !== 'undefined' && !TL_SNAP_SEEN.customers) {
+    if (typeof TL_READY !== 'undefined' && !TL_READY.customers) {
       resultEl.innerHTML = `
       <div class="alert alert-warn">
         <strong>顧客データを同期中です。</strong><br>
@@ -10941,6 +10967,7 @@ let __regSubmitting = false;
 let __custDupConfirmed = false;
 function submitNewCustomer() {
   if (__regSubmitting) return;   /* SF-SUBMITLOCK-20260908 */
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   // バリデーション
   const childName = document.getElementById('childName').value.trim();
   const childKana = document.getElementById('childKana').value.trim();
@@ -11613,6 +11640,7 @@ function sfFindSameDayVisits(cust, branch, date) {
 let __visitSubmitting = false;
 function submitVisit(_dupOk) {
   if (__visitSubmitting) return;   /* SF-SUBMITLOCK-20260925 */
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   if (!currentCustomer) return toast('顧客が選択されていません', true);
   
   const visitDate = document.getElementById('visitDate').value;
@@ -12475,6 +12503,7 @@ function closeCustomerEditModal() {
 
 function saveCustomerEdit() {
   if (!_editingCustomerId) return;
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   const customer = DATA.customers.find(c => c.id === _editingCustomerId);
   if (!customer) return toast('顧客情報が見つかりません', true);
   
@@ -12535,6 +12564,7 @@ function saveCustomerEdit() {
 
 function deleteCustomer() {
   if (!_editingCustomerId) return;
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   /* SF-DELETE-CONFIRM-FIX-20260722 : action は setTimeout で50ms後に走る。
      その間に closeCustomerEditModal() が _editingCustomerId を null にするため、
      遅延実行の中で読まず、ここで対象を確定させる。 */
@@ -12784,6 +12814,7 @@ function closeStudentEditModal() {
 }
 
 function saveStudent() {
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   const childName = document.getElementById('seChildName').value.trim();
   let childKana = document.getElementById('seChildKana').value.trim();
   const note = document.getElementById('seNote').value.trim();
@@ -12828,6 +12859,7 @@ function saveStudent() {
 
 function deleteStudent() {
   if (!_editingStudentId) return;
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   /* SF-DELETE-CONFIRM-FIX-20260722 : deleteCustomer と同型。対象をここで確定させる。 */
   const targetId = _editingStudentId;
   const s = (DATA.students || []).find(x => x.id === targetId);
@@ -13643,7 +13675,7 @@ function selectFromReservation(reservationKey) {
          従来どおり保持し、サロン割引の判定と共有レコードの tlDone 消費は今までどおり効く
        - 前方一致だけの1件・複数件 → 生年月日つきの選択モーダル（別人を自動では選ばない。
          受付してしまうと予約を消費し、ボードの氏名まで別人に書き換わるため）
-       - 0件 → 顧客データの同期完了（TL_SNAP_SEEN.customers）を確認してから従来どおり新規登録へ。
+       - 0件 → 顧客データの同期完了（TL_READY.customers）を確認してから従来どおり新規登録へ。
          同期前は「該当なし」を信用できない（SF-VERIFYSYNC-20260908 と同じ理由）。 */
     const _rm = sfResMatchCustomers(reservation);
     if (_rm.exact.length === 1 && _rm.all.length === 1) {
@@ -13654,7 +13686,7 @@ function selectFromReservation(reservationKey) {
       sfResMatchChoose(reservation, _rm.all);
       return;
     }
-    if (typeof TL_SNAP_SEEN !== 'undefined' && !TL_SNAP_SEEN.customers) {
+    if (typeof TL_READY !== 'undefined' && !TL_READY.customers) {
       window._pendingResSfId = null;
       window._reservedTimes = null;
       sfSyncPopup('ng', '☁', '顧客データを同期中です',
@@ -15107,6 +15139,7 @@ function sfRenderKinderTap() {
 /* SF-EXTFEE19-20260911 : 予約一覧のワンタップ受付。手入力と同じビルダーで同じ形のvisitを作り会計待ちへ。
    ext_am→morning／ext_pm→extension。同じ sfId のvisitが既にあれば何もしない（二重受付防止）。 */
 function sfKinderTapIn(sfId) {
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   const r = sfLoadShared().find(x => x && x.id === sfId);
   if (!r) return toast('予約が見つかりません（画面を更新してください）', true);
   if ((DATA.visits || []).some(v => v && v.sfId === sfId)) { sfRenderKinderTap(); return toast('すでに受付済みです', true); }
@@ -15135,6 +15168,7 @@ function sfKinderTapIn(sfId) {
 }
 
 function submitInternalUsage() {
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   const usageKey = document.getElementById('internalUsageType').value;
   let childName = '';
   let className = '';
@@ -16599,6 +16633,7 @@ function formatHandoverText(items) {
 // ============================================================
 function saveHandoverDraft() {
   if (!currentPaymentVisit) return toast('対象の来園記録がありません', true);
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   
   // 入力中の handover を取得 (バリデーションなし)
   const handoverItems = getHandoverItemsFromForm();
@@ -16645,6 +16680,7 @@ function saveHandoverDraft() {
 let __payApproving = false;
 function approvePayment() {
   if (__payApproving) return;   /* SF-SUBMITLOCK-20260925 */
+  if (!tlGateWrite()) return;   /* SF-CLOUDFIRST-S2-20261007 : 初回同期が揃うまで不活性 */
   if (!currentPaymentVisit) return;
   
   const actualEnd = getActualEndValue();

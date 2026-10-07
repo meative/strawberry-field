@@ -1,7 +1,7 @@
-// SF-CLOUDFIRST-S1-20261007 : 書き込み層の作り直し Step 1（DESIGN-cloudfirst.md）の検証。
-// 操作1回＝その1件だけが setDoc / updateDoc / deleteDoc で書かれること
-// （配列まるごとの書き直しが無いこと）と、saveData の廃止（throw 化）を確かめる。
-// 番号は設計書「新設 test_cloudfirst.js」の項目番号：今回は Step 1 ぶんの 1・2・3・7・8・9。
+// SF-CLOUDFIRST-S1-20261007 / SF-CLOUDFIRST-S2-20261007 : 保存層の作り直し（DESIGN-cloudfirst.md）の検証。
+// 操作1回＝その1件だけが setDoc / updateDoc / deleteDoc で書かれること（Step 1）と、
+// 読み込み層＝snapshot 丸ごと置換・送り返し全廃・TL_READY ゲート（Step 2）を確かめる。
+// 番号は設計書「新設 test_cloudfirst.js」の項目番号：1〜9 すべて（4・5・6 のかなめは陰性対照）。
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
@@ -75,6 +75,24 @@ function check(name, ok, extra) {
     r2.n === 1 && r2.op === 'set' && r2.path === 'sf_visits/' + r2.vid && r2.paid === 'paid',
     JSON.stringify(r2));
   check('[2] tlOpBegin 後の見届け対象はこの1件だけ', r2.waits === 1, 'waits=' + r2.waits);
+
+  // [6] pending-over-paid の書き込みが拒否されログが残る（VERGUARD 新形態・比較相手はクラウドビュー DATA）
+  const r6 = await page.evaluate(() => {
+    const paid = (DATA.visits || []).find(x => x.sfId === 'bk_ext1');
+    const stale = JSON.parse(JSON.stringify(paid));   // 古い端末が持っていた参照（別オブジェクト）を再現
+    stale.paymentStatus = 'pending';
+    window.__fs.writes.length = 0;
+    const logs = [];
+    const orig = console.error;
+    console.error = function () { logs.push(Array.prototype.join.call(arguments, ' ')); orig.apply(console, arguments); };
+    const res = tlPut('visits', stale);
+    console.error = orig;
+    return { resNull: res === null, writes: window.__fs.writes.length,
+             still: paid.paymentStatus, logged: logs.some(s => s.indexOf('拒否') >= 0) };
+  });
+  check('[6] pending-over-paid の書き込みは拒否・書き込み 0・DATA は paid のまま',
+    r6.resNull && r6.writes === 0 && r6.still === 'paid', JSON.stringify(r6));
+  check('[6] 拒否が console.error に残る', r6.logged);
 
   // [3] 削除 → deleteDoc 1件。削除反映後の snapshot を流しても復活しない
   const r3 = await page.evaluate(() => {
@@ -158,7 +176,97 @@ function check(name, ok, extra) {
   const srcCount = (fs.readFileSync(path.join(APPS, 'timely.html'), 'utf8').match(/saveData\(DATA\)/g) || []).length;
   check('[9] ソース上の saveData(DATA) 残存は封印済み死コードの1箇所だけ', srcCount === 1, 'count=' + srcCount);
 
+  // [9] 全画面を一巡して pageerror ゼロ（旧 saveData / 旧シンボルの呼び残し検出）
+  await page.evaluate(() => {
+    ['search', 'reservation', 'paymentList', 'report', 'admin', 'internal', 'new', 'home'].forEach(s => navigate(s));
+    if (typeof renderDailyReport === 'function') renderDailyReport();
+    if (typeof renderMonthlyReport === 'function') renderMonthlyReport();
+    navigate('home');
+  });
+
   check('pageerror なし（＝テスト中に通った経路に saveData の呼び残しが無い）', errors.length === 0, errors.join(' | ').slice(0, 200));
+
+  // ============================================================
+  // Step 2（SF-CLOUDFIRST-S2-20261007）：別コンテキストで起動シーケンスを検証。
+  // 起動キャッシュに「クラウドに無い古い記録」（他端末で削除済みの状況）を種まきして開く。
+  // ============================================================
+  const ctx2 = await browser.newContext();
+  const page2 = await ctx2.newPage();
+  const errors2 = [];
+  page2.on('pageerror', (e) => errors2.push(String(e && e.message || e)));
+  await installStubs(page2);
+  await page2.addInitScript((seed) => {
+    localStorage.setItem('timely_school_data_v1', JSON.stringify(seed));
+    localStorage.setItem('timely_school_branch_v1', seed.settings.branch);
+  }, {
+    customers: [{ id: 'C_old1', childName: '削除済 タロウ', childKana: 'サクジョズミ タロウ', branch: BRANCH,
+      updatedAt: '2026-09-01T00:00:00.000Z' }],
+    visits: [{ id: 'V_old1', customerId: 'C_old1', childName: '削除済 タロウ', branch: BRANCH,
+      visitDate: '2026-09-25', visitStart: '10:00', visitEnd: '12:00', usageType: 'temporary',
+      paymentStatus: 'pending', createdAt: '2026-09-25T01:00:00.000Z', updatedAt: '2026-09-25T01:00:00.000Z' }],
+    students: [], reservations: [],
+    settings: { branch: BRANCH, staff: ['テスト'] },
+  });
+  await page2.goto(FILE);
+  await page2.waitForFunction(() => window.__fs && window.__fs.listeners.some(l => l.name === 'sf_visits'), null, { timeout: 15000 });
+
+  // [5] TL_READY 前：仮表示（キャッシュ）はあるが、書き込みを伴う操作はゲートで止まる
+  const r5a = await page2.evaluate(() => {
+    window.__fs.writes.length = 0;
+    const cached = (DATA.visits || []).length;        // loadData の仮表示
+    sfKinderTapIn('bk_ext2');                          // 受付 → ゲートが先に止める
+    const t1 = (document.querySelector('#sfSyncBox .ttl') || {}).textContent; sfSyncClose();
+    tlDeleteVisit('V_old1');                           // 会計記録の削除 → 同じく止まる
+    const t2 = (document.querySelector('#sfSyncBox .ttl') || {}).textContent; sfSyncClose();
+    const put = tlPut('visits', { id: 'V_gate1', paymentStatus: 'pending' });   // 最終防衛線の直叩き
+    sfSyncClose();
+    return { cached, t1, t2, putNull: put === null, ready: tlReadyAll(),
+             writes: window.__fs.writes.length, stillThere: DATA.visits.some(v => v.id === 'V_old1') };
+  });
+  check('[5] TL_READY 前は受付・削除がゲートで止まり「クラウドと同期中です」が出る',
+    r5a.ready === false && r5a.cached === 1 && r5a.t1 === 'クラウドと同期中です' && r5a.t2 === 'クラウドと同期中です'
+    && r5a.stillThere, JSON.stringify(r5a));
+  check('[5] ゲート中は書き込みゼロ（tlPut 直叩きも拒否）', r5a.putNull && r5a.writes === 0);
+
+  // 初回 snapshot：クラウドに古い記録は無い（＝他端末で削除済み）
+  await page2.evaluate(() => {
+    window.__fs.writes.length = 0;
+    window.__emit('sf_customers', [], false);
+    window.__emit('sf_visits', [], false);
+    window.__emit('sf_students', [], false);
+    window.__emit('sf_bookings', [], false);
+  });
+  await page2.waitForFunction(() => tlReadyAll(), null, { timeout: 5000 });
+  await page2.waitForTimeout(600);   // 旧構造ならこの間に初回送り返し（fbReconcileTl の set）が出ていた
+
+  // [4] 陰性対照：起動完了までクラウドへ何も送信されない＋古い記録は復活しない
+  const r4 = await page2.evaluate(() => ({
+    tlWrites: window.__fs.writes.filter(w => /^sf_(visits|customers|students)\//.test(w.path)).length,
+    bkWrites: window.__fs.writes.filter(w => w.path.indexOf('sf_bookings/') === 0).length,
+    allWrites: window.__fs.writes.map(w => w.op + ':' + w.path),
+    oldGone: !(DATA.visits || []).some(v => v.id === 'V_old1') && !(DATA.customers || []).some(c => c.id === 'C_old1'),
+    cachedGone: !((JSON.parse(localStorage.getItem('timely_school_data_v1')) || {}).visits || []).some(v => v.id === 'V_old1'),
+  }));
+  check('[4] 陰性対照：キャッシュの古い記録が起動後もクラウドへ送信されない（localOnly 送り返しの根絶）',
+    r4.tlWrites === 0 && r4.bkWrites === 0, JSON.stringify(r4.allWrites));
+  check('[4] クラウドに無い古い visit / customer は表示からもキャッシュからも消える', r4.oldGone && r4.cachedGone);
+
+  // [5b] TL_READY 後はゲートが解放され、受付が1件書きで通る
+  await page2.evaluate((t) => {
+    window.__emit('sf_bookings', [{ id: 'bk_ext2', gardenId: 'tsukisamu', date: t, start: '16:30', end: '17:30',
+      salon: 'ext_pm', affiliation: 'youchisha', name: 'ゲート カイホウ', kana: '', fromBoard: true, provisional: false }], false);
+  }, today);
+  await page2.waitForFunction(() => (sfLoadShared() || []).some(r => r.id === 'bk_ext2'), null, { timeout: 5000 });
+  const r5b = await page2.evaluate(() => {
+    window.__fs.writes.length = 0;
+    sfKinderTapIn('bk_ext2');
+    const v = (DATA.visits || []).find(x => x.sfId === 'bk_ext2') || null;
+    return { ok: !!v, writes: window.__fs.writes.filter(w => w.path.indexOf('sf_visits/') === 0).length };
+  });
+  check('[5] TL_READY 後はゲートが解放され受付できる（set 1件）', r5b.ok && r5b.writes === 1, JSON.stringify(r5b));
+
+  check('pageerror なし（Step 2 起動シーケンス）', errors2.length === 0, errors2.join(' | ').slice(0, 200));
+  await ctx2.close();
 
   await browser.close();
   console.log(fails ? ('FAILED: ' + fails) : 'ALL PASS');

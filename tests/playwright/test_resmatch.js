@@ -72,7 +72,7 @@ const state = () => ({
   {
     const { ctx, page, errors, today } = await boot(browser);
     const pre = await page.evaluate(() => ({
-      synced: TL_SNAP_SEEN.customers, n: DATA.customers.length, res: DATA.reservations.filter(r => r.fromBoard).length,
+      synced: TL_READY.customers, n: DATA.customers.length, res: DATA.reservations.filter(r => r.fromBoard).length,
       branch: DATA.settings.branch, hasFn: typeof sfResMatchCustomers,
     }));
     check('precondition: customers synced (3), 7 board reservations imported, helpers defined',
@@ -170,7 +170,7 @@ const state = () => ({
   // ---- 未同期：顧客スナップショット未着のまま該当なし → 新規登録に飛ばさない ----
   {
     const { ctx, page, errors } = await boot(browser, { skipCustomers: true });
-    const pre = await page.evaluate(() => ({ synced: TL_SNAP_SEEN.customers, n: DATA.customers.length }));
+    const pre = await page.evaluate(() => ({ synced: TL_READY.customers, n: DATA.customers.length }));
     await page.evaluate(() => selectFromReservation('sf:board_4'));
     const s = await page.evaluate(() => Object.assign(window.__state(), { rt: window._reservedTimes }));
     check('U1 unsynced & no local match → "顧客データを同期中です" popup, stays home, pending cleared',

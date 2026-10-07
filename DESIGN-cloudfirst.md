@@ -1,8 +1,33 @@
 # DESIGN — timely 保存層の作り直し：クラウド正本化（SF-CLOUDFIRST）
 
-起草 2026-10-07。**状態：Step 1（書き込み層）実装済み（SF-CLOUDFIRST-S1-20261007・2026-10-07、
-パッチ `apps/sf_cloudfirst_s1_20261007.py`・アンカー32箇所）。Step 2〜4 は未着手。**
+起草 2026-10-07。**状態：Step 1（書き込み層）・Step 2（読み込み層）実装済み
+（SF-CLOUDFIRST-S1-20261007 / SF-CLOUDFIRST-S2-20261007・ともに 2026-10-07、
+パッチ `apps/sf_cloudfirst_s1_20261007.py` / `apps/sf_cloudfirst_s2_20261007.py`）。Step 3〜4 は未着手。**
 行番号はすべて `c9994a1`（2026-10-07・SF-LSQUOTA 反映後＝Step 1 適用前）時点の `apps/timely.html`。
+
+## 2026-10-07 の作業ログ（Step 2）
+
+- tlApplySnapshot の中身を丸ごと置換：`DATA[kind] = rows`（丸ごと置換）→ `TL_READY[kind] = true` →
+  表示キャッシュ → tlRerender。初回の和集合マージと localOnly 送り返しは全廃
+- TL_MIRROR・__tlApplying を撤去。TL_SNAP_SEEN → TL_READY に一括改名（11箇所。
+  rosterPublishIfChanged / SF-VERIFYSYNC / SF-RESMATCH の参照も読み替え）
+- tlPut の会計ガード（pending-over-paid 拒否）の比較相手を TL_MIRROR から DATA（クラウドビュー）に変更。
+  rec 自身（呼び出し側が DATA 上で編集した同一オブジェクト）は比較対象にしない
+- 書き込み操作11箇所の入り口に `tlGateWrite()` ゲート（submitNewCustomer / submitVisit /
+  saveCustomerEdit / deleteCustomer / saveStudent / deleteStudent / sfKinderTapIn /
+  submitInternalUsage / approvePayment / tlDeleteVisit / saveHandoverDraft）。TL_READY が
+  3コレクションぶん揃うまで「クラウドと同期中です」を出して止める。tlPut / tlDel 自体も
+  最終防衛線として同期前の書き込みを拒否
+- **設計との差分**：予約系（confirmReservation / removeFromReservation。sf_bookings のみに書く操作）は
+  ゲート対象外のまま。TL_READY（tl 3コレクション）は readiness の指標として不適切で、
+  sf 側は従来どおり `__sfSnapshotReceived` と SF-DELGUARD が守るため（原則6：board 系の骨格は触らない）
+- 旧読み込み層（tlRecTime / tlMergeByVersion / tlReconcile / tlIdSet）は死骸として注記付きで温存
+  （Step 3 で削除。tlReconcile は撤去済み TL_MIRROR 参照のため誤呼び出しは ReferenceError で即発覚）
+- sfSyncTrack の失敗時巻き戻しから tl 側（TL_MIRROR）を撤去。tl の再送は未送信箱（SF_SYNC.queue）のみ
+- 検証：`tests/playwright/test_cloudfirst.js` に 4（陰性対照：キャッシュに種まきした古い visit が
+  起動後もクラウドへ送信されない）・5（TL_READY ゲートの閉→開）・6（pending-over-paid 拒否）・
+  9（全画面一巡の pageerror ゼロ）を追加し **26項目 ALL PASS**。既存 Playwright 6本 ALL PASS
+  （test_resmatch は TL_READY 読み替えのみ）。root の grep テストは既知の3件 FAIL のみ（変更前と同一）
 
 ## 2026-10-07 の作業ログ（Step 1）
 
@@ -248,7 +273,7 @@ writeBatch をすべて `window.__fs.writes` に記録済みなので、スタ�
 | Step | 内容 | 検証 | 見積 |
 |---|---|---|---|
 | 1 | **書き込み層**：fbPutTl / fbDeleteTl / fbPutBooking / fbPatchBooking / fbDeleteBooking（module側）＋ tlPut / tlDel / saveSettings（通常側）を新設し、呼び出し25箇所＋sfSaveShared 6箇所を置換。saveData は throw 化して呼び残し検出。**読み側は旧のまま**（旧 tlApplySnapshot は後勝ちで新書き込みを受け入れるので共存できる） | test_cloudfirst 1・2・3・7・8 ＋ 既存6本回帰 ＋ 実機1園 | **完了 2026-10-07**（SF-CLOUDFIRST-S1-20261007。テスト17項目＋回帰 PASS。実機1園の確認は未） |
-| 2 | **読み込み層**：tlApplySnapshot の中身を丸ごと置換（マージ・初回送り返し廃止）、TL_MIRROR 撤去、TL_SNAP_SEEN → TL_READY、書き込み操作のゲート導入 | test_cloudfirst 4・5・6・9 ＋ 回帰 ＋ 実機1園 | 1セッション（半日）＋実機確認 |
+| 2 | **読み込み層**：tlApplySnapshot の中身を丸ごと置換（マージ・初回送り返し廃止）、TL_MIRROR 撤去、TL_SNAP_SEEN → TL_READY、書き込み操作のゲート導入 | test_cloudfirst 4・5・6・9 ＋ 回帰 ＋ 実機1園 | **完了 2026-10-07**（SF-CLOUDFIRST-S2-20261007。テスト26項目＋回帰 PASS） |
 | 3 | **後片付け**：tlReconcile / tlMergeByVersion / sfChangedOnly(tl) / saveData の死骸削除、saveDataLocalOnly → saveViewCache 改名、test_lsquota 期待値更新、管理機能の封印 | 全スイート ＋ node --check | 半日 |
 | 4 | **本番切替**：4園 iPad の同日再読み込み → 1週間の経過観察（Firebase コンソールの書き込み数／読み取り数／現場報告） | 切替前チェックリスト | 現場協力・暦で1週間 |
 
