@@ -5743,7 +5743,7 @@
 
   /* SF-TL-CLOUDSYNC-20260722 : 受付アプリの業務データ(visits/customers/students)を Firestore と同期 */
   const TL_COLS = { visits: 'sf_visits', customers: 'sf_customers', students: 'sf_students' };
-  // tlReconcile から呼ぶ：arr を「あるべき全件」として反映し、deletedIds は削除する。
+  // 再送箱（sfSyncRetry の scope 'tl'）から呼ぶ：失敗した1件書きの rows / deletedIds を送り直す。
   /* SF-SYNCGUARD-20260727 : 成否を返す。握りつぶさない。 */
   window.fbReconcileTl = async (kind, arr, deletedIds) => {
     const col = TL_COLS[kind];
@@ -5763,8 +5763,8 @@
   /* ============================================================
      SF-CLOUDFIRST-S1-20261007 : 1件書きの口（DESIGN-cloudfirst.md Step 1）。
      操作1回＝その1件だけを setDoc / updateDoc / deleteDoc で書く。
-     配列まるごとの突き合わせ（fbReconcileTl / fbReconcile）は再送箱の互換のため残すが、
-     通常の保存はすべてこちらを通る（旧経路は Step 3 で削除予定）。
+     fbReconcileTl は再送箱（sfSyncRetry）の tl 送り直し口、fbReconcile は board 系との
+     共通骨格として残す。通常の保存はすべてこちら（1件書き）を通る（SF-CLOUDFIRST-S3-20261007）。
      ============================================================ */
   const fbErr = (tag, e) => { console.error(tag, e); return { ok: false, error: (e && e.message) ? e.message : String(e) }; };
   window.fbPutTl = async (kind, rec) => {
@@ -9015,7 +9015,7 @@ function importBoardReservations() {
   }
 
   if (changed) {
-    saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。表示キャッシュのみ */
+    saveViewCache(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。表示キャッシュのみ */
     if (typeof renderReservationList === 'function') {
       try { renderReservationList(); } catch (e) {}
     }
@@ -9439,81 +9439,9 @@ try {
   } catch (e) { console.error('[SF-LSQUOTA]', e); }
 })();
 
-function tlIdSet(arr) {
-  var s = {};
-  (arr || []).forEach(function (x) { if (x && x.id) s[x.id] = 1; });
-  return s;
-}
-
-/* SF-CLOUDFIRST-S2-20261007 : ここから下の tlRecTime / tlMergeByVersion / tlReconcile は
-   旧読み込み層の死骸（もう呼ばれない。tlIdSet も tlReconcile 専用）。挙動の参照用に残し、
-   Step 3 で削除する。tlReconcile は撤去済みの TL_MIRROR を参照するため、
-   誤って呼べば ReferenceError で即気づける。 */
-/* ============================================================
-   SF-VERGUARD-20260826 : スナップショット適用時のレコード単位マージ。
-   従来は tlApplySnapshot が DATA[kind]=cloud と手元を無条件に破棄していたため、
-   どこかの端末のクラウド状態が古い（会計待ち）と、会計済みが翌朝巻き戻り、
-   その1件が売上から丸ごと外れていた（renderPaymentList に日付フィルタも無く居座る）。
-
-   ここでは cloud を土台にする（＝cloud に無い id は従来どおり落とし、削除も尊重する）が、
-   同じ id が両方にある場合だけ「手元を残す」条件を設ける：
-     (1) 会計ガード … 手元が会計済み・クラウドが会計待ちなら絶対に巻き戻さない。
-         （会計済み→会計待ちに戻す正規の操作は存在しないため、これは常に安全）
-     (2) 版ガード   … 手元の更新時刻(updatedAt 等)がクラウドより新しければ手元を残す。
-   残した手元ぶん(localWins)はクラウドへ送り直す（オフライン永続化で自動再送される）。
-   ============================================================ */
-function tlRecTime(r) {
-  var t = r && (r.updatedAt || r.modifiedAt || r.paidAt || r.createdAt);
-  var n = t ? Date.parse(t) : 0;
-  return isFinite(n) ? n : 0;
-}
-function tlMergeByVersion(kind, local, cloud) {
-  var localById = {};
-  (local || []).forEach(function (r) { if (r && r.id != null) localById[r.id] = r; });
-  var rows = [], localWins = [];
-  (cloud || []).forEach(function (c) {
-    var l = (c && c.id != null) ? localById[c.id] : null;
-    if (!l) { rows.push(c); return; }                 // クラウドのみ（または id 無し）→ クラウド採用
-    var keepLocal = false;
-    if (kind === 'visits' && l.paymentStatus === 'paid' && c.paymentStatus === 'pending') {
-      keepLocal = true;                               // (1) 会計ガード：会計済みは巻き戻さない
-    } else if (tlRecTime(l) > tlRecTime(c)) {
-      keepLocal = true;                               // (2) 版ガード：手元のほうが新しい
-    }
-    if (keepLocal) {
-      /* SF-LSQUOTA-20261007 : localStorage 由来の手元レコードには signature が無い
-         （saveDataLocalOnly が除いて保存するため）。手元優先でクラウドへ送り返すとき、
-         クラウドにだけ残っている署名を消してしまわないよう、クラウド側の署名を移植する。 */
-      if (kind === 'customers' && c.signature && !l.signature) l.signature = c.signature;
-      rows.push(l); localWins.push(l);
-    }
-    else { rows.push(c); }
-  });
-  return { rows: rows, localWins: localWins };
-}
-
-// DATA[kind] を「あるべき全件」としてクラウドへ反映する。
-// 写し(TL_MIRROR)と比較して消えた id を削除対象に含める。
-function tlReconcile(kind, arr) {
-  var next = Array.isArray(arr) ? arr : [];
-  var nextIds = tlIdSet(next);
-  var deletedIds = (TL_MIRROR[kind] || [])
-    .filter(function (x) { return x && x.id && !nextIds[x.id]; })
-    .map(function (x) { return x.id; });
-  /* SF-WRITEDIFF-20260724 : 深いコピーにする。浅いコピーだと写しが DATA と同じ
-     オブジェクトを指し、その場書き換えを検知できず保存が取りこぼされる。 */
-  var toWriteTl = sfChangedOnly(next, TL_MIRROR[kind] || []);
-  TL_MIRROR[kind] = sfCloneRows(next);   // 楽観更新（失敗時は sfSyncTrack が巻き戻す）
-  if (typeof window.fbReconcileTl === 'function') {
-    /* SF-SYNCGUARD-20260727 : 送信の成否を追跡する */
-    if (toWriteTl.length || deletedIds.length) {
-      sfSyncTrack('tl', kind, toWriteTl, deletedIds,
-                  window.fbReconcileTl(kind, toWriteTl, deletedIds));
-    }
-  } else {
-    console.warn('[tlReconcile] fbReconcileTl 未準備（起動直後）。ローカルのみ保存しました。', kind);
-  }
-}
+/* SF-CLOUDFIRST-S3-20261007 : 旧読み込み層（tlIdSet / tlRecTime / tlMergeByVersion / tlReconcile）は
+   Step 2 で呼ばれなくなり、ここで削除した。snapshot は丸ごと置換（tlApplySnapshot）、
+   削除は tlDel の明示 id のみ。差分・削除算出・写し（TL_MIRROR）という概念ごと存在しない。 */
 
 /* SF-LSQUOTA-20261007 : 「この端末の保存領域がいっぱいです」の赤い帯。
    未送信の帯（#sfSyncBar・画面上部）とは別物で、こちらは localStorage の失敗を知らせる。
@@ -9548,13 +9476,14 @@ function sfLsQuotaClear() {
 }
 
 // localStorage だけに保存する（クラウドへ書き戻さない経路）
-function saveDataLocalOnly(data) {
+function saveViewCache(data) {
   /* SF-LSQUOTA-20261007 : localStorage には signature（登録時の署名画像 dataURL）を除いた
      写しを置く。実測で 67人全員が署名を持ち、署名だけで約4.8MB（UTF-16換算）。
      iPad Safari の上限（約5MB）を署名だけでほぼ使い切り、setItem が QuotaExceededError で
      失敗していた。署名はメモリと クラウド（sf_customers）に残り、表示に使う画面は無い。
-     localStorage 由来の customers に signature が無いのは正常（tlMergeByVersion が
-     クラウド側の署名を移植して守る）。 */
+     localStorage 由来の customers に signature が無いのは正常（キャッシュは snapshot 到着までの
+     仮表示専用で、クラウドへ書き戻す材料にはならない。署名はクラウド snapshot から DATA に入る。
+     SF-CLOUDFIRST-S3-20261007 で saveDataLocalOnly から saveViewCache に改名）。 */
   var json;
   try {
     json = JSON.stringify(data, function (key, value) {
@@ -9588,8 +9517,8 @@ function saveDataLocalOnly(data) {
 
 /* ============================================================
    SF-CLOUDFIRST-S1-20261007 : 書き込み層の作り直し（DESIGN-cloudfirst.md Step 1）。
-   操作1回＝その1件だけを書く。saveData（配列まるごとの突き合わせ）は廃止し、
-   呼び残し検出のため throw する殻だけを残す（Step 3 で削除）。
+   操作1回＝その1件だけを書く。saveData（配列まるごとの突き合わせ）は廃止
+   （SF-CLOUDFIRST-S3-20261007 で殻ごと削除済み）。
    読み側は Step 2（SF-CLOUDFIRST-S2-20261007）で置換済み：snapshot 丸ごと置換・
    マージと初回送り返しの全廃・TL_READY ゲート。tlPut された doc は snapshot で全端末に配られる。
    ============================================================ */
@@ -9618,7 +9547,7 @@ function tlPut(kind, rec) {
     }
   }
   rec.updatedAt = new Date().toISOString();   // 刻印の一元化（打ち忘れの根治）
-  saveDataLocalOnly(DATA);                    // 表示キャッシュ。失敗しても送信は止めない（SF-LSQUOTA-20261007）
+  saveViewCache(DATA);                    // 表示キャッシュ。失敗しても送信は止めない（SF-LSQUOTA-20261007）
   var p = null;
   if (typeof window.fbPutTl === 'function') {
     p = sfSyncTrack('tl', kind, [rec], [], window.fbPutTl(kind, rec));
@@ -9636,7 +9565,7 @@ function tlDel(kind, id) {
     tlSyncingPopup();
     return null;
   }
-  saveDataLocalOnly(DATA);
+  saveViewCache(DATA);
   var p = null;
   if (typeof window.fbDeleteTl === 'function') {
     p = sfSyncTrack('tl', kind, [], [String(id)], window.fbDeleteTl(kind, id));
@@ -9648,7 +9577,7 @@ function tlDel(kind, id) {
 }
 /* settings（園・スタッフ名簿）は現行どおり端末ローカルのみ（クラウド非同期） */
 function saveSettings() {
-  return saveDataLocalOnly(DATA);
+  return saveViewCache(DATA);
 }
 /* 1操作（ボタン1回）ぶんの見届け対象を仕切り直す。saveData が担っていた __sfSaveWaits = [] の後継。
    sfConfirmCloudSave / tlConfirmCloudDelete で見届ける操作（会計確定・会計記録の削除）の先頭で呼ぶ。 */
@@ -9682,10 +9611,8 @@ function tlGateWrite() {
   tlSyncingPopup();
   return false;
 }
-function saveData(data) {
-  /* SF-CLOUDFIRST-S1-20261007 : 廃止。呼び残しをテストと実機の pageerror で炙り出すため throw する（Step 3 で削除） */
-  throw new Error('SF-CLOUDFIRST: saveData は廃止されました（tlPut / tlDel / saveDataLocalOnly を使う）');
-}
+/* SF-CLOUDFIRST-S3-20261007 : saveData は Step 1 で throw 化し、テスト（全画面一巡の pageerror 検出・
+   既存スイート・本番 E2E）で呼び残しゼロを確認したうえで削除した。保存は tlPut / tlDel / saveViewCache。 */
 
 // module 側の onSnapshot から呼ばれる
 /* ============================================================
@@ -9704,7 +9631,7 @@ window.tlApplySnapshot = function (kind, rows) {
   if (TL_KINDS.indexOf(kind) < 0) return;
   DATA[kind] = Array.isArray(rows) ? rows : [];
   TL_READY[kind] = true;
-  saveDataLocalOnly(DATA);   // 表示キャッシュ（signature 除外・失敗しても業務影響なし）
+  saveViewCache(DATA);   // 表示キャッシュ（signature 除外・失敗しても業務影響なし）
   /* SF-ROSTER-PUBLISH-20260722 : Firebaseコンソールでの直接削除など、
      ローカル保存を伴わない変更にも名簿を追従させる */
   if (kind === 'customers') { try { rosterPublishIfChanged(); } catch (e) { console.error(e); } }
@@ -13527,7 +13454,7 @@ function confirmReservation() {
       }
     }
 
-    saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。表示キャッシュのみ */
+    saveViewCache(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。表示キャッシュのみ */
 
     toast('✓ 予約を変更しました');
   } else {
@@ -13580,7 +13507,7 @@ function confirmReservation() {
       fromBoard: false               // ← timely 自身が二重取込しないための鍵
     });
 
-    saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。共有側は上の sfUpsertShared（1件書き） */
+    saveViewCache(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。共有側は上の sfUpsertShared（1件書き） */
 
     toast('✓ 予約リストに追加しました');
   }
@@ -13642,7 +13569,7 @@ function removeFromReservation(reservationKey) {
           !(r.customerId === customerId && r.reservationDate === date)
         );
       }
-      saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。共有側は上の明示削除（1件書き） */
+      saveViewCache(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。共有側は上の明示削除（1件書き） */
       toast('✓ 削除しました');
       searchForReservation();
       renderReservationList();
@@ -14001,7 +13928,7 @@ function removeFromReservationByCustomerId(customerId) {
     !(r.customerId === customerId && r.reservationDate === todayStr)
   );
   if (DATA.reservations.length !== before) {
-    saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。表示キャッシュのみ */
+    saveViewCache(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。表示キャッシュのみ */
   }
 }
 
@@ -16730,7 +16657,7 @@ function approvePayment() {
   const _payUnlock = () => { __payApproving = false; };
 
   /* SF-EXTFEE19-20260911 : 月極の子の¥0会計（自園生徒）は会計記録を作らない。
-     tlDeleteVisitExec と同じ「filter＋saveData」で会計待ちから外す（tlReconcile がクラウド側も削除）。
+     tlDeleteVisitExec と同じく DATA.visits から除き、tlDel の deleteDoc 1件でクラウド側からも消す。
      件数は sf_bookings（SF_MIRROR）から数えるので、日報・月報の早朝・延長件数は減らない。
      ※月極でない子の¥0（19:05までのお迎え）は通常どおり¥0の会計記録を残す（経緯が追えるように）。 */
   if (!isEditingPaid && (usageKey === 'morning' || usageKey === 'extension')
@@ -18183,241 +18110,8 @@ function resetAllData() {
 // ============================================================
 function loadSampleData() {
   /* SF-CLOUDFIRST-S1-20261007 : 封印。サンプル投入は DATA 全体の上書き＝クラウド一括操作になるため。
-     以降の本体は到達しない死コード（Step 3 で削除） */
+     （旧本体は SF-CLOUDFIRST-S3-20261007 で削除） */
   console.warn('[SF-CLOUDFIRST-S1-20261007] サンプルデータ投入は封印されています（クラウドが正本）');
-  return;
-  if (!confirm('サンプルデータを投入します。\n\n既存のデータがある場合は上書きされます。\nテスト用のデモデータ（顧客・自園生徒・来園記録）が入ります。\n\n実行しますか？')) {
-    return;
-  }
-  
-  const branch = DATA.settings.branch || 'サッポロファクトリー園';
-  
-  // 日付ユーティリティ: N日前の YYYY-MM-DD
-  const daysAgo = (n) => {
-    const d = new Date();
-    d.setDate(d.getDate() - n);
-    /* SF-JSTDATE-20260830 : ここも UTC だとサンプルが1日ずれる */
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  };
-  const today = daysAgo(0);
-  
-  // ---- 顧客 (一時預かり利用者) ----
-  const customers = [
-    {
-      id: 'C_sample_1', branch, createdAt: daysAgo(120),
-      childName: '森 はると', childKana: 'モリ ハルト', gender: '男の子',
-      birthY: 2023, birthM: 3, birthD: 2, bloodType: 'A',
-      temp: '36.6', doctor: 'みどり小児科',
-      allergyHas: 'yes', allergyItems: ['卵', '乳製品'], allergyDetail: '',
-      parentName: '森 直樹', parentKana: 'モリ ナオキ', parentTel: '09000000001',
-      address: '札幌市中央区南1条西1丁目', zipcode: '0600061',
-      emergency1Name: '森 美穂', emergency1Tel: '09000000011', signature: ''
-    },
-    {
-      id: 'C_sample_2', branch, createdAt: daysAgo(90),
-      childName: '渡辺 みなと', childKana: 'ワタナベ ミナト', gender: '男の子',
-      birthY: 2023, birthM: 1, birthD: 15, bloodType: 'O',
-      temp: '36.8', doctor: 'みどり小児科',
-      allergyHas: 'no', allergyItems: [], allergyDetail: '',
-      parentName: '渡辺 拓也', parentKana: 'ワタナベ タクヤ', parentTel: '09000000002',
-      address: '札幌市中央区北2条東3丁目', zipcode: '0600032',
-      emergency1Name: '渡辺 結花', emergency1Tel: '09000000012', signature: ''
-    },
-    {
-      id: 'C_sample_3', branch, createdAt: daysAgo(75),
-      childName: '岡田 あゆみ', childKana: 'オカダ アユミ', gender: '女の子',
-      birthY: 2022, birthM: 7, birthD: 20, bloodType: 'B',
-      temp: '36.5', doctor: 'おかだキッズクリニック',
-      allergyHas: 'yes', allergyItems: ['小麦'], allergyDetail: '軽度',
-      parentName: '岡田 健一', parentKana: 'オカダ ケンイチ', parentTel: '09000000003',
-      address: '札幌市東区北18条東2丁目', zipcode: '0650018',
-      emergency1Name: '岡田 沙織', emergency1Tel: '09000000013', signature: ''
-    },
-    {
-      id: 'C_sample_4', branch, createdAt: daysAgo(60),
-      childName: '西村 ゆい', childKana: 'ニシムラ ユイ', gender: '女の子',
-      birthY: 2021, birthM: 11, birthD: 8, bloodType: 'A',
-      temp: '36.7', doctor: '',
-      allergyHas: 'no', allergyItems: [], allergyDetail: '',
-      parentName: '西村 正人', parentKana: 'ニシムラ マサト', parentTel: '09000000004',
-      address: '札幌市白石区本郷通5丁目', zipcode: '0030024',
-      emergency1Name: '西村 香織', emergency1Tel: '09000000014', signature: ''
-    },
-    {
-      id: 'C_sample_5', branch, createdAt: daysAgo(45),
-      childName: '藤井 れん', childKana: 'フジイ レン', gender: '男の子',
-      birthY: 2022, birthM: 5, birthD: 30, bloodType: 'AB',
-      temp: '36.9', doctor: 'ふじいキッズクリニック',
-      allergyHas: 'no', allergyItems: [], allergyDetail: '',
-      parentName: '藤井 隆', parentKana: 'フジイ タカシ', parentTel: '09000000005',
-      address: '札幌市豊平区平岸3条8丁目', zipcode: '0620933',
-      emergency1Name: '藤井 由美', emergency1Tel: '09000000015', signature: ''
-    },
-    {
-      id: 'C_sample_6', branch, createdAt: daysAgo(30),
-      childName: '三浦 さくら', childKana: 'ミウラ サクラ', gender: '女の子',
-      birthY: 2023, birthM: 4, birthD: 12, bloodType: 'O',
-      temp: '36.4', doctor: '',
-      allergyHas: 'yes', allergyItems: ['えび・かに', '魚介類'], allergyDetail: '',
-      parentName: '三浦 涼子', parentKana: 'ミウラ リョウコ', parentTel: '09000000006',
-      address: '札幌市北区北24条西5丁目', zipcode: '0010024',
-      emergency1Name: '三浦 健太', emergency1Tel: '09000000016', signature: ''
-    },
-    {
-      id: 'C_sample_7', branch, createdAt: daysAgo(20),
-      childName: '横山 ひろと', childKana: 'ヨコヤマ ヒロト', gender: '男の子',
-      birthY: 2021, birthM: 9, birthD: 3, bloodType: 'A',
-      temp: '36.6', doctor: 'よこやま小児科',
-      allergyHas: 'no', allergyItems: [], allergyDetail: '',
-      parentName: '横山 優子', parentKana: 'ヨコヤマ ユウコ', parentTel: '09000000007',
-      address: '札幌市西区琴似2条4丁目', zipcode: '0630812',
-      emergency1Name: '横山 修', emergency1Tel: '09000000017', signature: ''
-    },
-  ];
-  
-  // ---- 自園生徒名簿 ----
-  const students = [
-    { id: 'S_sample_1', branch, childName: '大野 たろう', childKana: 'オオノ タロウ', className: 'Leaf', note: '', createdAt: daysAgo(200) },
-    { id: 'S_sample_2', branch, childName: '杉本 はな', childKana: 'スギモト ハナ', className: 'Leaf', note: 'お迎えは祖母', createdAt: daysAgo(200) },
-    { id: 'S_sample_3', branch, childName: '谷口 けん', childKana: 'タニグチ ケン', className: 'Blossom', note: '', createdAt: daysAgo(180) },
-    { id: 'S_sample_4', branch, childName: '中島 みう', childKana: 'ナカジマ ミウ', className: 'Blossom', note: '卵アレルギーあり', createdAt: daysAgo(180) },
-    { id: 'S_sample_5', branch, childName: '原田 ひな', childKana: 'ハラダ ヒナ', className: 'Harvest', note: '', createdAt: daysAgo(150) },
-    { id: 'S_sample_6', branch, childName: '前田 そうた', childKana: 'マエダ ソウタ', className: 'Harvest', note: '', createdAt: daysAgo(150) },
-    { id: 'S_sample_7', branch, childName: '村上 りこ', childKana: 'ムラカミ リコ', className: 'Leaf', note: '', createdAt: daysAgo(120) },
-    { id: 'S_sample_8', branch, childName: '山口 ひかる', childKana: 'ヤマグチ ヒカル', className: 'Harvest', note: '', createdAt: daysAgo(100) },
-  ];
-  
-  // ---- 来園記録 ----
-  // 一部は会計済み (過去)、一部は本日のお会計待ち
-  const visits = [];
-  let vCounter = 1;
-  
-  // 過去の会計済み一時預かり記録 (日報・月報用に複数日分)
-  const pastVisitDays = [2, 3, 5, 7, 10, 14, 20, 25];
-  const sampleCustomersForVisits = [
-    { c: customers[0], start: '09:00', end: '14:00', actualEnd: '14:20' },
-    { c: customers[2], start: '10:00', end: '15:00', actualEnd: '15:00' },
-    { c: customers[3], start: '13:00', end: '17:00', actualEnd: '17:35' },
-    { c: customers[5], start: '08:30', end: '12:00', actualEnd: '12:10' },
-  ];
-  
-  pastVisitDays.forEach((dAgo, idx) => {
-    const visitDate = daysAgo(dAgo);
-    // その日に2〜3件
-    const numVisits = (idx % 2 === 0) ? 3 : 2;
-    for (let i = 0; i < numVisits; i++) {
-      const sample = sampleCustomersForVisits[(idx + i) % sampleCustomersForVisits.length];
-      const c = sample.c;
-      const baseMinutes = timeToMinutes(sample.actualEnd) - timeToMinutes(sample.start);
-      const hours = Math.ceil(baseMinutes / 60);
-      const baseAmount = hours * 1000;
-      visits.push({
-        id: 'V_sample_' + (vCounter++),
-        customerId: c.id, studentId: null,
-        childName: c.childName, className: '',
-        branch, createdAt: visitDate + 'T09:00:00.000Z',
-        visitDate, visitStart: sample.start, visitEnd: sample.end, actualEnd: sample.actualEnd,
-        usageType: 'temporary',
-        baseAmount, extensionAmount: 0, totalAmount: baseAmount,
-        receivedBy: ['細野', '小野', '伊藤'][i % 3],
-        receiptNo: visitDate.replace(/-/g, '') + '-' + String(vCounter).padStart(3, '0'),
-        paidAt: visitDate + 'T15:00:00.000Z',
-        paymentStatus: 'paid',
-        handoverItems: {}, items: [], agreed: true,
-      });
-    }
-  });
-  
-  // 本日のお会計待ち (一時預かり)
-  visits.push({
-    id: 'V_sample_' + (vCounter++),
-    customerId: customers[1].id, studentId: null,
-    childName: customers[1].childName, className: '',
-    branch, createdAt: today + 'T09:00:00.000Z',
-    visitDate: today, visitStart: '09:00', visitEnd: '15:00', actualEnd: '',
-    usageType: 'temporary',
-    baseAmount: 0, extensionAmount: 0, totalAmount: 0,
-    receivedBy: '', receiptNo: '', paidAt: null,
-    paymentStatus: 'pending',
-    handoverItems: {}, items: ['オムツ', '着替え'], agreed: true,
-    milk: '飲んでいる', lastMilk: { time: '08:30', amount: '120' }, nextMilk: { time: '12:30', amount: '120' },
-  });
-  visits.push({
-    id: 'V_sample_' + (vCounter++),
-    customerId: customers[6].id, studentId: null,
-    childName: customers[6].childName, className: '',
-    branch, createdAt: today + 'T10:00:00.000Z',
-    visitDate: today, visitStart: '10:00', visitEnd: '16:00', actualEnd: '',
-    usageType: 'temporary',
-    baseAmount: 0, extensionAmount: 0, totalAmount: 0,
-    receivedBy: '', receiptNo: '', paidAt: null,
-    paymentStatus: 'pending',
-    handoverItems: {}, items: ['着替え'], agreed: true,
-  });
-  
-  // 本日のお会計待ち (自園生徒・早朝)
-  visits.push({
-    id: 'V_sample_' + (vCounter++),
-    customerId: null, studentId: students[7].id,
-    childName: students[7].childName, className: students[7].className,
-    branch, createdAt: today + 'T07:00:00.000Z',
-    visitDate: today, visitStart: '07:00', visitEnd: '08:00', actualEnd: '',
-    usageType: 'morning',
-    baseAmount: 0, extensionAmount: 0, totalAmount: 0,
-    receivedBy: '', receiptNo: '', paidAt: null,
-    paymentStatus: 'pending',
-    handoverItems: {}, items: [], agreed: true,
-  });
-  
-  // 過去の自園生徒・早朝 (会計済み)
-  [4, 8, 12].forEach((dAgo, idx) => {
-    const visitDate = daysAgo(dAgo);
-    const s = students[idx % students.length];
-    visits.push({
-      id: 'V_sample_' + (vCounter++),
-      customerId: null, studentId: s.id,
-      childName: s.childName, className: s.className,
-      branch, createdAt: visitDate + 'T07:00:00.000Z',
-      visitDate, visitStart: '07:00', visitEnd: '08:00', actualEnd: '08:00',
-      usageType: 'morning',
-      baseAmount: 700, extensionAmount: 0, totalAmount: 700,
-      receivedBy: ['細野', '小野'][idx % 2],
-      receiptNo: visitDate.replace(/-/g, '') + '-' + String(vCounter).padStart(3, '0'),
-      paidAt: visitDate + 'T08:00:00.000Z',
-      paymentStatus: 'paid',
-      handoverItems: {}, items: [], agreed: true,
-    });
-  });
-  
-  // ---- 予約 (本日と数日先) ----
-  const reservations = [
-    { customerId: customers[3].id, branch, reservationDate: today, reservationStart: '13:00', reservationEnd: '17:00', addedAt: daysAgo(2) },
-    { customerId: customers[4].id, branch, reservationDate: daysAgo(-1), reservationStart: '09:00', reservationEnd: '12:00', addedAt: daysAgo(1) },
-    { customerId: customers[5].id, branch, reservationDate: daysAgo(-2), reservationStart: '10:00', reservationEnd: '15:00', addedAt: daysAgo(1) },
-  ];
-  
-  // データを差し替え (settings とスタッフリストは保持)
-  const keepSettings = DATA.settings || { branch };
-  if (!Array.isArray(keepSettings.staff) || keepSettings.staff.length === 0) {
-    keepSettings.staff = [...DEFAULT_STAFF];
-  }
-  DATA = {
-    customers,
-    visits,
-    reservations,
-    students,
-    settings: keepSettings
-  };
-  
-  if (!saveData(DATA)) {
-    toast('サンプルデータの保存に失敗しました', true);
-    return;
-  }
-  
-  toast('✓ サンプルデータを投入しました');
-  // 各画面を再描画
-  renderAdminLists();
-  if (typeof renderStudentList === 'function') renderStudentList();
 }
 
 

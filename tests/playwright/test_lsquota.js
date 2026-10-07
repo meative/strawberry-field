@@ -5,8 +5,8 @@
 //   (2) localStorage の写しに customers[].signature が含まれないこと（メモリには残る）
 //   (3) 起動時に _premig_20260722 が削除されること
 //   (4) QuotaExceeded 時に premig を削除して再試行し、成功したら赤い帯が消えること
-//   (5) tlMergeByVersion が手元優先時にクラウドの署名を移植すること
-// を検証する。
+// を検証する。（旧 (5) tlMergeByVersion の署名移植は、関数ごと SF-CLOUDFIRST-S3-20261007 で
+// 削除されたため項目も削除。署名はクラウド snapshot から DATA に入り、キャッシュには書かない）
 const path = require('path');
 const { chromium } = require('playwright');
 const { installStubs } = require('./stubs');
@@ -122,7 +122,7 @@ function check(name, ok, extra) {
       if (localStorage.getItem(premig) !== null) throw new DOMException('quota exceeded (test)', 'QuotaExceededError');
       return window.__origSetItem.call(this, k, v);
     };
-    const ok = saveDataLocalOnly(DATA);
+    const ok = saveViewCache(DATA);
     const bar = document.getElementById('sfLsQuotaBar');
     return { ok, premigGone: localStorage.getItem(premig) === null,
              barHidden: !bar || bar.style.display === 'none',
@@ -131,14 +131,6 @@ function check(name, ok, extra) {
   check('QuotaExceeded 時に premig を削除して再試行 → 保存成功', r5.ok === true && r5.premigGone && r5.saved, JSON.stringify(r5));
   check('保存が成功したら赤い帯が消える', r5.barHidden);
 
-  // [6] tlMergeByVersion：手元優先（新しい）だが署名が無いとき、クラウドの署名を移植する
-  const r6 = await page.evaluate(() => {
-    const local = [{ id: 'C_m1', childName: 'テスト', updatedAt: '2026-10-07T10:00:00.000Z' }];
-    const cloud = [{ id: 'C_m1', childName: 'テスト', updatedAt: '2026-10-07T09:00:00.000Z', signature: 'data:image/png;base64,SIG' }];
-    const mg = tlMergeByVersion('customers', local, cloud);
-    return { win: mg.localWins.length, sig: mg.rows[0] && mg.rows[0].signature };
-  });
-  check('手元優先の customers にクラウドの署名が移植される', r6.win === 1 && r6.sig === 'data:image/png;base64,SIG', JSON.stringify(r6));
 
   check('pageerror なし', errors.length === 0, errors.join(' | ').slice(0, 200));
 

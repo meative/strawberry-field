@@ -1,9 +1,25 @@
 # DESIGN — timely 保存層の作り直し：クラウド正本化（SF-CLOUDFIRST）
 
-起草 2026-10-07。**状態：Step 1（書き込み層）・Step 2（読み込み層）実装済み
-（SF-CLOUDFIRST-S1-20261007 / SF-CLOUDFIRST-S2-20261007・ともに 2026-10-07、
-パッチ `apps/sf_cloudfirst_s1_20261007.py` / `apps/sf_cloudfirst_s2_20261007.py`）。Step 3〜4 は未着手。**
+起草 2026-10-07。**状態：Step 1（書き込み層）・Step 2（読み込み層）・Step 3（後片付け）実装済み
+（SF-CLOUDFIRST-S1/S2/S3-20261007・すべて 2026-10-07、パッチ `apps/sf_cloudfirst_s1_20261007.py` /
+`apps/sf_cloudfirst_s2_20261007.py` / `apps/sf_cloudfirst_s3_20261007.py`）。残りは Step 4（本番切替）のみ。**
 行番号はすべて `c9994a1`（2026-10-07・SF-LSQUOTA 反映後＝Step 1 適用前）時点の `apps/timely.html`。
+
+## 2026-10-07 の作業ログ（Step 3）
+
+- 旧読み込み層の死骸（tlIdSet / tlRecTime / tlMergeByVersion / tlReconcile）と saveData の throw 殻を削除。
+  封印済み loadSampleData の到達しない旧本体（約230行・saveData 呼び出しを含む）も削除
+- saveDataLocalOnly → **saveViewCache** に改名（定義1＋呼び出し9）。docstring も「仮表示専用・
+  書き戻しの材料にしない」前提に更新
+- **設計との差分**：fbReconcileTl は表の「廃止」ではなく**再送箱（sfSyncRetry の scope 'tl'）の
+  送り直し口として存続**。sfChangedOnly / sfCloneRows / fbReconcile / sfSaveShared も board 系との
+  共通骨格として存続（timely からの通常保存ではどれも呼ばれない）
+- 旧構造前提の行内コメント5箇所を更新（fbReconcileTl の役割・EXTFEE19 の削除経路・S1 ヘッダー等）
+- CLAUDE.md を新構造に更新：§3【B】全面書き換え・§9 の旧 tl 同期前提の落とし穴4項目を
+  現行注記に置換・2026-10-07 の機能表（SF-LSQUOTA / S1 / S2 / S3）を新設
+- test_lsquota：tlMergeByVersion の署名移植項目を削除（関数ごと廃止）・saveViewCache 読み替え。
+  test_cloudfirst [9]：throw 検出 → 「saveData が存在しない・ソース上の呼び出しゼロ」に更新
+- 検証：Playwright 7本 ALL PASS（cloudfirst 26項目）・root grep テストは既知3件 FAIL のみ・node --check VALID
 
 ## 2026-10-07 の作業ログ（Step 2）
 
@@ -283,7 +299,7 @@ writeBatch をすべて `window.__fs.writes` に記録済みなので、スタ�
 |---|---|---|---|
 | 1 | **書き込み層**：fbPutTl / fbDeleteTl / fbPutBooking / fbPatchBooking / fbDeleteBooking（module側）＋ tlPut / tlDel / saveSettings（通常側）を新設し、呼び出し25箇所＋sfSaveShared 6箇所を置換。saveData は throw 化して呼び残し検出。**読み側は旧のまま**（旧 tlApplySnapshot は後勝ちで新書き込みを受け入れるので共存できる） | test_cloudfirst 1・2・3・7・8 ＋ 既存6本回帰 ＋ 実機1園 | **完了 2026-10-07**（SF-CLOUDFIRST-S1-20261007。テスト17項目＋回帰 PASS。実機1園の確認は未） |
 | 2 | **読み込み層**：tlApplySnapshot の中身を丸ごと置換（マージ・初回送り返し廃止）、TL_MIRROR 撤去、TL_SNAP_SEEN → TL_READY、書き込み操作のゲート導入 | test_cloudfirst 4・5・6・9 ＋ 回帰 ＋ 実機1園 | **完了 2026-10-07**（SF-CLOUDFIRST-S2-20261007。テスト26項目＋回帰 PASS） |
-| 3 | **後片付け**：tlReconcile / tlMergeByVersion / sfChangedOnly(tl) / saveData の死骸削除、saveDataLocalOnly → saveViewCache 改名、test_lsquota 期待値更新、管理機能の封印 | 全スイート ＋ node --check | 半日 |
+| 3 | **後片付け**：tlReconcile / tlMergeByVersion / sfChangedOnly(tl) / saveData の死骸削除、saveDataLocalOnly → saveViewCache 改名、test_lsquota 期待値更新、管理機能の封印 | 全スイート ＋ node --check | **完了 2026-10-07**（SF-CLOUDFIRST-S3-20261007。封印は Step 1 で実施済み） |
 | 4 | **本番切替**：4園 iPad の同日再読み込み → 1週間の経過観察（Firebase コンソールの書き込み数／読み取り数／現場報告） | 切替前チェックリスト | 現場協力・暦で1週間 |
 
 Step 1・2 を分けるのは切り分けのため（Step 1 だけ入った状態でも機能劣化ゼロで運用できる）。

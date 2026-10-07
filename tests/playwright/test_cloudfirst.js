@@ -159,22 +159,21 @@ function check(name, ok, extra) {
   check('[8] 下書き保存で sf_visits の set 1件だけ', r8.n === 1 && r8.total === 1 && r8.op === 'set', JSON.stringify(r8));
   check('[8] 下書きにも updatedAt が刻印される（版ガード負けの穴の根治）', !!r8.updatedAt && !!r8.handoverUpdatedAt);
 
-  // [9] saveData は throw 化（呼び残し検出）・封印した管理機能は何もしない
+  // [9] saveData は削除済み（SF-CLOUDFIRST-S3-20261007）・封印した管理機能は何もしない
   const r9 = await page.evaluate(() => {
-    let thrown = '';
-    try { saveData(DATA); } catch (e) { thrown = String(e && e.message || e); }
+    const gone = (typeof window.saveData === 'undefined');
     window.__fs.writes.length = 0;
     const before = JSON.stringify({ c: DATA.customers.length, v: DATA.visits.length, s: (DATA.students || []).length });
     resetAllData();
     loadSampleData();
     const after = JSON.stringify({ c: DATA.customers.length, v: DATA.visits.length, s: (DATA.students || []).length });
-    return { thrown, unchanged: before === after, writes: window.__fs.writes.length };
+    return { gone, unchanged: before === after, writes: window.__fs.writes.length };
   });
-  check('[9] saveData は throw する（呼び残し検出）', r9.thrown.indexOf('SF-CLOUDFIRST') >= 0, r9.thrown.slice(0, 60));
+  check('[9] saveData は削除済み（関数が存在しない）', r9.gone);
   check('[9] 封印した resetAllData / loadSampleData は何もしない（確認ダイアログも出ない）',
     r9.unchanged && r9.writes === 0, JSON.stringify(r9));
-  const srcCount = (fs.readFileSync(path.join(APPS, 'timely.html'), 'utf8').match(/saveData\(DATA\)/g) || []).length;
-  check('[9] ソース上の saveData(DATA) 残存は封印済み死コードの1箇所だけ', srcCount === 1, 'count=' + srcCount);
+  const srcCount = (fs.readFileSync(path.join(APPS, 'timely.html'), 'utf8').match(/saveData\(/g) || []).length;
+  check('[9] ソース上の saveData 呼び出し残存ゼロ', srcCount === 0, 'count=' + srcCount);
 
   // [9] 全画面を一巡して pageerror ゼロ（旧 saveData / 旧シンボルの呼び残し検出）
   await page.evaluate(() => {

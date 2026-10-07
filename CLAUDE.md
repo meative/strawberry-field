@@ -1,7 +1,7 @@
 # CLAUDE.md — Claude Code 向け開発ガイド
 
 STRAWBERRY FIELD 予約システムを Claude Code で扱うときに、最初に読んでください。
-（最終更新 2026-09-30 / 全面改訂は 2026-08-28）
+（最終更新 2026-10-07 / 全面改訂は 2026-08-28）
 
 ---
 
@@ -170,7 +170,9 @@ board が読み取り専用で購読しています。**2つのFirebaseプロジ
 
 ### 同期の設計 — 受信経路は2本ある（★ここを1本だと思うと必ず間違える）
 
-行番号は `14f9cdd`（2026-08-27）時点の `apps/timely.html`。
+行番号は `14f9cdd`（2026-08-27）時点の `apps/timely.html`（【A】のみ。【B】は 2026-10-07 の
+SF-CLOUDFIRST-S1〜S3 で作り直したため、行番号ではなくマーカーで grep すること。
+設計・経緯・移行手順は **`DESIGN-cloudfirst.md`** が正）。
 
 ```
 【A】共有予約 sf_bookings … 丸ごと置換（従来どおり）
@@ -178,38 +180,44 @@ board が読み取り専用で購読しています。**2つのFirebaseプロジ
                └─ SF_MIRROR = arr        ← 無条件の置換。版ガードは無い
                └─ importBoardReservations() で DATA.reservations へマージ取り込み
 
-【B】受付業務データ sf_visits / sf_customers / sf_students … レコード単位マージ
-  onSnapshot ─▶ window.tlApplySnapshot(kind, rows)   :9074
-               └─ tlMergeByVersion(kind, local, cloud)   :9003
-                    cloud を土台に走査し、同じ id が両方にある時だけ手元を残す：
-                    (1) 会計ガード  visits かつ 手元paid × cloud pending → 手元  :9011
-                    (2) 版ガード    tlRecTime(手元) > tlRecTime(cloud)   → 手元  :9013
-                    cloud に無い id は落とす（＝他端末の削除を尊重）
-               └─ 手元が勝った分(localWins)は fbReconcileTl で送り直す
+【B】受付業務データ sf_visits / sf_customers / sf_students … クラウドが唯一の正本
+     （SF-CLOUDFIRST-S1/S2/S3-20261007。マージ・写し・初回送り返しは廃止）
+  onSnapshot ─▶ window.tlApplySnapshot(kind, rows)
+               └─ DATA[kind] = rows      ← 丸ごと置換。マージしない・送り返さない
+               └─ TL_READY[kind] = true → saveViewCache（表示キャッシュ）→ tlRerender
+  書き込みは操作1回＝その1件だけ：
+    tlPut(kind, rec) ─▶ fbPutTl    = setDoc    （updatedAt を必ず刻印。paid を pending で潰す書き込みは拒否）
+    tlDel(kind, id)  ─▶ fbDeleteTl = deleteDoc （削除は明示 id のみ。差分からの削除算出は存在しない）
+    予約消費          ─▶ fbPatchBooking = updateDoc（対象外フィールドは無傷）
+  TL_READY が3種揃うまで、書き込み操作11箇所は tlGateWrite で不活性（「クラウドと同期中です」）
 ```
 
-送信側は A/B 共通で差分のみ：
+送信側の差分化（sfChangedOnly → fbReconcile の writeBatch）は **sf_bookings（A）だけ**になった。
+timely の業務データ（B）は常に1件書きで、localStorage は仮表示キャッシュ（`saveViewCache`）に格下げ。
+**DATA[kind] を書き戻しの材料にするコード・配列を丸ごとクラウドと突き合わせるコードを書かないこと。**
 
-```
-sfSave()/sfSaveShared(arr) ─▶ sfChangedOnly(next, 写し) ─▶ fbReconcile() ─▶ writeBatch
-```
-
-- 関数名：board/salon/notify は `sfLoad` / `sfSave`、**timely は `sfLoadShared` / `sfSaveShared`**
+- 関数名：board/salon/notify は `sfLoad` / `sfSave`、timely の共有予約の読みは `sfLoadShared`
+  （`sfSaveShared` は board 系との共通骨格として残っているが **timely からはもう呼ばれない**。
+  timely の共有書きは sfUpsertShared / sfRemoveShared(Many) / sfPatchBooking の1件書き）
 - `sfCanon()`（:8329）… キー順に依存しない正規化JSON。差分判定に使う
-- `sfChangedOnly(next, prev)`（:8343）… **変わったレコードだけ**書く。
+- `sfChangedOnly(next, prev)`（:8343）… **変わったレコードだけ**書く（**sf_bookings 側のみ**）。
   かつて1件の保存でコレクション全件を書き直し、Firestore の1日あたり書き込み上限を
   使い切って本番の保存が止まった（SF-WRITEDIFF-20260724）。**この差分化を壊さないこと。**
 - **初回スナップショットのフラグは2系統ある。** 片方を見て「ガード済み」と判断しないこと。
-  - `window.__sfSnapshotReceived`（:8304 / :8393）… **sf側・単一**。参照は :8562 の1箇所だけで、
-    「共有側で消えた fromBoard 予約を DATA.reservations から消す」**削除パス**を守る
-  - `TL_SNAP_SEEN`（:8611）… **tl側・kind別**。`saveData` の**送信パス**（:9064、空配列で
-    クラウドを全消しするのを防ぐ）、`tlApplySnapshot` の初回分岐（:9079）、名簿発行（:9156）を守る
+  - `window.__sfSnapshotReceived` … **sf側・単一**。「共有側で消えた fromBoard 予約を
+    DATA.reservations から消す」**削除パス**を守る
+  - `TL_READY`（旧 TL_SNAP_SEEN）… **tl側・kind別**。初回 snapshot が3種揃うまで書き込み操作を
+    止めるゲート（`tlGateWrite` ＋ tlPut / tlDel の最終防衛線）と、名簿発行・SF-RESMATCH を守る。
+    注意：匿名認証が失敗する真の圏外では立たないが、**認証成功＋Firestore 不達**では
+    persistentLocalCache が**空の fromCache snapshot を配って立つ**（DESIGN-cloudfirst.md 未決事項2）
 - `SF-SYNCGUARD-20260727` … お会計時にクラウド送信の成否を確認し、
   失敗をスタッフに見せる（`sfConfirmCloudSave` / `sfSyncPopup` / `sfSyncRetry`）。
   握りつぶすと「翌日にお会計待ちへ戻る」事故になるので、成否を返す設計を維持する。
-  **送信失敗時は `sfSyncTrack` が該当 id を写しから引き算して巻き戻す**（:8716-8722）ので、
-  次の保存で自然に再送される。「写しは常にクラウドと一致する」と仮定したコードを書かないこと。
-- 差分ゼロなら `fbReconcile` を呼ばない（:8378 / :9036）。「保存したのに Promise が返らない」のは正常
+  送信失敗時の再送：sf_bookings 側は該当 id を写し（SF_MIRROR）から引き算して巻き戻す。
+  tl 側は写しが無く、未送信箱（SF_SYNC.queue）→ `fbReconcileTl`（再送口として存続）で送り直す。
+  「写しは常にクラウドと一致する」と仮定したコードを書かないこと。
+- 差分ゼロなら `fbReconcile` を呼ばない（sf_bookings 側）。「保存したのに Promise が返らない」のは正常。
+  tl 側は tlPut / tlDel が常に1件書きの Promise を返す（ゲートや会計ガードで拒否されたときは null）
 - **`SF-READWINDOW-20260908` 以降、`SF_MIRROR` には日付窓内の予約しか入っていない**
   （board＝当月1日〜 / salon・notify＝昨日〜 / timely＝前月1日〜。窓開始は `window.SF_WINDOW_START`、
   起動時に1回計算し日をまたいでも張り直さない）。**「SF_MIRROR は全件」を前提にしたコードを書かないこと。**
@@ -225,7 +233,8 @@ sfSave()/sfSaveShared(arr) ─▶ sfChangedOnly(next, 写し) ─▶ fbReconcile
 
 `SF_MIRROR = Array.isArray(...)` は **git管理下の apps/*.html 12本すべて**にあります
 （board 5 / salon 3 / notify 3 / timely 1）。同期の骨格に手を入れるときの修正対象は最大12ファイル。
-なお `__sfSnapshotReceived` 相当の初回ガードを持つのは **timely だけ**で、他11本にはありません。
+なお `__sfSnapshotReceived` 相当の初回ガードと、業務データの TL_READY ゲート・1件書き
+（SF-CLOUDFIRST）を持つのは **timely だけ**で、他11本にはありません。
 
 ### オフライン永続化は12本すべて（SF-OFFLINE-20260826 / SF-OFFLINE-BOARD-20260830 / SF-OFFLINE-SALON・NOTIFY-20260908）
 
@@ -485,19 +494,12 @@ fix: 会計レポートの日別・月別サマリーに割引列を追加。基
   件数0に上書きされ、行の表示条件（`count>0`）で**行ごと消える**のに金額は合計に残ります
 - **合計人数は行の合算と一致しないのが仕様。** 早朝＋延長は同一日・同一氏名を1名に畳んだ
   実人数（`sfKinderExtCounts` の `unique`、SF-KINDERCOUNT-V2-20260819）に置き換わります
-- **版ガードは更新時刻が付くレコードにしか効かない。** `tlRecTime()`（:8998）が見るのは
-  `updatedAt || modifiedAt || paidAt || createdAt` の**最初に見つかったもの**（最大値ではない）。
-  会計前の下書き保存 `saveHandoverDraft()`（:15377-15400）が打つのは `handoverUpdatedAt` で、
-  このチェーンに**入っていません**。手元の編集がクラウド未達のままスナップショットが来ると失われます。
-  **新しい編集パスを足すときは必ず `updatedAt` を打つこと**
-- **会計ガードは visits 専用かつ paid→pending の一方向だけ。** customers / students には版ガードしか
-  効かないので、顧客情報の編集（更新箇所は :11637 のみ）で `updatedAt` を打ち忘れると巻き戻ります
-- **マージで手元を残しても写し（`TL_MIRROR[kind]`）にはクラウド側を入れます。**
-  写しは「クラウドの既知状態」であって DATA の写しではありません。DATA と同じにすると
-  `localWins` が差分判定から消えて再送されなくなります
-- **初回スナップショット経路だけは削除を尊重しません。** `tlApplySnapshot` の初回分岐（:9080-9099）は
-  `localOnly` を和集合で足し戻すため、他端末で削除した記録が古い端末の再読み込みで**復活しえます**。
-  削除が確実に効くのは購読中のタブが通る2回目以降の経路（:9103-9104）です
+- **（2026-10-07 更新）この表の時代にあった tl 側のマージ・版ガード・会計ガード・写し（TL_MIRROR）・
+  初回スナップショット経路は、SF-CLOUDFIRST-S1〜S3-20261007 でまるごと置き換えました**（→ §3【B】）。
+  「初回経路が削除を尊重せず、他端末で消した記録が復活する」問題（9/25・10/2）もこれで根治。
+  下書きの `handoverUpdatedAt` が版ガードに乗らない穴も、tlPut が `updatedAt` を必ず刻印する形で解消。
+  現存するガードは tlPut の pending-over-paid 拒否（比較相手は DATA＝クラウドビュー）と
+  TL_READY ゲートだけ。**新しい書き込みパスは必ず tlPut / tlDel を通すこと**（fbPutTl 直呼び禁止）
 - **board.html:2479 の行内コメント「ext は呼び出し側で除外済み」は SF-EXT-SHARE 以降は嘘です**
   （5本すべてに同じ古いコメントが残っています）。これを信じて「ext は共有されない」前提で触ると、
   timely の区分別内訳・区分別CSVの早朝・延長件数が壊れます
@@ -541,7 +543,7 @@ fix: 会計レポートの日別・月別サマリーに割引列を追加。基
 
 | マーカー | 内容 | 対象 |
 |---|---|---|
-| `SF-RESMATCH-20260930` | ボード由来（`sf:` キー）の予約から「当日入力を開く」で、**先に DATA.customers を探す**（guestName / guestKana を `sfDupKata` で正規化、完全一致＋2文字以上の前方一致）。完全一致1件→当日入力（`_pendingResSfId` 保持でサロン割引・tlDone 消費は従来どおり）／前方一致だけ・複数→生年月日つき選択モーダル（`sfSyncPopup`）／0件→`TL_SNAP_SEEN.customers` が立っていれば新規登録、未同期なら「顧客データを同期中です」で止まる。従来は無条件に新規登録へ飛ばしており、顧客重複（9/8・9/30）の入口だった | timely |
+| `SF-RESMATCH-20260930` | ボード由来（`sf:` キー）の予約から「当日入力を開く」で、**先に DATA.customers を探す**（guestName / guestKana を `sfDupKata` で正規化、完全一致＋2文字以上の前方一致）。完全一致1件→当日入力（`_pendingResSfId` 保持でサロン割引・tlDone 消費は従来どおり）／前方一致だけ・複数→生年月日つき選択モーダル（`sfSyncPopup`）／0件→`TL_SNAP_SEEN.customers`（現 `TL_READY.customers`）が立っていれば新規登録、未同期なら「顧客データを同期中です」で止まる。従来は無条件に新規登録へ飛ばしており、顧客重複（9/8・9/30）の入口だった | timely |
 | `SF-ARCHIVE-BOARD-20260930` | **過去月のオンデマンド読み（Phase 3）**。表示日付が窓より前になったら、その月の sf_bookings を `getDocs` で1回だけ読み `SF_ARCHIVE['YYYY-MM']` に月単位でキャッシュ（クエリは date 範囲のみ。gardenId 条件は複合インデックスが要るので手元で絞る）。`sfLoad()` は合成ビュー、`sfSave()` は振り分け＋削除計算は写しのみ。過去月は閲覧専用（帯「過去の月（閲覧のみ）」、「この月を編集可能にする」で解除）。カレンダーは読み込んだ月だけドット、未読込は薄く＋「この月を読み込む」 | board 5本 |
 | `SF-ARCHIVE-TIMELY-20260930` | **日報・月報の過去月（Phase 4）**。窓より前の日付／月を選んだら同じ方式で `SF_ARCHIVE_TL` に読み、`sfKinderExtCounts` の集計元だけ「写し＋アーカイブ」に（件数のみ・金額は sf_visits・CSV も同じ数）。DATA.reservations・削除パス・予約リストは無改変 | timely |
 | `SF-WAKESYNC-20260930` | タブが前面に戻ったら（visibilitychange / pageshow persisted）`disableNetwork`→`enableNetwork` で接続を張り直す。最終受信から90秒以上なら ヘッダーに「同期待ち」（`#sfWakeBadge`）を出し、サーバー確定（fromCache=false）の snapshot で消す。iPad で同一 origin の複数タブを開くと multiTab のプライマリタブが凍結される疑い（9/30 朝の同時空白）への対処。`persistentSingleTabManager` への切替は現場の切り分け待ち | 12本すべて |
@@ -551,6 +553,23 @@ fix: 会計レポートの日別・月別サマリーに割引列を追加。基
 
 これにより以前の懸案のうち **board のオフライン永続化・日付のUTCズレ・予約の消化漏れ・
 二重受付**は解決済み。§3 の「オフライン永続化」「落とし穴」を読むときはこの表も前提にすること。
+
+### 2026-10-07 に入った機能（SF-CLOUDFIRST：timely 保存層の作り直し）
+
+設計・経緯・移行手順・E2E 結果は **`DESIGN-cloudfirst.md`** が正。§3【B】はこの構造で全面書き換え済み。
+7/27 巻き戻り・8/26 再発・8/31 入力消失・9/25 と 10/2 の削除復活・10/7 容量超過消失の
+根（localStorage の DATA 配列を正本とした配列まるごとの突き合わせ）を止めた。
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-LSQUOTA-20261007` | localStorage 上限超過（署名画像 約4.8MB）でも会計・受付をクラウドへ必ず送る。キャッシュから signature を除外、premig 退避を削除、赤帯「保存領域がいっぱいです」 | timely |
+| `SF-CLOUDFIRST-S1-20261007` | **書き込み層**：操作1回＝その1件だけを setDoc / updateDoc / deleteDoc（tlPut / tlDel / saveSettings / tlOpBegin / sfPatchBooking、module 側 fbPutTl / fbDeleteTl / fbPutBooking / fbPatchBooking / fbDeleteBooking）。saveData 25箇所＋sfSaveShared 系6箇所を置換。管理機能（JSON読込・全消去・サンプル投入）は封印、JSONエクスポートは残す | timely |
+| `SF-CLOUDFIRST-S2-20261007` | **読み込み層**：snapshot を DATA[kind] へ丸ごと置換。マージ・写し（TL_MIRROR）・初回 localOnly 送り返しを廃止（削除復活の根治）。TL_SNAP_SEEN → TL_READY に改名し、書き込み11入り口を tlGateWrite で同期前不活性に。会計ガードは tlPut の pending-over-paid 拒否として存続 | timely |
+| `SF-CLOUDFIRST-S3-20261007` | **後片付け**：tlIdSet / tlRecTime / tlMergeByVersion / tlReconcile / saveData を削除、封印済み loadSampleData の旧本体を削除、saveDataLocalOnly → `saveViewCache` に改名 | timely |
+
+検証は `tests/playwright/test_cloudfirst.js`（26項目）＋既存6本、本番 E2E は Playwright
+headed（スタブ無し・REST 読み取りで裏取り）。残タスクは Step 4：4園 iPad の同日再読み込みと
+1週間の経過観察（混在期間は旧端末側にのみ旧事故の確率が残る。形式は相互互換で壊れない）。
 
 ---
 
