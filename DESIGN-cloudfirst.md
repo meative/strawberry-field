@@ -20,6 +20,10 @@
 - test_lsquota：tlMergeByVersion の署名移植項目を削除（関数ごと廃止）・saveViewCache 読み替え。
   test_cloudfirst [9]：throw 検出 → 「saveData が存在しない・ソース上の呼び出しゼロ」に更新
 - 検証：Playwright 7本 ALL PASS（cloudfirst 26項目）・root grep テストは既知3件 FAIL のみ・node --check VALID
+- **本番 E2E 再実行（9286554 配信後・手順1〜7と9・手順8は Step 2 で実施済み）19項目 ALL PASS**：
+  起動ゲート閉→開（103/67/9 一致）／当日入力 +1 → 会計¥0 → 日報削除 −1 → リロードで復活なし／
+  封印確認／陰性対照（キャッシュ種まき→送信ゼロ）／sf_visits の id 集合がベースラインと完全一致
+  （テスト残骸なし）。timely.html は 729,198 bytes（Step 3 で約 15.9KB 減）
 
 ## 2026-10-07 の作業ログ（Step 2）
 
