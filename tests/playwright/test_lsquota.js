@@ -106,9 +106,8 @@ function check(name, ok, extra) {
     const v = (DATA.visits || []).find(x => x.sfId === 'bk_ext1');
     v.paymentStatus = 'paid';
     v.paidAt = new Date().toISOString();
-    v.updatedAt = new Date().toISOString();
     v.totalAmount = 700;
-    saveData(DATA);
+    tlPut('visits', v);   /* SF-CLOUDFIRST-S1-20261007 : saveData は廃止（throw）。1件書きに変更 */
     const sent = window.__fs.writes.filter(w => w.op === 'set' && w.path === 'sf_visits/' + v.id);
     return { sent: sent.length, paid: sent.length ? sent[0].data.paymentStatus : null };
   });

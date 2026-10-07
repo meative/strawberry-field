@@ -43,7 +43,7 @@ export function getDocs(q) {
   }));
   return Promise.resolve({ docs: rows.map(r => ({ id: r.id, data: () => r })), size: rows.length, empty: !rows.length });
 }
-export function updateDoc() { return Promise.resolve(); }
+export function updateDoc(ref, data) { S.writes.push({ op: 'update', path: ref.name + '/' + ref.id, data }); return Promise.resolve(); }
 export function serverTimestamp() { return new Date().toISOString(); }
 // test helper: emit a snapshot to every active listener on a collection name
 window.__emit = function (name, rows, fromCache) {

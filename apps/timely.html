@@ -5611,7 +5611,7 @@
   import {
     getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
     disableNetwork, enableNetwork,   /* SF-WAKESYNC-20260930 */
-    collection, query, where, onSnapshot, doc, setDoc, deleteDoc, writeBatch,
+    collection, query, where, onSnapshot, doc, setDoc, updateDoc, deleteDoc, writeBatch,   /* SF-CLOUDFIRST-S1-20261007 : updateDoc を追加 */
     getDocs   /* SF-ARCHIVE-TIMELY-20260930 */
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
@@ -5758,6 +5758,45 @@
       console.error('[fbReconcileTl] write failed', kind, e);
       return { ok: false, error: (e && e.message) ? e.message : String(e) };
     }
+  };
+
+  /* ============================================================
+     SF-CLOUDFIRST-S1-20261007 : 1件書きの口（DESIGN-cloudfirst.md Step 1）。
+     操作1回＝その1件だけを setDoc / updateDoc / deleteDoc で書く。
+     配列まるごとの突き合わせ（fbReconcileTl / fbReconcile）は再送箱の互換のため残すが、
+     通常の保存はすべてこちらを通る（旧経路は Step 3 で削除予定）。
+     ============================================================ */
+  const fbErr = (tag, e) => { console.error(tag, e); return { ok: false, error: (e && e.message) ? e.message : String(e) }; };
+  window.fbPutTl = async (kind, rec) => {
+    const col = TL_COLS[kind];
+    if (!col || !rec || rec.id == null) return { ok: false, error: 'invalid args' };
+    try { await setDoc(doc(db, col, String(rec.id)), rec); return { ok: true }; }
+    catch (e) { return fbErr('[fbPutTl] write failed ' + kind, e); }
+  };
+  window.fbDeleteTl = async (kind, id) => {
+    const col = TL_COLS[kind];
+    if (!col || id == null) return { ok: false, error: 'invalid args' };
+    try { await deleteDoc(doc(db, col, String(id))); return { ok: true }; }
+    catch (e) { return fbErr('[fbDeleteTl] delete failed ' + kind, e); }
+  };
+  window.fbPutBooking = async (rec) => {
+    if (!rec || rec.id == null) return { ok: false, error: 'invalid args' };
+    try { await setDoc(doc(db, COL, String(rec.id)), rec); return { ok: true }; }
+    catch (e) { return fbErr('[fbPutBooking] write failed', e); }
+  };
+  window.fbPatchBooking = async (id, patch) => {
+    if (id == null || !patch) return { ok: false, error: 'invalid args' };
+    try { await updateDoc(doc(db, COL, String(id)), patch); return { ok: true }; }
+    catch (e) {
+      /* 予約が他端末で先に消されていたら patch の相手がいないだけ。再送箱に残さない */
+      if (e && e.code === 'not-found') { console.warn('[fbPatchBooking] 対象なし（削除済み）', id); return { ok: true, missing: true }; }
+      return fbErr('[fbPatchBooking] write failed', e);
+    }
+  };
+  window.fbDeleteBooking = async (id) => {
+    if (id == null) return { ok: false, error: 'invalid args' };
+    try { await deleteDoc(doc(db, COL, String(id))); return { ok: true }; }
+    catch (e) { return fbErr('[fbDeleteBooking] delete failed', e); }
   };
 
   /* SF-ROSTER-PUBLISH-20260722 : サロン向けの軽量名簿を1ドキュメントで発行する。
@@ -7072,7 +7111,8 @@
         </svg>
         <span>データをJSON出力</span>
       </button>
-      <button class="admin-tool-btn" onclick="importData()">
+      <!-- SF-CLOUDFIRST-S1-20261007 : JSON読込ボタンは封印（クラウドが正本。handleImport も無効化済み） -->
+      <button class="admin-tool-btn" style="display:none" onclick="importData()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <polyline points="7 10 12 15 17 10"/>
@@ -8749,30 +8789,61 @@ window.sfApplySnapshot = function(arr) {
   /* SF-EXTFEE19-20260911 : 内部生タブを開いている間に予約が入っても一覧が追いつくように */
   if (typeof sfRenderKinderTap === 'function') { try { sfRenderKinderTap(); } catch (e) {} }
 };
+/* SF-CLOUDFIRST-S1-20261007 : sf_bookings への書き込みを1件書きに揃える（DESIGN-cloudfirst.md 原則6）。
+   timely からは配列まるごとの sfSaveShared をもう呼ばない（関数自体は board 系と共通の骨格なので残す）。
+   写し（SF_MIRROR）はここで楽観更新し、正式な値は snapshot のエコーで届く。 */
+function sfPatchBooking(id, patch) {
+  if (!id || !patch) return null;
+  try {
+    var _rec = (SF_MIRROR || []).find(function (r) { return r && String(r.id) === String(id); });
+    if (_rec) Object.assign(_rec, patch);
+  } catch (e) {}
+  if (typeof window.fbPatchBooking !== 'function') {
+    console.warn('[sfPatchBooking] fbPatchBooking 未準備（起動直後）。写しのみ更新しました。', id);
+    return null;
+  }
+  return sfSyncTrack('sfpatch', String(id), [patch], [], window.fbPatchBooking(String(id), patch));
+}
 // 受付発レコードを共有に upsert（同 id があれば更新、無ければ追加）
 function sfUpsertShared(record) {
   if (!record || !record.id) return false;
-  const arr = sfLoadShared();
-  const idx = arr.findIndex(r => r && r.id === record.id);
-  if (idx >= 0) arr[idx] = record; else arr.push(record);
-  return sfSaveShared(arr);
+  try {
+    var _i = (SF_MIRROR || []).findIndex(function (r) { return r && r.id === record.id; });
+    var _copy = JSON.parse(JSON.stringify(record));
+    if (_i >= 0) SF_MIRROR[_i] = _copy; else SF_MIRROR.push(_copy);
+  } catch (e) {}
+  if (typeof window.fbPutBooking !== 'function') {
+    console.warn('[sfUpsertShared] fbPutBooking 未準備（起動直後）。写しのみ更新しました。');
+    return false;
+  }
+  sfSyncTrack('sf', null, [record], [], window.fbPutBooking(record));
+  return true;
 }
 // 共有から id 指定で削除
 function sfRemoveShared(id) {
   if (!id) return false;
-  const arr = sfLoadShared().filter(r => r && r.id !== id);
-  return sfSaveShared(arr, true);   /* SF-DELGUARD-20260831 : 明示的な削除 */
+  return sfRemoveSharedMany([id]);
 }
-/* SF-RESGROUP-DEL-20260830 : 複数のIDをまとめて1回で消す。
-   1件ずつ sfRemoveShared を呼ぶと、そのたびに配列全体を読んで書き直すことになり、
-   途中で失敗したときに「片方だけ消えた」状態が残る。まとめて1回にしておく。 */
+/* SF-RESGROUP-DEL-20260830 : 複数のIDをまとめて消す（区間の孤児化防止）。
+   SF-CLOUDFIRST-S1-20261007 : 1件ずつの明示 deleteDoc に変更。上限は SF-DELGUARD-20260831 を維持。 */
 function sfRemoveSharedMany(ids) {
   const list = (ids || []).filter(Boolean);
   if (!list.length) return false;
+  if (list.length > SF_DELGUARD_MAX) {
+    console.error('[SF-DELGUARD-20260831] 一度に ' + list.length + ' 件を消そうとしました（上限 ' + SF_DELGUARD_MAX + ' 件）。削除は行いません。', list);
+    return false;
+  }
   const drop = {};
   list.forEach(function (x) { drop[x] = true; });
-  const arr = sfLoadShared().filter(r => r && !drop[r.id]);
-  return sfSaveShared(arr, true);   /* SF-DELGUARD-20260831 : 明示的な削除 */
+  SF_MIRROR = (SF_MIRROR || []).filter(function (r) { return r && !drop[r.id]; });
+  if (typeof window.fbDeleteBooking !== 'function') {
+    console.warn('[sfRemoveSharedMany] fbDeleteBooking 未準備（起動直後）。写しのみ更新しました。');
+    return false;
+  }
+  list.forEach(function (x) {
+    sfSyncTrack('sf', null, [], [String(x)], window.fbDeleteBooking(String(x)));
+  });
+  return true;
 }
 // 生年月日から board 互換の {age:'0'..'3', months:0-11|null} を作る（board.html ageMonthsFromBirth と同等）
 function birthToAgeMonths(y, m, d) {
@@ -8944,7 +9015,7 @@ function importBoardReservations() {
   }
 
   if (changed) {
-    saveData(DATA);
+    saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。表示キャッシュのみ */
     if (typeof renderReservationList === 'function') {
       try { renderReservationList(); } catch (e) {}
     }
@@ -9125,11 +9196,16 @@ function sfSyncRetry(manual) {
   SF_SYNC.queue = [];
   sfSyncRenderBar();
   var jobs = batchList.map(function (j) {
-    var fn = (j.scope === 'tl') ? window.fbReconcileTl : window.fbReconcile;
+    /* SF-CLOUDFIRST-S1-20261007 : 'sfpatch'（sf_bookings の updateDoc）は専用口で再送する。
+       誤って fbReconcile(set) に流すと patch が「レコード全体」として書かれ、
+       対象外のフィールドが消えるため。 */
+    var fn = (j.scope === 'tl') ? window.fbReconcileTl
+           : (j.scope === 'sfpatch') ? window.fbPatchBooking
+           : window.fbReconcile;
     if (typeof fn !== 'function') { SF_SYNC.queue.push(j); return Promise.resolve({ ok: false }); }
-    var call = (j.scope === 'tl')
-      ? fn(j.kind, j.rows, j.deletedIds)
-      : fn(j.rows, j.deletedIds);
+    var call = (j.scope === 'tl') ? fn(j.kind, j.rows, j.deletedIds)
+             : (j.scope === 'sfpatch') ? fn(j.kind, j.rows[0])
+             : fn(j.rows, j.deletedIds);
     return Promise.resolve(call).then(function (res) {
       if (res && res.ok === false) { j.tries = (j.tries || 1) + 1; SF_SYNC.queue.push(j); return { ok: false }; }
       return { ok: true };
@@ -9282,7 +9358,8 @@ function tlDeleteVisitExec(id) {
   DATA.visits = (DATA.visits || []).filter(function (x) { return !(x && String(x.id) === String(id)); });
   if (DATA.visits.length === before) { toast('削除できませんでした（対象が見つかりません）', true); return; }
 
-  saveData(DATA);   // localStorage + tlReconcile（deletedIds→クラウド削除）。__sfSaveWaits に送信が積まれる
+  tlOpBegin();         /* SF-CLOUDFIRST-S1-20261007 : この削除1件だけを見届け対象にする */
+  tlDel('visits', id); // deleteDoc 1件。__sfSaveWaits に送信が積まれ、tlConfirmCloudDelete が見届ける
 
   // 画面を即時更新（消えた行を反映）
   try { if (typeof renderDailyReport === 'function') renderDailyReport(); } catch (e) {}
@@ -9501,27 +9578,62 @@ function saveDataLocalOnly(data) {
   }
 }
 
-function saveData(data) {
-  /* SF-LSQUOTA-20261007 : localStorage の成否とクラウド送信を切り離す。
-     従来は localStorage が失敗すると即 return false で、下のクラウド送信
-     （tlReconcile）に到達せず、会計・受付が端末にもクラウドにも残らなかった
-     （10/5 資生館の延長会計・10/6-7 月寒の早朝延長受付の実事故）。
-     失敗しても送信は必ず行い、失敗は sfLsQuotaShow の赤い帯で知らせる。
-     戻り値は「記録を保てたか」：送信まで進めば true（送信済みなら記録は失われない）。 */
-  saveDataLocalOnly(data);
-  if (__tlApplying) return true;              // スナップショット適用中は書き戻さない
-  /* SF-SYNCGUARD-20260727 : この1回の保存で発生する送信を集め直す */
+/* ============================================================
+   SF-CLOUDFIRST-S1-20261007 : 書き込み層の作り直し（DESIGN-cloudfirst.md Step 1）。
+   操作1回＝その1件だけを書く。saveData（配列まるごとの突き合わせ）は廃止し、
+   呼び残し検出のため throw する殻だけを残す（Step 3 で削除）。
+   読み側（tlApplySnapshot / TL_MIRROR / 初回送り返し）は Step 2 まで旧のまま。
+   tlPut された doc は snapshot で全端末に配られ、旧マージも後勝ちで受け入れるので共存できる。
+   ============================================================ */
+function tlPut(kind, rec) {
+  if (TL_KINDS.indexOf(kind) < 0 || !rec || rec.id == null) {
+    console.error('[SF-CLOUDFIRST-S1-20261007] tlPut: 引数が不正です', kind, rec);
+    return null;
+  }
+  /* 会計ガード（SF-VERGUARD-20260826 の新形態）：クラウド既知（TL_MIRROR）が paid の visit を
+     pending で上書きする書き込みは拒否する。正規の操作に paid→pending は存在しないため常に安全。 */
+  if (kind === 'visits' && rec.paymentStatus === 'pending') {
+    var _known = (TL_MIRROR.visits || []).find(function (x) { return x && String(x.id) === String(rec.id); });
+    if (_known && _known.paymentStatus === 'paid') {
+      console.error('[SF-CLOUDFIRST-S1-20261007] 会計済み(paid)を会計待ち(pending)で上書きする書き込みを拒否しました', rec.id);
+      return null;
+    }
+  }
+  rec.updatedAt = new Date().toISOString();   // 刻印の一元化（打ち忘れの根治）
+  saveDataLocalOnly(DATA);                    // 表示キャッシュ。失敗しても送信は止めない（SF-LSQUOTA-20261007）
+  var p = null;
+  if (typeof window.fbPutTl === 'function') {
+    p = sfSyncTrack('tl', kind, [rec], [], window.fbPutTl(kind, rec));
+  } else {
+    console.warn('[tlPut] fbPutTl 未準備（起動直後）。キャッシュのみ保存しました。', kind);
+  }
+  if (kind === 'customers') { try { rosterPublishIfChanged(); } catch (e) { console.error(e); } }
+  return p;
+}
+function tlDel(kind, id) {
+  if (TL_KINDS.indexOf(kind) < 0 || id == null || id === '') return null;
+  saveDataLocalOnly(DATA);
+  var p = null;
+  if (typeof window.fbDeleteTl === 'function') {
+    p = sfSyncTrack('tl', kind, [], [String(id)], window.fbDeleteTl(kind, id));
+  } else {
+    console.warn('[tlDel] fbDeleteTl 未準備（起動直後）。キャッシュのみ更新しました。', kind);
+  }
+  if (kind === 'customers') { try { rosterPublishIfChanged(); } catch (e) { console.error(e); } }
+  return p;
+}
+/* settings（園・スタッフ名簿）は現行どおり端末ローカルのみ（クラウド非同期） */
+function saveSettings() {
+  return saveDataLocalOnly(DATA);
+}
+/* 1操作（ボタン1回）ぶんの見届け対象を仕切り直す。saveData が担っていた __sfSaveWaits = [] の後継。
+   sfConfirmCloudSave / tlConfirmCloudDelete で見届ける操作（会計確定・会計記録の削除）の先頭で呼ぶ。 */
+function tlOpBegin() {
   __sfSaveWaits = [];
-  try {
-    TL_KINDS.forEach(function (kind) {
-      // 初回スナップショット受信前は送らない（空配列でクラウドを全消しするのを防ぐ）
-      if (!TL_SNAP_SEEN[kind]) return;
-      tlReconcile(kind, data[kind] || []);
-    });
-    /* SF-ROSTER-PUBLISH-20260722 : 顧客が増減したらサロン向け名簿も更新する */
-    rosterPublishIfChanged();
-  } catch (e) { console.error('[saveData] cloud sync error:', e); }
-  return true;
+}
+function saveData(data) {
+  /* SF-CLOUDFIRST-S1-20261007 : 廃止。呼び残しをテストと実機の pageerror で炙り出すため throw する（Step 3 で削除） */
+  throw new Error('SF-CLOUDFIRST: saveData は廃止されました（tlPut / tlDel / saveDataLocalOnly を使う）');
 }
 
 // module 側の onSnapshot から呼ばれる
@@ -10934,12 +11046,7 @@ function submitNewCustomer() {
   };
   
   DATA.customers.push(customer);
-  if (!saveData(DATA)) {
-    /* SF-SUBMITLOCK-20260908 : 失敗したらロックを解除して押し直せるようにする */
-    __regSubmitting = false;
-    if (_submitBtn) _submitBtn.disabled = false;
-    return toast('保存に失敗しました', true);
-  }
+  tlPut('customers', customer);   /* SF-CLOUDFIRST-S1-20261007 : この1件だけを書く */
   
   currentCustomer = customer;
   // 新規登録直後フラグ：当日入力での同意確認をスキップ
@@ -11754,7 +11861,10 @@ function submitVisit(_dupOk) {
           if (currentCustomer.childKana) m.kana = currentCustomer.childKana;
           m.provisional = false;
         });
-        sfSaveShared(_shared);           // 全区間ぶんをまとめて1回で書く
+        /* SF-CLOUDFIRST-S1-20261007 : 区間メンバーそれぞれに patch 1件（他のフィールドは無傷） */
+        _members.forEach(function (m) {
+          sfPatchBooking(m.id, { tlDone: true, tlVisitId: visit.id, name: m.name, kana: m.kana, provisional: false });
+        });
       }
     } catch (e) { console.error('[SF-SALON-INTAKE-20260722] 共有レコードの更新に失敗', e); }
   }
@@ -11799,17 +11909,16 @@ function submitVisit(_dupOk) {
           ? _shared2.filter(function (r) { return r && r.groupId === _rec2.groupId; })
           : (_rec2 ? [_rec2] : []);
         if (_mem2.length) {
-          _mem2.forEach(function (m) { m.tlDone = true; m.tlVisitId = visit.id; m.provisional = false; });
-          sfSaveShared(_shared2);
+          _mem2.forEach(function (m) {
+            m.tlDone = true; m.tlVisitId = visit.id; m.provisional = false;
+            sfPatchBooking(m.id, { tlDone: true, tlVisitId: visit.id, provisional: false });   /* SF-CLOUDFIRST-S1-20261007 */
+          });
           console.log('[SF-RESCONSUME-20260830] 予約を受付済みにしました: ' + _sid2 + ' (' + _vName + ' / ' + visit.visitDate + ')');
         }
       }
     } catch (e) { console.error('[SF-RESCONSUME-20260830] 予約の受付済み化に失敗', e); }
   }
-  if (!saveData(DATA)) {
-    _visitUnlock();   /* SF-SUBMITLOCK-20260925 : 失敗したら解除して押し直せるようにする */
-    return toast('保存に失敗しました', true);
-  }
+  tlPut('visits', visit);   /* SF-CLOUDFIRST-S1-20261007 : この1件だけを書く（予約消費の patch は上で送信済み） */
 
   /* SF-SUBMITLOCK-20260925 : モーダルが画面を覆ってから解除する。二度タップの2発目が
      ボタンに届く猶予（描画までの一瞬）を 800ms で吸収する（登録側と同じ幅）。 */
@@ -11859,7 +11968,7 @@ function clearVisitForm() {
 // ============================================================
 function changeBranch(branch) {
   DATA.settings.branch = branch;
-  saveData(DATA);
+  saveSettings();   /* SF-CLOUDFIRST-S1-20261007 : settings は端末ローカルのみ */
   document.getElementById('branchName').textContent = branch;
   // 切り替えた園の予約管理システム予約を取り込む
   try { importBoardReservations(); } catch (e) { console.error(e); }
@@ -11928,7 +12037,7 @@ function addStaff() {
   }
   
   DATA.settings.staff.push(name);
-  if (!saveData(DATA)) return toast('保存に失敗しました', true);
+  saveSettings();   /* SF-CLOUDFIRST-S1-20261007 */
   
   input.value = '';
   toast(`✓ ${name} さんを追加しました`);
@@ -11945,7 +12054,7 @@ function removeStaff(idx) {
   }
   
   DATA.settings.staff.splice(idx, 1);
-  if (!saveData(DATA)) return toast('削除に失敗しました', true);
+  saveSettings();   /* SF-CLOUDFIRST-S1-20261007 */
   
   toast(`✓ ${name} さんを削除しました`);
   renderStaffList();
@@ -12417,9 +12526,7 @@ function saveCustomerEdit() {
   customer.allergyHas = (allergyItems.length > 0 || allergyDetail) ? 'yes' : 'no';
   // 旧フィールドも互換のため削除
   delete customer.allergies;
-  customer.updatedAt = new Date().toISOString();
-  
-  if (!saveData(DATA)) return toast('保存に失敗しました', true);
+  tlPut('customers', customer);   /* SF-CLOUDFIRST-S1-20261007 : updatedAt は tlPut が刻印する */
   
   toast('✓ 顧客情報を更新しました');
   closeCustomerEditModal();
@@ -12463,11 +12570,10 @@ function deleteCustomer() {
         return;
       }
       
-      if (!saveData(DATA)) {
-        toast('削除に失敗しました', true);
-        return;
-      }
-      
+      /* SF-CLOUDFIRST-S1-20261007 : 顧客1件＋関連 visit を明示列挙で削除（配列差分は使わない） */
+      tlDel('customers', targetId);
+      relatedVisits.forEach(function (v) { if (v && v.id) tlDel('visits', v.id); });
+
       toast('✓ 顧客情報を削除しました');
       closeCustomerEditModal();
       renderCustomerList();
@@ -12701,8 +12807,7 @@ function saveStudent() {
     s.childKana = childKana;
     s.className = className;
     s.note = note;
-    s.updatedAt = new Date().toISOString();
-    if (!saveData(DATA)) return toast('保存に失敗しました', true);
+    tlPut('students', s);   /* SF-CLOUDFIRST-S1-20261007 : updatedAt は tlPut が刻印する */
     toast('✓ 自園生徒情報を更新しました');
   } else {
     // 新規追加
@@ -12713,7 +12818,7 @@ function saveStudent() {
       createdAt: new Date().toISOString()
     };
     DATA.students.push(student);
-    if (!saveData(DATA)) return toast('保存に失敗しました', true);
+    tlPut('students', student);   /* SF-CLOUDFIRST-S1-20261007 */
     toast('✓ 自園生徒を追加しました');
   }
   
@@ -12741,10 +12846,7 @@ function deleteStudent() {
         toast('削除できませんでした', true);
         return;
       }
-      if (!saveData(DATA)) {
-        toast('削除に失敗しました', true);
-        return;
-      }
+      tlDel('students', targetId);   /* SF-CLOUDFIRST-S1-20261007 */
       toast('✓ 自園生徒を削除しました');
       closeStudentEditModal();
       renderStudentList();
@@ -13389,11 +13491,11 @@ function confirmReservation() {
         _edRec.start = startTime;
         _edRec.end = endTime;
         _edRec.affiliation = DATA.reservations[idx].affiliation;
-        sfSaveShared(_edShared);
+        sfPatchBooking(_edRec.id, { date: date, start: startTime, end: endTime, affiliation: _edRec.affiliation });   /* SF-CLOUDFIRST-S1-20261007 */
       }
     }
 
-    if (!saveData(DATA)) return toast('保存に失敗しました', true);
+    saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。表示キャッシュのみ */
 
     toast('✓ 予約を変更しました');
   } else {
@@ -13446,7 +13548,7 @@ function confirmReservation() {
       fromBoard: false               // ← timely 自身が二重取込しないための鍵
     });
 
-    if (!saveData(DATA)) return toast('保存に失敗しました', true);
+    saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。共有側は上の sfUpsertShared（1件書き） */
 
     toast('✓ 予約リストに追加しました');
   }
@@ -13508,9 +13610,7 @@ function removeFromReservation(reservationKey) {
           !(r.customerId === customerId && r.reservationDate === date)
         );
       }
-      if (!saveData(DATA)) {
-        return toast('保存に失敗しました', true);
-      }
+      saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。共有側は上の明示削除（1件書き） */
       toast('✓ 削除しました');
       searchForReservation();
       renderReservationList();
@@ -13869,7 +13969,7 @@ function removeFromReservationByCustomerId(customerId) {
     !(r.customerId === customerId && r.reservationDate === todayStr)
   );
   if (DATA.reservations.length !== before) {
-    saveData(DATA);
+    saveDataLocalOnly(DATA);   /* SF-CLOUDFIRST-S1-20261007 : reservations は派生。表示キャッシュのみ */
   }
 }
 
@@ -15029,7 +15129,7 @@ function sfKinderTapIn(sfId) {
   }
   const visit = sfBuildInternalVisit({ usageKey, childName: String(r.name || '').trim(), className: '', studentId: null, date: r.date, start, end, memo: '', sfId: sfId });
   DATA.visits.push(visit);
-  if (!saveData(DATA)) { DATA.visits.pop(); return toast('保存に失敗しました', true); }
+  tlPut('visits', visit);   /* SF-CLOUDFIRST-S1-20261007 : この1件だけを書く（失敗時 pop は廃止。送信は tlPut が保証） */
   toast(`✓ ${type.label}を会計待ちに追加しました`);
   sfRenderKinderTap();
 }
@@ -15094,9 +15194,12 @@ function submitInternalUsage() {
   const visit = sfBuildInternalVisit({ usageKey, childName, className, studentId, date, start, end, memo });
 
   DATA.visits.push(visit);
-  if (!saveData(DATA)) {
-    return toast('保存に失敗しました', true);
+  /* SF-CLOUDFIRST-S1-20261007 : visit 1件＋（このとき名簿に追加したときだけ）student 1件を書く */
+  if (studentId && !_selectedInternalStudentId) {
+    var _ns = (DATA.students || []).find(function (x) { return x && x.id === studentId; });
+    if (_ns) tlPut('students', _ns);
   }
+  tlPut('visits', visit);
   
   toast(`✓ ${type.label}を会計待ちに追加しました`);
   setTimeout(() => navigate('home'), 800);
@@ -16514,10 +16617,10 @@ function saveHandoverDraft() {
   if (actualEnd) DATA.visits[idx].actualEndDraft = actualEnd;
   if (staff) DATA.visits[idx].receivedByDraft = staff;
   DATA.visits[idx].handoverUpdatedAt = new Date().toISOString();
-  
-  if (!saveData(DATA)) {
-    return toast('保存に失敗しました', true);
-  }
+
+  /* SF-CLOUDFIRST-S1-20261007 : 下書きもクラウドへ1件書き（DESIGN-cloudfirst.md 未決事項4の決定）。
+     tlPut が updatedAt を刻印するので、下書きが版ガードに負けて消える穴（CLAUDE.md §9）も塞がる */
+  tlPut('visits', DATA.visits[idx]);
   
   // 現在の参照も更新
   currentPaymentVisit.handoverItems = handoverItems;
@@ -16598,7 +16701,8 @@ function approvePayment() {
       && sfVisitMonthly(currentPaymentVisit, usageKey)
       && subTotal === 0 && finalTotal === 0) {
     DATA.visits = (DATA.visits || []).filter(v => !(v && v.id === currentPaymentVisit.id));
-    if (!saveData(DATA)) { _payUnlock(); return toast('保存に失敗しました', true); }   /* SF-SUBMITLOCK-20260925 */
+    tlOpBegin();                              /* SF-CLOUDFIRST-S1-20261007 */
+    tlDel('visits', currentPaymentVisit.id);
     toast('✓ 月極のため会計なし（¥0）で完了しました');
     setTimeout(() => { navigate('home'); _payUnlock(); }, 600);   /* SF-SUBMITLOCK-20260925 */
     return;
@@ -16640,7 +16744,8 @@ function approvePayment() {
       DATA.visits[idx].receiptNo = `${dateStr}-${String(sameDayCount).padStart(3, '0')}`;
     }
     
-    saveData(DATA);
+    tlOpBegin();                       /* SF-CLOUDFIRST-S1-20261007 : この会計1件だけを見届け対象にする */
+    tlPut('visits', DATA.visits[idx]);
     currentPaymentVisit = DATA.visits[idx];
     
     /* SF-SYNCGUARD-20260727 : クラウドに届いたことを見届けてから領収書へ進む。
@@ -18024,48 +18129,27 @@ function importData() {
   document.getElementById('importFile').click();
 }
 
+/* SF-CLOUDFIRST-S1-20261007 : 管理機能の封印（DESIGN-cloudfirst.md 未決事項1の決定）。
+   クラウド正本化後の「DATA 全体の上書き・全消去・サンプル投入」は全ドキュメントの一括操作に
+   なり危険なため、呼ばれても何もしない。JSON エクスポート（exportData）は残す。 */
 function handleImport(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const imported = JSON.parse(e.target.result);
-      if (!imported.customers || !imported.visits) {
-        return toast('不正なファイル形式です', true);
-      }
-      if (!confirm(`データを読み込みます。\n顧客: ${imported.customers.length}名\n来園記録: ${imported.visits.length}件\n\n現在のデータは上書きされます。よろしいですか？`)) {
-        return;
-      }
-      DATA = imported;
-      saveData(DATA);
-      toast('✓ データを読み込みました');
-      renderAdminLists();
-    } catch (err) {
-      toast('読み込みに失敗しました: ' + err.message, true);
-    }
-  };
-  reader.readAsText(file);
+  console.warn('[SF-CLOUDFIRST-S1-20261007] JSONインポートは封印されています（クラウドが正本）');
+  toast('JSON読込は使えません（クラウドのデータが正本です）', true);
 }
 
 function resetAllData() {
-  if (!confirm('⚠️ 警告\n\n全てのデータ（顧客・来園記録・予約・自園生徒名簿）が完全に削除されます。\n本当に実行しますか？\n\nこの操作は元に戻せません。')) {
-    return;
-  }
-  if (!confirm('本当によろしいですか？\n\n念のためデータをJSON出力してバックアップを取ることをおすすめします。')) {
-    return;
-  }
-  DATA = { customers: [], visits: [], reservations: [], students: [], settings: DATA.settings };
-  saveData(DATA);
-  toast('✓ 全データを削除しました');
-  renderAdminLists();
-  if (typeof renderStudentList === 'function') renderStudentList();
+  /* SF-CLOUDFIRST-S1-20261007 : 封印。全消去はクラウド全ドキュメントの削除になるため */
+  console.warn('[SF-CLOUDFIRST-S1-20261007] 全データ消去は封印されています（クラウドが正本）');
 }
 
 // ============================================================
 // サンプルデータ投入 (スタッフテスト用)
 // ============================================================
 function loadSampleData() {
+  /* SF-CLOUDFIRST-S1-20261007 : 封印。サンプル投入は DATA 全体の上書き＝クラウド一括操作になるため。
+     以降の本体は到達しない死コード（Step 3 で削除） */
+  console.warn('[SF-CLOUDFIRST-S1-20261007] サンプルデータ投入は封印されています（クラウドが正本）');
+  return;
   if (!confirm('サンプルデータを投入します。\n\n既存のデータがある場合は上書きされます。\nテスト用のデモデータ（顧客・自園生徒・来園記録）が入ります。\n\n実行しますか？')) {
     return;
   }
