@@ -17,8 +17,11 @@ export function onSnapshot(ref, a, b, c) {
   S.listeners.push(l);
   return () => { l.active = false; };
 }
-export function setDoc(ref, data) { S.writes.push({ op: 'set', path: ref.name + '/' + ref.id, data }); return Promise.resolve(); }
-export function deleteDoc(ref) { S.writes.push({ op: 'delete', path: ref.name + '/' + ref.id }); return Promise.resolve(); }
+// SF-UNSENTBOX-20261014 : window.__fsHang が真の間、書き込みの promise を永遠に未決着にする
+// （オフライン・凍結ストリームで setDoc が ack を待ち続ける状況の再現）。呼び出しの記録はする。
+const settle = () => window.__fsHang ? new Promise(() => {}) : Promise.resolve();
+export function setDoc(ref, data) { S.writes.push({ op: 'set', path: ref.name + '/' + ref.id, data }); return settle(); }
+export function deleteDoc(ref) { S.writes.push({ op: 'delete', path: ref.name + '/' + ref.id }); return settle(); }
 export function writeBatch(db) {
   const ops = [];
   return {
@@ -43,7 +46,7 @@ export function getDocs(q) {
   }));
   return Promise.resolve({ docs: rows.map(r => ({ id: r.id, data: () => r })), size: rows.length, empty: !rows.length });
 }
-export function updateDoc(ref, data) { S.writes.push({ op: 'update', path: ref.name + '/' + ref.id, data }); return Promise.resolve(); }
+export function updateDoc(ref, data) { S.writes.push({ op: 'update', path: ref.name + '/' + ref.id, data }); return settle(); }
 export function serverTimestamp() { return new Date().toISOString(); }
 // test helper: emit a snapshot to every active listener on a collection name
 window.__emit = function (name, rows, fromCache) {

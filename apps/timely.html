@@ -5687,6 +5687,8 @@
     return disableNetwork(db).then(() => enableNetwork(db)).then(() => {
       console.log('[SF-WAKESYNC-20260930] reconnected (' + (why || '') + ')' + (stale ? ' / waiting for server snapshot' : ''));
       if (stale) sfWakeConfirm();
+      /* SF-UNSENTBOX-20261014 (案A) : 接続の張り直し後に未送信箱を再送する */
+      if (typeof window.sfUnsentResend === 'function') setTimeout(() => window.sfUnsentResend('wakesync'), 1500);
       return true;
     }).catch((e) => {
       console.warn('[SF-WAKESYNC-20260930] reconnect failed', e);
@@ -9119,7 +9121,11 @@ function sfSyncEls() {
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'sfSyncBar';
-    bar.onclick = function () { sfSyncRetry(true); };
+    bar.onclick = function () {
+      sfSyncRetry(true);
+      /* SF-UNSENTBOX-20261014 : 赤帯タップで未送信箱も再送する（7日超は自動再送しない規則のまま） */
+      try { if (typeof sfUnsentResend === 'function') sfUnsentResend('manual'); } catch (e) {}
+    };
     document.body.appendChild(bar);
   }
   var ov = document.getElementById('sfSyncOv');
@@ -9145,11 +9151,15 @@ function sfSyncErrText(e) {
 function sfSyncRenderBar() {
   try {
     var bar = sfSyncEls().bar;
-    var n = SF_SYNC.queue.length;
+    /* SF-UNSENTBOX-20261014 : 件数は 未送信箱＋（箱と重複しない）SF_SYNC.queue */
+    var n = (typeof sfUnsentCountAll === 'function') ? sfUnsentCountAll() : SF_SYNC.queue.length;
     if (!n) { bar.classList.remove('show'); return; }
+    var old = (typeof sfUnsentOldCount === 'function') ? sfUnsentOldCount() : 0;
     bar.innerHTML = '<b>⚠ 未送信 ' + n + '件</b>' +
       '<span class="sub">クラウドに届いていません。' +
-      'タップするとすぐに送り直します。</span>';
+      'タップするとすぐに送り直します。' +
+      (old ? '<br>7日より古い未送信が ' + old + '件あります（自動では送り直しません）。' : '') +
+      '</span>';
     bar.classList.add('show');
   } catch (e) {}
 }
@@ -9516,6 +9526,146 @@ function saveViewCache(data) {
 }
 
 /* ============================================================
+   SF-UNSENTBOX-20261014 : 未送信箱（永続）＋10秒見届け（案A）＋送信前の接続張り直し（案C）。
+   2026-10-13/14 に内部生（早朝・延長）のタップ受付・手入力 visit がクラウドに届かないまま
+   リロードで消えた（全園で visit 0件・赤帯報告なし）。原因は「setDoc が失敗せず未決着のまま
+   端末がリロード/タブ破棄される」経路：赤帯と再送箱（SF_SYNC.queue）は Promise の決着しか
+   見ておらず、どちらもメモリのみでリロードに耐えない。S2 で localStorage の救済マージを
+   廃止した（削除復活の根治）ため、この取りこぼしが完全消失に変わっていた。
+   対策：
+   - tlPut / tlDel の promise に10秒の watchdog。未決着なら赤帯「未送信 n件」を出し、
+     localStorage の未送信箱（kind・id・rec・at）へ控える。成功の決着で箱から外す。
+     失敗の決着（ok:false）も箱に残す（従来の SF_SYNC.queue はメモリのみでリロードで消えるため）。
+   - 起動時（初回同期が揃ったあと）・online 復帰時・sfWakeSync 後に、箱の中身を同じ id で
+     fbPutTl / fbDeleteTl 再送（setDoc / deleteDoc は冪等）。
+   - 箱に入るのは「このセッションで自分が tlPut / tlDel した1件」だけ。snapshot 由来の
+     レコードは絶対に入れない（S2 の削除復活の根絶を壊さない）。
+   - 再送前にクラウドビュー（DATA＝snapshot の写し）と突き合わせ、同じ版（updatedAt）以上が
+     載っていれば「届いている」として送らずに箱から外す。削除の控えは、削除後に誰かが
+     書き直していたら（updatedAt が控えより新しい）その内容を尊重して送らない。
+     paid の visit を pending の控えで上書きもしない（tlPut の会計ガードと同じ）。
+   - 7日より古い控えは赤帯で知らせるだけで、自動では再送しない。
+   ============================================================ */
+var SF_UNSENT_KEY = 'timely_unsent_box_v1';
+var SF_UNSENT_MAX_AGE = 7 * 24 * 3600 * 1000;   // 7日
+var SF_UNSENT_WATCH_MS = 10000;                 // 見届けの待ち時間（10秒）
+function sfUnsentLoad() {
+  try {
+    var a = JSON.parse(localStorage.getItem(SF_UNSENT_KEY) || '[]');
+    return Array.isArray(a) ? a : [];
+  } catch (e) { return []; }
+}
+function sfUnsentSave(arr) {
+  try { localStorage.setItem(SF_UNSENT_KEY, JSON.stringify(arr)); }
+  catch (e) { console.error('[SF-UNSENTBOX-20261014] 未送信箱の保存に失敗しました（メモリのみで保持）', e); }
+}
+var SF_UNSENT = sfUnsentLoad();   // 起動時に復元
+function sfUnsentAdd(entry) {
+  SF_UNSENT = SF_UNSENT.filter(function (e) { return !(e && e.kind === entry.kind && e.id === entry.id); });
+  SF_UNSENT.push(entry);
+  sfUnsentSave(SF_UNSENT);
+  sfSyncRenderBar();
+}
+function sfUnsentRemove(kind, id) {
+  var before = SF_UNSENT.length;
+  SF_UNSENT = SF_UNSENT.filter(function (e) { return !(e && e.kind === kind && e.id === String(id)); });
+  if (SF_UNSENT.length !== before) sfUnsentSave(SF_UNSENT);
+  sfSyncRenderBar();
+}
+function sfUnsentOldCount() {
+  var lim = Date.now() - SF_UNSENT_MAX_AGE;
+  return SF_UNSENT.filter(function (e) {
+    var t = Date.parse((e && e.at) || '');
+    return !isFinite(t) || t < lim;
+  }).length;
+}
+/* 赤帯の件数：箱＋（箱と重複しない）SF_SYNC.queue。tl の queue 項目は箱にも入るため二重に数えない */
+function sfUnsentCountAll() {
+  var ids = {};
+  SF_UNSENT.forEach(function (e) { if (e) ids[e.kind + '|' + e.id] = 1; });
+  var extra = 0;
+  (SF_SYNC.queue || []).forEach(function (j) {
+    if (j && j.scope === 'tl') {
+      var rid = (j.rows && j.rows[0] && j.rows[0].id) || (j.deletedIds && j.deletedIds[0]);
+      if (rid != null && ids[j.kind + '|' + String(rid)]) return;
+    }
+    extra++;
+  });
+  return SF_UNSENT.length + extra;
+}
+/* 見届け（案A）：tlPut / tlDel の直後に呼ぶ。promise が10秒未決着なら箱へ。
+   成功（ok:true）の決着で箱から外す。失敗の決着・リジェクトは箱に残す。
+   promise が無い（起動直後で送信の口が無い）ときは即・箱へ。
+   rec はここで複製して控える（呼び出し側がこのあと編集しても、送ろうとした時点の内容を保つ）。 */
+function sfUnsentWatch(kind, rec, isDel, promise) {
+  var entry;
+  try {
+    entry = { kind: kind, id: String(isDel ? rec : rec.id),
+              rec: isDel ? null : JSON.parse(JSON.stringify(rec)),
+              del: !!isDel, at: new Date().toISOString() };
+  } catch (e) { console.error('[SF-UNSENTBOX-20261014] 控えを作れませんでした', kind, e); return; }
+  if (!promise) { sfUnsentAdd(entry); return; }
+  var t = setTimeout(function () { sfUnsentAdd(entry); }, SF_UNSENT_WATCH_MS);
+  Promise.resolve(promise).then(function (res) {
+    clearTimeout(t);
+    if (res && res.ok === false) sfUnsentAdd(entry);
+    else sfUnsentRemove(kind, entry.id);
+  }).catch(function () { clearTimeout(t); sfUnsentAdd(entry); });
+}
+/* 接続の張り直し（案C）：最終 snapshot 受信から90秒超なら、送信前に sfWakeSync を先に実行する
+   （起床直後の凍結ストリーム対策）。張り直しは非同期だが、SDK が書き込みを内部キューで
+   保持するため送信順は崩れない。 */
+function sfUnsentWake() {
+  try {
+    if (typeof window.sfWakeSync === 'function' && window.__sfWakeLastSnap
+        && (Date.now() - window.__sfWakeLastSnap) > 90000) window.sfWakeSync('write');
+  } catch (e) {}
+}
+/* 再送：起動時（初回同期が揃ったあと）・online 復帰・sfWakeSync 後・赤帯タップで呼ぶ。
+   クラウドビューとの突き合わせで「届いている」ものは送らず外す。7日超は自動再送しない。 */
+var __sfUnsentBusy = false;
+function sfUnsentResend(why) {
+  if (__sfUnsentBusy || !SF_UNSENT.length) { sfSyncRenderBar(); return Promise.resolve(true); }
+  __sfUnsentBusy = true;
+  var jobs = SF_UNSENT.slice().map(function (en) {
+    if (!en || TL_KINDS.indexOf(en.kind) < 0 || en.id == null) return Promise.resolve();
+    if (!TL_READY[en.kind]) return Promise.resolve();   // クラウドビュー未確立では照合も再送もしない
+    var cur = (DATA[en.kind] || []).find(function (x) { return x && String(x.id) === String(en.id); });
+    if (en.del) {
+      if (!cur) { sfUnsentRemove(en.kind, en.id); return Promise.resolve(); }   // もう無い＝届いた
+      if (cur.updatedAt && en.at && cur.updatedAt > en.at) { sfUnsentRemove(en.kind, en.id); return Promise.resolve(); }   // 削除後に誰かが書き直した → 尊重して消さない
+    } else {
+      var recU = en.rec && en.rec.updatedAt;
+      if (cur && recU && cur.updatedAt && cur.updatedAt >= recU) { sfUnsentRemove(en.kind, en.id); return Promise.resolve(); }   // 同じ版以上が載っている＝届いた
+      if (en.kind === 'visits' && cur && cur.paymentStatus === 'paid'
+          && en.rec && en.rec.paymentStatus === 'pending') {   // 会計ガード（tlPut と同じ）
+        sfUnsentRemove(en.kind, en.id); return Promise.resolve();
+      }
+    }
+    var ts = Date.parse(en.at || '');
+    if (!isFinite(ts) || (Date.now() - ts) > SF_UNSENT_MAX_AGE) return Promise.resolve();   // 7日超：知らせるだけ
+    var fn = en.del ? window.fbDeleteTl : window.fbPutTl;
+    if (typeof fn !== 'function') return Promise.resolve();
+    var call = en.del ? fn(en.kind, en.id) : fn(en.kind, en.rec);
+    return Promise.resolve(call).then(function (res) {
+      if (res && res.ok) { sfUnsentRemove(en.kind, en.id); return; }
+      console.warn('[SF-UNSENTBOX-20261014] 再送できませんでした（箱に残します）', en.kind, en.id, res && res.error);
+    }).catch(function (e) {
+      console.warn('[SF-UNSENTBOX-20261014] 再送できませんでした（箱に残します）', en.kind, en.id, e);
+    });
+  });
+  var fin = function () { __sfUnsentBusy = false; sfSyncRenderBar(); };
+  return Promise.all(jobs).then(function () { fin(); return true; }, function () { fin(); return false; });
+}
+window.sfUnsentResend = sfUnsentResend;   // module 側（sfWakeSync 後）から呼ぶ
+window.addEventListener('online', function () { try { sfUnsentResend('online'); } catch (e) {} });
+/* 起動直後から赤帯で箱の中身を知らせる（再送は初回同期が揃ってから tlApplySnapshot が1回だけ蹴る） */
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', function () { try { sfSyncRenderBar(); } catch (e) {} });
+} else { setTimeout(function () { try { sfSyncRenderBar(); } catch (e) {} }, 0); }
+/* ===== SF-UNSENTBOX-20261014 ここまで ===== */
+
+/* ============================================================
    SF-CLOUDFIRST-S1-20261007 : 書き込み層の作り直し（DESIGN-cloudfirst.md Step 1）。
    操作1回＝その1件だけを書く。saveData（配列まるごとの突き合わせ）は廃止
    （SF-CLOUDFIRST-S3-20261007 で殻ごと削除済み）。
@@ -9548,12 +9698,14 @@ function tlPut(kind, rec) {
   }
   rec.updatedAt = new Date().toISOString();   // 刻印の一元化（打ち忘れの根治）
   saveViewCache(DATA);                    // 表示キャッシュ。失敗しても送信は止めない（SF-LSQUOTA-20261007）
+  sfUnsentWake();   /* SF-UNSENTBOX-20261014 (案C) : 90秒超未受信なら送信前に接続を張り直す */
   var p = null;
   if (typeof window.fbPutTl === 'function') {
     p = sfSyncTrack('tl', kind, [rec], [], window.fbPutTl(kind, rec));
   } else {
-    console.warn('[tlPut] fbPutTl 未準備（起動直後）。キャッシュのみ保存しました。', kind);
+    console.warn('[tlPut] fbPutTl 未準備（起動直後）。未送信箱に控えて後で再送します。', kind);
   }
+  sfUnsentWatch(kind, rec, false, p);   /* SF-UNSENTBOX-20261014 (案A) : 10秒見届け。未決着なら未送信箱へ */
   if (kind === 'customers') { try { rosterPublishIfChanged(); } catch (e) { console.error(e); } }
   return p;
 }
@@ -9566,12 +9718,14 @@ function tlDel(kind, id) {
     return null;
   }
   saveViewCache(DATA);
+  sfUnsentWake();   /* SF-UNSENTBOX-20261014 (案C) : 90秒超未受信なら送信前に接続を張り直す */
   var p = null;
   if (typeof window.fbDeleteTl === 'function') {
     p = sfSyncTrack('tl', kind, [], [String(id)], window.fbDeleteTl(kind, id));
   } else {
-    console.warn('[tlDel] fbDeleteTl 未準備（起動直後）。キャッシュのみ更新しました。', kind);
+    console.warn('[tlDel] fbDeleteTl 未準備（起動直後）。未送信箱に控えて後で再送します。', kind);
   }
+  sfUnsentWatch(kind, String(id), true, p);   /* SF-UNSENTBOX-20261014 (案A) : 10秒見届け。未決着なら未送信箱へ */
   if (kind === 'customers') { try { rosterPublishIfChanged(); } catch (e) { console.error(e); } }
   return p;
 }
@@ -9631,6 +9785,12 @@ window.tlApplySnapshot = function (kind, rows) {
   if (TL_KINDS.indexOf(kind) < 0) return;
   DATA[kind] = Array.isArray(rows) ? rows : [];
   TL_READY[kind] = true;
+  /* SF-UNSENTBOX-20261014 (案A) : 初回同期が3種揃ったら、未送信箱を1回だけ再送する。
+     クラウドビュー（DATA）との突き合わせに初回 snapshot が要るため、揃う前には蹴らない。 */
+  if (tlReadyAll() && !window.__sfUnsentBootKick) {
+    window.__sfUnsentBootKick = true;
+    setTimeout(function () { try { sfUnsentResend('boot'); } catch (e) { console.error(e); } }, 1200);
+  }
   saveViewCache(DATA);   // 表示キャッシュ（signature 除外・失敗しても業務影響なし）
   /* SF-ROSTER-PUBLISH-20260722 : Firebaseコンソールでの直接削除など、
      ローカル保存を伴わない変更にも名簿を追従させる */
@@ -15090,6 +15250,14 @@ function sfKinderTapIn(sfId) {
   const visit = sfBuildInternalVisit({ usageKey, childName: String(r.name || '').trim(), className: '', studentId: null, date: r.date, start, end, memo: '', sfId: sfId });
   DATA.visits.push(visit);
   tlPut('visits', visit);   /* SF-CLOUDFIRST-S1-20261007 : この1件だけを書く（失敗時 pop は廃止。送信は tlPut が保証） */
+  /* SF-UNSENTBOX-20261014 (案B) : 予約側にも受付証跡（tlDone / tlVisitId）を patch で残す。
+     visit が届かない事故の検知・突合をデータで可能にする（2026-10-13/14 は予約側に痕跡ゼロで
+     消失の確定に手間取った）。受付済み判定と再受付可否は従来どおり visit（sfId / 氏名）で行い、
+     tlDone は参照しない（visit が消えたときに再タップで復旧できる余地を残す）。
+     幼稚舎の早朝・延長予約は importBoardReservations が affiliation で除外済みのため、
+     tlDone を立てても timely の予約リストには影響しない。board も tlDone を参照しない。 */
+  try { sfPatchBooking(sfId, { tlDone: true, tlVisitId: visit.id }); }
+  catch (e) { console.error('[SF-UNSENTBOX-20261014] 受付証跡の書き込みに失敗', e); }
   toast(`✓ ${type.label}を会計待ちに追加しました`);
   sfRenderKinderTap();
 }
@@ -15161,7 +15329,24 @@ function submitInternalUsage() {
     if (_ns) tlPut('students', _ns);
   }
   tlPut('visits', visit);
-  
+
+  /* SF-UNSENTBOX-20261014 (案B) : 手入力でも、対応する予約ボードの早朝・延長予約が1件に
+     決まるときだけ受付証跡（tlDone / tlVisitId）を patch で残す。照合は保守的に：
+     同じ園・同じ日・同じ区分・氏名の trim 一致・まだ証跡なし、で1件に絞れなければ
+     何もしない（SF-RESCONSUME-20260830 と同じ思想。予約の氏名は書き換えない）。 */
+  try {
+    var _zone = (usageKey === 'morning') ? 'ext_am' : ((usageKey === 'extension') ? 'ext_pm' : '');
+    if (_zone) {
+      var _gid = branchToGardenId(DATA.settings.branch);
+      var _nm = String(childName || '').trim();
+      var _bk = sfLoadShared().filter(function (r) {
+        return r && r.affiliation === 'youchisha' && r.salon === _zone && r.date === date
+          && r.gardenId === _gid && !r.tlDone && String(r.name || '').trim() === _nm;
+      });
+      if (_bk.length === 1) sfPatchBooking(_bk[0].id, { tlDone: true, tlVisitId: visit.id });
+    }
+  } catch (e) { console.error('[SF-UNSENTBOX-20261014] 受付証跡の書き込みに失敗', e); }
+
   toast(`✓ ${type.label}を会計待ちに追加しました`);
   setTimeout(() => navigate('home'), 800);
 }

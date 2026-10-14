@@ -28,6 +28,11 @@ node tests/playwright/test_archive_timely.js                                    
   改修前と DOM 一致することも検証する（省略可）
 - `test_archive_timely.js` … 窓（前月1日）より前の日報・月報で早朝・延長の件数が出る、1回だけ読む、
   区分別CSVと同じ数、SF_MIRROR / DATA.reservations には流れない、読み込み失敗の toast と再試行
+- `test_unsentbox.js` … SF-UNSENTBOX-20261014 : `window.__fsHang`（setDoc が失敗せず永遠に未決着）で
+  2026-10-13/14 の受付消失を再現 → 10秒で赤帯「未送信 n件」と localStorage の未送信箱（kind・id・rec・at）、
+  リロード・online 復帰・sfWakeSync 後の再送と決着での空化、snapshot 由来・成功した書き込みは箱に入らない
+  （陰性対照）、7日より古い控えは知らせるだけで自動でも手動でも再送しない、90秒超未受信の書き込みで
+  送信前に disableNetwork→enableNetwork、受付の予約証跡（tlDone / tlVisitId の patch）
 - `stubs.js` の `getDocs` は `window.__cloud[コレクション]` を where 条件で絞って返す。`window.__cloudFail = true` で失敗させられる
 
 `apps/` の場所は既定でこのリポジトリ直下。別の場所を見るなら `SF_APPS=/path/to/apps` を付ける。

@@ -45,17 +45,24 @@ function check(name, ok, extra) {
   }, { bookings });
   await page.waitForFunction(() => (sfLoadShared() || []).some(r => r.id === 'bk_ext1'), null, { timeout: 5000 });
 
-  // [1] 受付1回 → sf_visits の set が1件だけ（他のコレクション・他の doc への書き込みゼロ）
+  // [1] 受付1回 → sf_visits の set 1件＋予約への受付証跡 patch 1件（SF-UNSENTBOX-20261014 案B で
+  //     「1件だけ」から仕様変更。それ以外のコレクション・doc への書き込みはゼロのまま）
   const r1 = await page.evaluate(() => {
     window.__fs.writes.length = 0;
     sfKinderTapIn('bk_ext1');
     const v = (DATA.visits || []).find(x => x.sfId === 'bk_ext1') || null;
+    const bk = (SF_MIRROR || []).find(x => x && x.id === 'bk_ext1') || null;
     return { visitId: v && v.id, updatedAt: v && v.updatedAt,
+             mirrorDone: bk && bk.tlDone, mirrorVid: bk && bk.tlVisitId,
+             patchKeys: (window.__fs.writes[1] ? Object.keys(window.__fs.writes[1].data).sort().join(',') : ''),
              writes: window.__fs.writes.map(w => w.op + ':' + w.path) };
   });
-  check('[1] 受付1回で sf_visits の set が1件だけ',
-    r1.visitId && r1.writes.length === 1 && r1.writes[0] === 'set:sf_visits/' + r1.visitId,
-    JSON.stringify(r1.writes));
+  check('[1] 受付1回で sf_visits の set 1件＋sf_bookings への update(patch) 1件',
+    r1.visitId && r1.writes.length === 2 && r1.writes[0] === 'set:sf_visits/' + r1.visitId
+    && r1.writes[1] === 'update:sf_bookings/bk_ext1' && r1.patchKeys === 'tlDone,tlVisitId',
+    JSON.stringify(r1.writes) + ' keys=' + r1.patchKeys);
+  check('[1] 予約の写しにも受付証跡（tlDone / tlVisitId）が楽観反映される',
+    r1.mirrorDone === true && r1.mirrorVid === r1.visitId, JSON.stringify({ d: r1.mirrorDone, v: r1.mirrorVid }));
   check('[1] tlPut が updatedAt を刻印する', !!r1.updatedAt);
 
   // [2] 会計確定（approvePayment と同じ tlOpBegin + tlPut 経路）→ 同じ doc の set 1件・paid
