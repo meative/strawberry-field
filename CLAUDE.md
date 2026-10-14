@@ -1,7 +1,7 @@
 # CLAUDE.md — Claude Code 向け開発ガイド
 
 STRAWBERRY FIELD 予約システムを Claude Code で扱うときに、最初に読んでください。
-（最終更新 2026-10-07 / 全面改訂は 2026-08-28）
+（最終更新 2026-10-15 / 全面改訂は 2026-08-28）
 
 ---
 
@@ -190,6 +190,10 @@ SF-CLOUDFIRST-S1〜S3 で作り直したため、行番号ではなくマーカ�
     tlDel(kind, id)  ─▶ fbDeleteTl = deleteDoc （削除は明示 id のみ。差分からの削除算出は存在しない）
     予約消費          ─▶ fbPatchBooking = updateDoc（対象外フィールドは無傷）
   TL_READY が3種揃うまで、書き込み操作11箇所は tlGateWrite で不活性（「クラウドと同期中です」）
+  見届け（SF-UNSENTBOX-20261014）：tlPut / tlDel の promise が10秒未決着・失敗なら
+    赤帯「未送信 n件」＋localStorage の未送信箱 timely_unsent_box_v1（kind・id・rec・at）に控え、
+    起動時（初回同期後）・online 復帰・sfWakeSync 後・赤帯タップで同じ id を再送（冪等）。
+    箱に入るのは自分が tlPut / tlDel した1件だけ。snapshot 由来は構造上入らない。7日超は知らせるだけ
 ```
 
 送信側の差分化（sfChangedOnly → fbReconcile の writeBatch）は **sf_bookings（A）だけ**になった。
@@ -570,6 +574,22 @@ fix: 会計レポートの日別・月別サマリーに割引列を追加。基
 検証は `tests/playwright/test_cloudfirst.js`（26項目）＋既存6本、本番 E2E は Playwright
 headed（スタブ無し・REST 読み取りで裏取り）。残タスクは Step 4：4園 iPad の同日再読み込みと
 1週間の経過観察（混在期間は旧端末側にのみ旧事故の確率が残る。形式は相互互換で壊れない）。
+
+### 2026-10-15 に入った機能（SF-UNSENTBOX：未送信箱と受付証跡）
+
+10/13・10/14 に内部生（早朝・延長）の受付 visit が**全園でクラウドに届かないままリロードで消えた**。
+原因は「setDoc が失敗せず未決着のまま端末がリロード/タブ破棄される」経路：赤帯と SF_SYNC.queue は
+Promise の決着しか見ておらず、どちらもメモリのみ（S2 が localStorage 救済マージを廃止して以降、
+この取りこぼしは完全消失になる）。
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-UNSENTBOX-20261014` | **案A（未送信箱）**：tlPut / tlDel の promise に10秒の見届け。未決着・失敗は赤帯「未送信 n件」＋localStorage の未送信箱 `timely_unsent_box_v1`（kind・id・rec・at）へ控え、成功の決着で外す。起動時（初回同期3種後に1回）・online 復帰・sfWakeSync 後・赤帯タップで fbPutTl / fbDeleteTl 再送（冪等）。再送前にクラウドビューの updatedAt と照合（同版以上＝届いた）、削除後の書き直しを尊重、paid を pending の控えで潰さない、**7日超は知らせるだけで自動でも手動でも再送しない**。箱に入るのは自分が書いた1件だけで snapshot 由来は構造上入らない（削除復活の根絶は不変）。**案B（受付証跡）**：sfKinderTapIn と submitInternalUsage（同園・同日・同区分・氏名 trim 一致で1件に決まるときだけ）が予約へ `sfPatchBooking(id,{tlDone,tlVisitId})`。受付済み判定・再受付可否は従来どおり visit 側で tlDone は参照しない。**案C（張り直し）**：書き込み直前、最終 snapshot 受信から90秒超なら sfWakeSync() を先に実行 | timely |
+
+検証は `tests/playwright/test_unsentbox.js`（16項目。stubs.js の `window.__fsHang` で「失敗せず
+永遠に未決着」を再現）＋既存7本 ALL PASS、本番 E2E 14項目（ファクトリー・テスト予約→タップ受付→
+visit 到達・tlDone / tlVisitId 付与・他フィールド無傷→削除→残骸ゼロ）。
+test_cloudfirst [1] は案Bで「受付1回＝ set 1件＋予約への patch 1件」に仕様変更済み。
 
 ---
 
