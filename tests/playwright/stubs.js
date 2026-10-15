@@ -32,7 +32,14 @@ export function writeBatch(db) {
 }
 export function disableNetwork(db) { S.calls.push(['disableNetwork', Date.now()]); return Promise.resolve(); }
 export function enableNetwork(db) { S.calls.push(['enableNetwork', Date.now()]); return Promise.resolve(); }
-export function getDoc() { return Promise.resolve({ exists: () => false, data: () => null }); }
+// SF-DEVICES-20261015 : getDoc は window.__cloud[コレクション] から id 一致の1件を返す（無ければ exists:false）
+export function getDoc(ref) {
+  S.calls.push(['getDoc', ref.name + '/' + ref.id]);
+  if (window.__cloudFail) return Promise.reject(new Error('stub: getDoc failed'));
+  const rows = (window.__cloud || {})[ref.name] || [];
+  const r = rows.find(x => x && String(x.id) === String(ref.id)) || null;
+  return Promise.resolve({ exists: () => !!r, data: () => r, id: ref.id });
+}
 export function getDocs(q) {
   // window.__cloud[collection] から where 条件で絞って返す（==, >=, <=, >, <）。window.__cloudFail が真なら失敗させる
   const name = q.kind === 'query' ? q.ref.name : q.name;

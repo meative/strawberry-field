@@ -33,6 +33,15 @@ node tests/playwright/test_archive_timely.js                                    
   リロード・online 復帰・sfWakeSync 後の再送と決着での空化、snapshot 由来・成功した書き込みは箱に入らない
   （陰性対照）、7日より古い控えは知らせるだけで自動でも手動でも再送しない、90秒超未受信の書き込みで
   送信前に disableNetwork→enableNetwork、受付の予約証跡（tlDone / tlVisitId の patch）
-- `stubs.js` の `getDocs` は `window.__cloud[コレクション]` を where 条件で絞って返す。`window.__cloudFail = true` で失敗させられる
+- `test_tombstone.js` … SF-TOMBSTONE-20261015 : tlDel で deleteDoc＋sf_tombstones/{id}（kind・deletedAt・by）、
+  墓石付き id が snapshot に現れたら自動 deleteDoc・表示除去・ログ [SF-TOMBSTONE] revived=、到着順が逆でも効く、
+  90日超の墓石は効かせず掃除する、陰性対照
+- `test_fleet.js` … SF-WRITESTAMP-20261015 / SF-DEVICES-20261015 : 12本すべてで、起動時の sf_devices 台帳と
+  sf_config/version の getDoc、全書き込み口（fbReconcile / kinderSave / fbCapSet / nfWrite / fbPutTl / fbPatchBooking）の
+  _w:{dev,ver,at} 刻印と既存フィールド不変、sfChangedOnly が _w だけの違いを無視、前面復帰の台帳更新
+- `test_devices.js` … SF-DEVICES-20261015 : 版一致でリロードなし／版が古いと自動リロード1回（1日1回ガード・刻印）／
+  ガード中は見送りログ／入力中は後回し
+- `stubs.js` の `getDocs` は `window.__cloud[コレクション]` を where 条件で絞って返す。`window.__cloudFail = true` で失敗させられる。
+  `getDoc` も同様に `window.__cloud` から id 一致の1件を返す。`window.__fsHang = true` で setDoc / updateDoc / deleteDoc を永遠に未決着にできる
 
 `apps/` の場所は既定でこのリポジトリ直下。別の場所を見るなら `SF_APPS=/path/to/apps` を付ける。

@@ -59,7 +59,7 @@ function check(name, ok, extra) {
   });
   check('[1] 受付1回で sf_visits の set 1件＋sf_bookings への update(patch) 1件',
     r1.visitId && r1.writes.length === 2 && r1.writes[0] === 'set:sf_visits/' + r1.visitId
-    && r1.writes[1] === 'update:sf_bookings/bk_ext1' && r1.patchKeys === 'tlDone,tlVisitId',
+    && r1.writes[1] === 'update:sf_bookings/bk_ext1' && r1.patchKeys === '_w,tlDone,tlVisitId',   /* SF-WRITESTAMP-20261015 : _w 刻印が付く */
     JSON.stringify(r1.writes) + ' keys=' + r1.patchKeys);
   check('[1] 予約の写しにも受付証跡（tlDone / tlVisitId）が楽観反映される',
     r1.mirrorDone === true && r1.mirrorVid === r1.visitId, JSON.stringify({ d: r1.mirrorDone, v: r1.mirrorVid }));
@@ -112,8 +112,9 @@ function check(name, ok, extra) {
     return { vid: v.id, afterDel,
              stillThere: (DATA.visits || []).some(x => x.id === v.id) };
   });
-  check('[3] 削除で deleteDoc が1件だけ',
-    r3.afterDel.length === 1 && r3.afterDel[0] === 'delete:sf_visits/' + r3.vid,
+  check('[3] 削除で deleteDoc 1件＋墓石（sf_tombstones）の set 1件（SF-TOMBSTONE-20261015 で仕様変更）',
+    r3.afterDel.length === 2 && r3.afterDel.includes('delete:sf_visits/' + r3.vid)
+    && r3.afterDel.includes('set:sf_tombstones/' + r3.vid),
     JSON.stringify(r3.afterDel));
   check('[3] 削除反映後の snapshot で復活しない', r3.stillThere === false);
 
@@ -128,7 +129,7 @@ function check(name, ok, extra) {
              mirrorDone: rec && rec.tlDone, mirrorMemo: rec && rec.memo, mirrorName: rec && rec.name };
   });
   check('[7] 予約消費は updateDoc(patch) 1件（set ではない）',
-    r7.n === 1 && r7.op === 'update' && r7.path === 'sf_bookings/bk_temp1' && r7.patchKeys === 'tlDone,tlVisitId',
+    r7.n === 1 && r7.op === 'update' && r7.path === 'sf_bookings/bk_temp1' && r7.patchKeys === '_w,tlDone,tlVisitId',   /* SF-WRITESTAMP-20261015 */
     JSON.stringify(r7));
   check('[7] 写しは楽観更新・対象外フィールド（memo/name）は無傷',
     r7.mirrorDone === true && r7.mirrorMemo === 'メモは無傷のこと' && r7.mirrorName === 'テスト ハナコ');

@@ -541,7 +541,7 @@ body {
   import {
     getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
     disableNetwork, enableNetwork,   /* SF-WAKESYNC-20260930 */
-    collection, query, where, onSnapshot, doc, setDoc, deleteDoc, writeBatch,
+    collection, query, where, onSnapshot, doc, getDoc, setDoc, deleteDoc, writeBatch,
     getDocs   /* SF-ARCHIVE-BOARD-20260930 */
   } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
   import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
@@ -609,11 +609,88 @@ body {
     payload[garden] = {};
     payload[garden][slot] = {};
     payload[garden][slot][name] = value;
-    return setDoc(doc(db, 'sf_kinder_attendance', kinderTodayId), payload, { merge: true });
+    return setDoc(doc(db, 'sf_kinder_attendance', kinderTodayId), sfStamp(payload), { merge: true });   /* SF-WRITESTAMP-20261015 */
   };
   /* ===== end SF-KINDER-BOARD-STEP23-20260630 モジュール側 ===== */
 
   const auth = getAuth(app);
+  /* ============================================================
+     SF-WRITESTAMP-20261015 : 書き込み刻印。すべての setDoc / updateDoc / batch.set の
+     ペイロードに _w:{dev, ver, at} を付ける（データ形式の追加のみ。既存フィールドは不変）。
+     10/8 朝、旧版ページを開いたままの端末が削除済み visit 2件を書き戻した事故で、
+     「どの端末のどの版がいつ書いたか」がクラウド側に何も残っておらず特定に手間取った。
+     SF-DEVICES-20261015 : 端末台帳 sf_devices/{dev}（1端末1件・更新のみ）と版確認。
+     sf_config/version の ver と自分の SF_APP_VER が違えば自動再読込（1日1回まで・入力中は後回し）。
+     ============================================================ */
+  const SF_APP_NAME = 'board';
+  const SF_APP_VER = 'dev';   // 版の刻印。リリース時にコミット短縮SHAへ置換する（手順は CLAUDE.md）
+  const SF_DEV_ID = (() => {
+    try {
+      let d = localStorage.getItem('sf_device_id_v1');
+      if (!d) { d = 'D' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); localStorage.setItem('sf_device_id_v1', d); }
+      return d;
+    } catch (e) { return 'D-nostorage'; }
+  })();
+  const SF_TAB_ID = 'T' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  window.SF_APP_VER = SF_APP_VER; window.SF_DEV_ID = SF_DEV_ID;
+  const sfStamp = (rec) => {
+    try { return Object.assign({}, rec, { _w: { dev: SF_DEV_ID, ver: SF_APP_VER, at: new Date().toISOString() } }); }
+    catch (e) { return rec; }
+  };
+  const sfGardenHint = () => { try { return (typeof CURRENT_GARDEN !== 'undefined' && CURRENT_GARDEN) || ''; } catch (e) { return ''; } };
+  const sfDeviceBeat = (why) => {
+    try {
+      const ua = String(navigator.userAgent || '');
+      let ios = (ua.match(/(?:iPhone|iPad|CPU) OS (\d+[._]\d+)/) || [])[1] || '';
+      ios = ios ? ios.replace('_', '.')
+        : ((/Macintosh/.test(ua) && (ua.match(/Version\/(\d+\.\d+)/) || [])[1]) ? 'mac-safari ' + (ua.match(/Version\/(\d+\.\d+)/) || [])[1] : '');
+      let tabsHint = 1;   // 同一端末で最近5分に生きていたタブ数の目安（複数タブ運用の検知用）
+      try {
+        const K = 'sf_tabs_hint_v1', now = Date.now();
+        const m = JSON.parse(localStorage.getItem(K) || '{}');
+        m[SF_TAB_ID] = now;
+        Object.keys(m).forEach(k => { if (now - m[k] > 5 * 60 * 1000) delete m[k]; });
+        localStorage.setItem(K, JSON.stringify(m));
+        tabsHint = Object.keys(m).length;
+      } catch (e) {}
+      setDoc(doc(db, 'sf_devices', SF_DEV_ID), sfStamp({
+        garden: sfGardenHint(), app: SF_APP_NAME, ver: SF_APP_VER, ua: ua.slice(0, 200),
+        iosVersion: ios, lastSeen: new Date().toISOString(), tabsHint: tabsHint,
+      })).catch((e) => console.warn('[SF-DEVICES-20261015] 台帳の更新に失敗', e));
+    } catch (e) {}
+  };
+  let __sfVerBusy = false;
+  const sfVersionCheck = (why) => {
+    if (__sfVerBusy) return;
+    __sfVerBusy = true;
+    getDoc(doc(db, 'sf_config', 'version')).then((snap) => {
+      __sfVerBusy = false;
+      const latest = (snap && snap.exists() && snap.data()) ? snap.data().ver : null;
+      if (!latest || latest === SF_APP_VER) return;
+      const K = 'sf_verreload_at_v1';
+      let last = 0; try { last = Number(localStorage.getItem(K) || 0); } catch (e) {}
+      if (Date.now() - last < 24 * 3600 * 1000) {
+        console.warn('[SF-DEVICES-20261015] 版が古い（' + SF_APP_VER + '→' + latest + '）。本日は再読込済みのため見送り');
+        return;
+      }
+      const tryReload = () => {
+        const a = document.activeElement;
+        const typing = !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable))
+          || !!(typeof window.__sfBusyHint === 'function' && window.__sfBusyHint());
+        if (typing) { console.log('[SF-DEVICES-20261015] 入力中のため再読込を後回し'); setTimeout(tryReload, 60 * 1000); return; }
+        try { localStorage.setItem(K, String(Date.now())); } catch (e) {}
+        console.warn('[SF-DEVICES-20261015] 新しい版へ再読み込みします ' + SF_APP_VER + ' → ' + latest);
+        location.reload();
+      };
+      tryReload();
+    }).catch((e) => { __sfVerBusy = false; });
+  };
+  window.sfDeviceBeat = sfDeviceBeat; window.sfVersionCheck = sfVersionCheck;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { sfDeviceBeat('visible'); sfVersionCheck('visible'); }
+  });
+  window.addEventListener('pageshow', (e) => { if (e && e.persisted) { sfDeviceBeat('pageshow'); sfVersionCheck('pageshow'); } });
+  /* ===== SF-WRITESTAMP-20261015 / SF-DEVICES-20261015 ここまで ===== */
   /* SF-WAKESYNC-20260930 : タブが前面に戻ったら Firestore の接続を張り直す。
      iPad の Safari で同一 origin のタブを複数開くと、persistentMultipleTabManager の
      プライマリタブ（サーバーと唯一つながるタブ）が背面で凍結され、前面のタブに更新が
@@ -704,7 +781,7 @@ body {
   window.fbReconcile = async (arr, deletedIds) => {
     try {
       const batch = writeBatch(db);
-      (arr || []).forEach(r => { if (r && r.id) batch.set(doc(db, COL, String(r.id)), r); });
+      (arr || []).forEach(r => { if (r && r.id) batch.set(doc(db, COL, String(r.id)), sfStamp(r));   /* SF-WRITESTAMP-20261015 */ });
       (deletedIds || []).forEach(id => { if (id) batch.delete(doc(db, COL, String(id))); });
       await batch.commit();
     } catch (e) { console.error('[fbReconcile] write failed', e); }
@@ -724,7 +801,7 @@ body {
 
   // 定員ドキュメントの書き込み（ドキュメント単位。sf_bookings の配列reconcileとは別の軽いAPI）
   window.fbCapSet = async (docId, data) => {
-    try { await setDoc(doc(db, CAP_COL, String(docId)), data); }
+    try { await setDoc(doc(db, CAP_COL, String(docId)), sfStamp(data)); }   /* SF-WRITESTAMP-20261015 */
     catch (e) { console.error('[fbCapSet] write failed', e); }
   };
   // 定員ドキュメントの削除（日別例外の解除など）
@@ -737,6 +814,7 @@ body {
   // ステップ3で Firestore ルールを「認証必須」に厳格化しても、サインイン済みの状態で
   // 購読が始まるため permission-denied で落ちない。
   signInAnonymously(auth).then(() => {
+    sfDeviceBeat('boot'); sfVersionCheck('boot');   /* SF-DEVICES-20261015 : 起動時の台帳更新と版確認 */
     /* SF-KINDER-AUTHFIX-20260715: subscribe AFTER anonymous sign-in so that tightening Firestore rules to request.auth != null does not cause permission-denied. */
     onSnapshot(doc(db, 'sf_kinder_attendance', kinderTodayId), function(snap){
       kinderAttendance = snap.exists() ? (snap.data() || {}) : {};
@@ -1288,6 +1366,15 @@ function sfArchiveDeleteExplicit(before, after) {
    取りこぼしは請求や予約の消失に直結するため、疑わしいときは必ず書く側に倒す。
      - 写しと同一のオブジェクトを指している場合 … その場書き換えを検知できないので書く
      - 判定そのものが失敗した場合             … 従来どおり全件を書く */
+/* SF-WRITESTAMP-20261015 : _w（書き込み刻印）は差分判定から除く。snapshot 由来のレコードには
+   _w が付き、手元で組み立てたレコードには付かないため、混ぜて比較すると毎回「全件変わった」と
+   判定されて全件書き直し（書き込み枠の浪費と上書き競合）になる。 */
+function sfStripW(o) {
+  if (o && typeof o === 'object' && !Array.isArray(o) && o._w !== undefined) {
+    var c = Object.assign({}, o); delete c._w; return c;
+  }
+  return o;
+}
 function sfCanon(v) {
   if (v === null || typeof v !== 'object') return JSON.stringify(v);
   if (Array.isArray(v)) {
@@ -1307,14 +1394,14 @@ function sfChangedOnly(next, prev) {
     var m = {}, i, p, n, e;
     for (i = 0; i < (prev || []).length; i++) {
       p = prev[i];
-      if (p && p.id != null) m[String(p.id)] = { o: p, s: sfCanon(p) };
+      if (p && p.id != null) m[String(p.id)] = { o: p, s: sfCanon(sfStripW(p)) };   /* SF-WRITESTAMP-20261015 */
     }
     var out = [];
     for (i = 0; i < (next || []).length; i++) {
       n = next[i];
       if (!n || n.id == null) continue;
       e = m[String(n.id)];
-      if (!e || e.o === n || e.s !== sfCanon(n)) out.push(n);
+      if (!e || e.o === n || e.s !== sfCanon(sfStripW(n))) out.push(n);   /* SF-WRITESTAMP-20261015 */
     }
     return out;
   } catch (err) {

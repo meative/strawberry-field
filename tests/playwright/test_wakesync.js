@@ -44,7 +44,7 @@ function check(file, name, ok, extra) {
       const before = window.__fs.calls.length;
       document.dispatchEvent(new Event('visibilitychange'));
       await new Promise(res => setTimeout(res, 0)); await new Promise(res => setTimeout(res, 0));
-      const seq = window.__fs.calls.slice(before).map(c => c[0]);
+      const seq = window.__fs.calls.slice(before).map(c => c[0]).filter(x => x === 'disableNetwork' || x === 'enableNetwork');   /* SF-DEVICES-20261015 : 前面復帰では版確認(getDoc)と台帳更新も走るため、再接続の並びだけを見る */
       return { seq, shown: document.getElementById('sfWakeBadge').classList.contains('show'), count: window.__sfWakeCount, vis: document.visibilityState,
         confirm: window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges).length };
     });
@@ -57,7 +57,7 @@ function check(file, name, ok, extra) {
       const before = window.__fs.calls.length;
       document.dispatchEvent(new Event('visibilitychange'));
       await new Promise(res => setTimeout(res, 0)); await new Promise(res => setTimeout(res, 0));
-      const seq = window.__fs.calls.slice(before).map(c => c[0]);
+      const seq = window.__fs.calls.slice(before).map(c => c[0]).filter(x => x === 'disableNetwork' || x === 'enableNetwork');   /* SF-DEVICES-20261015 : 前面復帰では版確認(getDoc)と台帳更新も走るため、再接続の並びだけを見る */
       const conf = window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges);
       const b = document.getElementById('sfWakeBadge');
       return { seq, shown: b.classList.contains('show'), display: getComputedStyle(b).display, text: b.textContent.trim(),
@@ -102,7 +102,7 @@ function check(file, name, ok, extra) {
       document.dispatchEvent(new Event('visibilitychange'));
       document.dispatchEvent(new Event('visibilitychange'));
       await new Promise(res => setTimeout(res, 0)); await new Promise(res => setTimeout(res, 0));
-      return window.__fs.calls.slice(before).map(c => c[0]).join('>');
+      return window.__fs.calls.slice(before).map(c => c[0]).filter(x => x === 'disableNetwork' || x === 'enableNetwork').join('>');
     });
     check(file, '(D) two synchronous visibilitychange events → one reconnect', r === 'disableNetwork>enableNetwork', r);
 
@@ -111,11 +111,11 @@ function check(file, name, ok, extra) {
       const before = window.__fs.calls.length;
       window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }));
       await new Promise(res => setTimeout(res, 0));
-      const a = window.__fs.calls.slice(before).map(c => c[0]).join('>');
+      const a = window.__fs.calls.slice(before).map(c => c[0]).filter(x => x === 'disableNetwork' || x === 'enableNetwork').join('>');
       const b0 = window.__fs.calls.length;
       window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
       await new Promise(res => setTimeout(res, 0)); await new Promise(res => setTimeout(res, 0));
-      return { a, b: window.__fs.calls.slice(b0).map(c => c[0]).join('>') };
+      return { a, b: window.__fs.calls.slice(b0).map(c => c[0]).filter(x => x === 'disableNetwork' || x === 'enableNetwork').join('>') };
     });
     check(file, '(E) pageshow persisted=false ignored / persisted=true reconnects', r.a === '' && r.b === 'disableNetwork>enableNetwork', JSON.stringify(r));
 
@@ -125,7 +125,7 @@ function check(file, name, ok, extra) {
       const before = window.__fs.calls.length;
       document.dispatchEvent(new Event('visibilitychange'));
       await new Promise(res => setTimeout(res, 0));
-      const seq = window.__fs.calls.slice(before).map(c => c[0]).join('>');
+      const seq = window.__fs.calls.slice(before).map(c => c[0]).filter(x => x === 'disableNetwork' || x === 'enableNetwork').join('>');
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
       return seq;
     });

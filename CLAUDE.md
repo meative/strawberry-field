@@ -591,6 +591,23 @@ Promise の決着しか見ておらず、どちらもメモリのみ（S2 が lo
 visit 到達・tlDone / tlVisitId 付与・他フィールド無傷→削除→残骸ゼロ）。
 test_cloudfirst [1] は案Bで「受付1回＝ set 1件＋予約への patch 1件」に仕様変更済み。
 
+### 2026-10-15 に入った機能（SF-TOMBSTONE / SF-WRITESTAMP / SF-DEVICES：墓石・書き込み刻印・端末台帳）
+
+10/7 に削除した会計待ち2件が 10/8 朝 07:40 に復活していた（REST の createTime=updateTime が2件とも
+同一マイクロ秒＝単一 writeBatch・updatedAt 無し・旧フィールド構成）。**旧版ページを開いたままの端末が
+旧コードの「初回送り返し」で書き戻した**もの。書いた端末・版がクラウドに何も残らず特定に手間取った。
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-TOMBSTONE-20261015` | 削除の墓石。tlDel が `sf_tombstones/{id}` に {kind, deletedAt, by} を書き、購読側（tlApplyTombstones / tlSweepTombstoned）が「墓石付き id が snapshot に現れたら自動で deleteDoc し直し・表示からも除く」（ログ `[SF-TOMBSTONE] revived=`）。墓石は90日保持（超えたら効かせず、1回8件まで掃除）。墓石を書くのは自分の tlDel だけで snapshot からは作らない | timely |
+| `SF-WRITESTAMP-20261015` | 書き込み刻印。全 setDoc / updateDoc / batch.set のペイロードに `_w:{dev, ver, at}`（端末ID・版・時刻）。既存フィールドは不変。**sfChangedOnly の差分判定からは sfStripW で _w を除外**（混ぜると毎回「全件変わった」になり全件書き直しになる） | 12本 |
+| `SF-DEVICES-20261015` | 端末台帳と版確認。起動時・前面復帰時に `sf_devices/{dev}` へ {garden, app, ver, ua, iosVersion, lastSeen, tabsHint} を setDoc（1端末1件）。`sf_config/version` の ver と自分の `SF_APP_VER` が違えば自動再読込（**1日1回まで**・入力中＝activeElement か `window.__sfBusyHint()` は後回し）。端末IDは localStorage `sf_device_id_v1`（同一端末の12本で共通） | 12本 |
+
+**リリース手順（版の刻印）**：①実装をコミット → ②その短縮SHAを12本の `const SF_APP_VER = '…'` に
+刻印する版コミット → push → ③ REST で `sf_config/version` に {ver: 短縮SHA} を書く。③を忘れると
+版確認は何もしない（リロードループはしない）。パッチは `apps/sf_fleet_20261015.py`（アンカー一意検証つき）。
+検証は test_tombstone.js（9項目）・test_fleet.js（12本×4）・test_devices.js（7項目）＋既存8本 ALL PASS。
+
 ---
 
 ## 10. 作業の進め方（このプロジェクトの約束事）
