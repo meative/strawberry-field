@@ -2,10 +2,17 @@
 // Everything is recorded on window.__fs so tests can inspect calls and emit snapshots.
 const FIRESTORE = `
 const S = (window.__fs = window.__fs || { calls: [], listeners: [], writes: [] });
-export function initializeFirestore(app, opts) { S.calls.push(['initializeFirestore']); return { app, fake: true }; }
+// SF-SINGLETAB-20261016 : どの localCache / tabManager で初期化されたかを記録する
+export function initializeFirestore(app, opts) {
+  const lc = opts && opts.localCache;
+  S.calls.push(['initializeFirestore', lc ? lc.kind : null, lc && lc.tabManager ? lc.tabManager.kind : null]);
+  return { app, fake: true };
+}
 export function getFirestore(app) { return { app, fake: true }; }
-export function persistentLocalCache(o) { return o; }
-export function persistentMultipleTabManager() { return {}; }
+export function persistentLocalCache(o) { return Object.assign({ kind: 'persistent' }, o); }
+export function persistentMultipleTabManager() { return { kind: 'multi' }; }
+export function persistentSingleTabManager(o) { return { kind: 'single' }; }
+export function memoryLocalCache() { return { kind: 'memory' }; }
 export function collection(db, name) { return { kind: 'collection', name }; }
 export function doc(db, a, b) { return { kind: 'doc', name: (a && a.kind === 'collection') ? a.name : a, id: (a && a.kind === 'collection') ? b : b }; }
 export function query(ref, ...c) { return { kind: 'query', ref, c }; }

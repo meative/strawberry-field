@@ -1,7 +1,7 @@
 # CLAUDE.md — Claude Code 向け開発ガイド
 
 STRAWBERRY FIELD 予約システムを Claude Code で扱うときに、最初に読んでください。
-（最終更新 2026-10-15 / 全面改訂は 2026-08-28）
+（最終更新 2026-10-16 / 全面改訂は 2026-08-28）
 
 ---
 
@@ -607,6 +607,21 @@ test_cloudfirst [1] は案Bで「受付1回＝ set 1件＋予約への patch 1�
 刻印する版コミット → push → ③ REST で `sf_config/version` に {ver: 短縮SHA} を書く。③を忘れると
 版確認は何もしない（リロードループはしない）。パッチは `apps/sf_fleet_20261015.py`（アンカー一意検証つき）。
 検証は test_tombstone.js（9項目）・test_fleet.js（12本×4）・test_devices.js（7項目）＋既存8本 ALL PASS。
+
+### 2026-10-16 に入った機能（SF-SINGLETAB：persistentSingleTabManager への切替）
+
+白石（10/16 朝・ボードと受付）と月寒（10/15 17:10・ボード）で「同期待ち」が出たまま復帰しない
+事象。multiTab では同一 iPad の**別タブ（通知）が代表タブのまま背面で凍結**し、前面のタブが
+サーバーと通信できなくなる（通知だけ操作できた＝通知が代表だった）。
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-SINGLETAB-20261016` | persistentLocalCache の tabManager を multiple → **single** に。各タブが自分でサーバーとつながるため代表タブ凍結の巻き添えが構造的に消える。永続キャッシュは先着1タブ（Web Locks `sf_fs_persist_v1`・タブを閉じると自動解放）。2つ目以降のタブは **memoryLocalCache** にフォールバックし、console.warn＋ヘッダー小バッジ「このタブはオフライン保存なし」（業務は継続。未送信の救済は SF-UNSENTBOX の localStorage 未送信箱が担う）。Web Locks が無い旧 Safari は従来どおり永続を試す。購読開始は `__sfDbReady`（先着判定）を待ってから。SF-WAKESYNC の「同期待ち」判定・張り直しは据え置き | 12本 |
+
+パッチは `apps/sf_singletab_20261016.py`（12本×6編集・アンカー一意検証）。検証は
+test_singletab.js（19項目）＋既存11本 ALL PASS。本番 E2E は Mac で timely と board を同一ブラウザの
+2タブで開き、両タブが各自サーバー snapshot を受信（REST で入れた変更が両方に届く）・「同期待ち」なし・
+2タブ目にバッジ・書き込み1件到達を確認。
 
 ---
 

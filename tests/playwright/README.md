@@ -41,6 +41,10 @@ node tests/playwright/test_archive_timely.js                                    
   _w:{dev,ver,at} 刻印と既存フィールド不変、sfChangedOnly が _w だけの違いを無視、前面復帰の台帳更新
 - `test_devices.js` … SF-DEVICES-20261015 : 版一致でリロードなし／版が古いと自動リロード1回（1日1回ガード・刻印）／
   ガード中は見送りログ／入力中は後回し
+- `test_singletab.js` … SF-SINGLETAB-20261016 : 12本が persistentLocalCache + persistentSingleTabManager で
+  初期化される、`window.__sfPersistUnavailable` で failed-precondition（2つ目のタブ）を模擬すると
+  memoryLocalCache へフォールバックし console.warn＋バッジ「このタブはオフライン保存なし」・購読/書き込みは継続、
+  memory モードでも未送信箱（SF-UNSENTBOX）が見届け→箱→リロード後再送まで動く
 - `stubs.js` の `getDocs` は `window.__cloud[コレクション]` を where 条件で絞って返す。`window.__cloudFail = true` で失敗させられる。
   `getDoc` も同様に `window.__cloud` から id 一致の1件を返す。`window.__fsHang = true` で setDoc / updateDoc / deleteDoc を永遠に未決着にできる
 
