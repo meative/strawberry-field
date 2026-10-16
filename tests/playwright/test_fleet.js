@@ -37,7 +37,8 @@ function check(name, ok, extra) {
       src.includes('apple-mobile-web-app-capable') && src.includes('apple-mobile-web-app-status-bar-style')
       && src.includes('apple-mobile-web-app-title') && src.includes(name + '.manifest.json')
       && !!iconRef && fs.existsSync(path.join(APPS, iconRef))
-      && !!man && man.display === 'standalone' && man.start_url === './' + file,
+      && !!man && man.display === 'standalone' && man.start_url === './' + file
+      && src.includes('SF-KBFIX-20261016') && src.includes('user-select: text !important'),   /* SF-KBFIX-20261016 : 入力欄の user-select 強制 */
       JSON.stringify({ icon: iconRef, man: man && [man.display, man.start_url] }));
   }
   const browser = await chromium.launch();
@@ -126,6 +127,29 @@ function check(name, ok, extra) {
     });
     check('timely.html : standalone 起動で台帳に standalone:true・バッジ「アプリ版」',
       r.st === true && r.beat === true && r.badge === 'アプリ版', JSON.stringify(r));
+    await ctx.close();
+  }
+  // SF-KBFIX-20261016 : 退避フラグ — sf_config/standalone の enabled=false で capable メタが no に
+  // 反転し manifest の link が外れる（standalone 実行中なら赤バッジ）。既定（doc 無し）は何もしない
+  {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await installStubs(page);
+    await page.addInitScript(() => {
+      window.__cloud = { sf_config: [{ id: 'standalone', enabled: false }] };
+      Object.defineProperty(window.navigator, 'standalone', { get: () => true });
+    });
+    await page.goto('file://' + path.join(APPS, 'timely.html'));
+    await page.waitForFunction(() => {
+      const m = document.querySelector('meta[name="apple-mobile-web-app-capable"]');
+      return m && m.getAttribute('content') === 'no';
+    }, null, { timeout: 15000 });
+    const r = await page.evaluate(() => ({
+      manifest: !!document.querySelector('link[rel="manifest"]'),
+      badge: (document.getElementById('sfPwaBadge') || {}).textContent || '',
+    }));
+    check('timely.html : sf_config/standalone enabled=false で capable=no・manifest 除去・赤バッジ',
+      r.manifest === false && r.badge.indexOf('アプリ版停止中') >= 0, JSON.stringify(r));
     await ctx.close();
   }
   await browser.close();

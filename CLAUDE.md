@@ -638,6 +638,25 @@ window.print 非対応**（sfPrintReceipt は隠し iframe → print の作り�
 検証は test_fleet.js に追加（12本のソース検査＝メタ5点・manifest 内容・アイコン実在、
 standalone 模擬で台帳 standalone:true＋バッジ「アプリ版」、通常起動は standalone:false）＋既存12本 ALL PASS。
 
+### 2026-10-16 に入った機能（SF-KBFIX：standalone のキーボード不出対策＋退避フラグ）
+
+白石 JANIS の iPad で、standalone（アプリ版）の salon_sp_shiraishi の「予約のお名前」欄を
+タップしても**ソフトキーボードが出ない**（フォーカスは当たり「ペースト」だけ出る。Safari では出る）。
+コード点検では #mName を塞ぐ経路なし＝fixed オーバーレイ内 input の standalone 固有の WebKit 挙動。
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-KBFIX-20261016` | (a) `input, textarea, select { -webkit-user-select: text !important }` を head 末尾に追加（祖先の user-select:none を恒久的に打ち消す。salon 系の `[onclick]` 一括 none ルールの将来の巻き込みも封じる。Safari では無害）。(b) **standalone のときだけ** touchend（ユーザー操作の同期内）で入力欄を明示 focus してキーボードを呼ぶ。(c) **退避フラグ**：`sf_config/standalone` の `enabled=false` で capable メタを no に反転し manifest link を除去（以後の「ホーム画面に追加」は通常タブで開く）。standalone 実行中の端末には赤バッジ「アプリ版停止中・Safariで開き直してください」（既にアプリ版の端末はアイコンの再追加が必要） | 12本 |
+
+**実機確認手順（白石のサロン iPad）**：1) アプリ版（受/サのアイコン）を起動し直す（版が
+上がっていなければ一度開き直す。バッジ「アプリ版」を確認） 2) 年齢→時間→「予約のお名前」
+モーダルで名前欄をタップ 3) **ソフトキーボードが出て入力できれば OK** 4) 出ない場合は
+欄をもう一度タップ（touchend フォールバックが効く）。それでも出なければ
+`sf_config/standalone` の enabled を false にして（Firebase コンソールか REST）、ホーム画面の
+アイコンを**削除→再追加**すると通常タブ起動に戻る。結果を報告すること。
+検証：キーボードは実機でしか出ないため Mac では回帰のみ（test_fleet に CSS 存在と退避フラグの
+動作＝capable反転・manifest除去・赤バッジを追加）。全12スイート ALL PASS。
+
 ---
 
 ## 10. 作業の進め方（このプロジェクトの約束事）

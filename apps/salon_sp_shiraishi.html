@@ -401,6 +401,19 @@ button:active { opacity: 0.7; }
     return false;
   })();
   window.__sfStandalone = SF_STANDALONE;
+  /* SF-KBFIX-20261016 : standalone では fixed オーバーレイ内の入力欄をタップしても
+     ソフトキーボードが出ないことがある（フォーカスは当たり「ペースト」だけ出る既知挙動）。
+     touchend＝ユーザー操作の同期内で明示的に focus してキーボードを呼ぶ。
+     Safari（非 standalone）には適用しない。 */
+  if (SF_STANDALONE) {
+    document.addEventListener('touchend', (e) => {
+      try {
+        const t = e.target;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && !t.disabled && !t.readOnly
+            && document.activeElement !== t) t.focus();
+      } catch (e2) {}
+    }, { passive: true });
+  }
   if (SF_STANDALONE) {
     const mkPwa = () => {
       try {
@@ -470,6 +483,43 @@ button:active { opacity: 0.7; }
       tryReload();
     }).catch((e) => { __sfVerBusy = false; });
   };
+  /* SF-KBFIX-20261016 (退避フラグ) : sf_config/standalone の enabled=false で standalone を
+     即時無効化する。capable メタを no に反転し manifest の link を外す＝以後の
+     「ホーム画面に追加」は通常タブで開く。standalone 実行中の端末には赤バッジで
+     Safari へ戻るよう知らせる（既にアプリ版で開いている分は再追加が必要）。 */
+  const sfStandaloneCheck = () => {
+    getDoc(doc(db, 'sf_config', 'standalone')).then((snap) => {
+      if (!snap || !snap.exists()) return;
+      const d = snap.data() || {};
+      if (d.enabled !== false) return;
+      try {
+        const m = document.querySelector('meta[name="apple-mobile-web-app-capable"]');
+        if (m) m.setAttribute('content', 'no');
+        const l = document.querySelector('link[rel="manifest"]');
+        if (l) l.remove();
+        console.warn('[SF-KBFIX-20261016] standalone は sf_config/standalone で無効化されています'
+          + '（以後の「ホーム画面に追加」は通常タブで開きます）');
+        if (SF_STANDALONE) {
+          const mk = () => {
+            try {
+              let b = document.getElementById('sfPwaBadge');
+              if (!b) {
+                b = document.createElement('span'); b.id = 'sfPwaBadge';
+                b.style.cssText = 'display:inline-block;font-size:11px;line-height:1;padding:4px 9px;border-radius:999px;'
+                  + 'white-space:nowrap;vertical-align:middle;margin-left:6px;position:fixed;top:6px;left:8px;z-index:9999;';
+                document.body.appendChild(b);
+              }
+              b.textContent = 'アプリ版停止中・Safariで開き直してください';
+              b.style.borderColor = '#C0553F'; b.style.border = '1px solid #C0553F';
+              b.style.color = '#8B3A28'; b.style.background = '#FDF2E9';
+            } catch (e) {}
+          };
+          if (document.body) mk(); else document.addEventListener('DOMContentLoaded', mk);
+        }
+      } catch (e) {}
+    }).catch(() => {});
+  };
+  window.sfStandaloneCheck = sfStandaloneCheck;
   window.sfDeviceBeat = sfDeviceBeat; window.sfVersionCheck = sfVersionCheck;
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') { sfDeviceBeat('visible'); sfVersionCheck('visible'); }
@@ -578,7 +628,7 @@ button:active { opacity: 0.7; }
   // ステップ3で Firestore ルールを「認証必須」に厳格化しても、サインイン済みの状態で
   // 購読が始まるため permission-denied で落ちない。
   __sfDbReady.then(() => signInAnonymously(auth)).then(() => {   /* SF-SINGLETAB-20261016 : キャッシュ初期化（先着判定）を待ってから購読を開始 */
-    sfDeviceBeat('boot'); sfVersionCheck('boot');   /* SF-DEVICES-20261015 : 起動時の台帳更新と版確認 */
+    sfDeviceBeat('boot'); sfVersionCheck('boot'); sfStandaloneCheck();   /* SF-DEVICES-20261015 / SF-KBFIX-20261016 : 起動時の台帳・版・standalone フラグ確認 */
     // 起動時購読：変更のたび全ドキュメントを通常スクリプト側へ渡す
     onSnapshot(query(collection(db, COL), where('date', '>=', SF_WINDOW_START)), (snap) => {
       window.sfWakeMarkSnapshot();   /* SF-WAKESYNC-20260930 : 受信の刻印 */
@@ -601,6 +651,11 @@ button:active { opacity: 0.7; }
     }, (e) => console.error('[onSnapshot roster] subscribe failed', e));
   }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
+<style>
+/* SF-KBFIX-20261016 : standalone（ホーム画面アプリ）で入力欄タップ時にキーボードが出ない対策。
+   祖先に -webkit-user-select:none があっても入力欄では必ず選択可能にする（Safari では無害） */
+input, textarea, select { -webkit-user-select: text !important; user-select: text !important; }
+</style>
 </head>
 <body>
 
