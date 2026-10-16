@@ -1,0 +1,16 @@
+{
+  "name": "受付（STRAWBERRY FIELD）",
+  "short_name": "受付",
+  "display": "standalone",
+  "start_url": "./timely.html",
+  "scope": "./",
+  "background_color": "#FBF7F0",
+  "theme_color": "#0ABAB5",
+  "icons": [
+    {
+      "src": "icons/timely.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

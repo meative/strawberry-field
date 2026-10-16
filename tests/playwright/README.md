@@ -41,6 +41,8 @@ node tests/playwright/test_archive_timely.js                                    
   _w:{dev,ver,at} 刻印と既存フィールド不変、sfChangedOnly が _w だけの違いを無視、前面復帰の台帳更新
 - `test_devices.js` … SF-DEVICES-20261015 : 版一致でリロードなし／版が古いと自動リロード1回（1日1回ガード・刻印）／
   ガード中は見送りログ／入力中は後回し
+- `test_fleet.js` には SF-HOMESCREEN-20261016 の検査も同居：12本のソース検査（apple-* メタ・manifest・
+  アイコン実在）、standalone 模擬（navigator.standalone=true）で台帳 standalone:true とバッジ「アプリ版」
 - `test_singletab.js` … SF-SINGLETAB-20261016 : 12本が persistentLocalCache + persistentSingleTabManager で
   初期化される、`window.__sfPersistUnavailable` で failed-precondition（2つ目のタブ）を模擬すると
   memoryLocalCache へフォールバックし console.warn＋バッジ「このタブはオフライン保存なし」・購読/書き込みは継続、

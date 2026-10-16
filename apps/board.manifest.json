@@ -1,0 +1,16 @@
+{
+  "name": "ボード（STRAWBERRY FIELD）",
+  "short_name": "ボード",
+  "display": "standalone",
+  "start_url": "./board.html",
+  "scope": "./",
+  "background_color": "#FBF7F0",
+  "theme_color": "#4A6FA5",
+  "icons": [
+    {
+      "src": "icons/board.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

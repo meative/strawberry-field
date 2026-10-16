@@ -4,6 +4,7 @@
 //  - すべての書き込み口のペイロードに _w:{dev, ver, at} が付き、既存フィールドは不変
 //  - sfChangedOnly は _w だけの違いを「変わっていない」と判定（全件書き直しの防止）
 //  - 前面復帰（visibilitychange）で台帳が更新される
+const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const { installStubs } = require('./stubs');
@@ -24,6 +25,21 @@ function check(name, ok, extra) {
 }
 
 (async () => {
+  // SF-HOMESCREEN-20261016 : ソース検査 — 12本すべてに「ホーム画面に追加」一式が入っていること
+  for (const [file] of FILES) {
+    const src = fs.readFileSync(path.join(APPS, file), 'utf8');
+    const name = file.replace(/\.html$/, '');
+    const manPath = path.join(APPS, name + '.manifest.json');
+    let man = null;
+    try { man = JSON.parse(fs.readFileSync(manPath, 'utf8')); } catch (e) {}
+    const iconRef = (src.match(/apple-touch-icon" href="(icons\/[a-z]+\.png)"/) || [])[1];
+    check(file + ' : head に capable / status-bar / title / icon / manifest、manifest は standalone・start_url 自身',
+      src.includes('apple-mobile-web-app-capable') && src.includes('apple-mobile-web-app-status-bar-style')
+      && src.includes('apple-mobile-web-app-title') && src.includes(name + '.manifest.json')
+      && !!iconRef && fs.existsSync(path.join(APPS, iconRef))
+      && !!man && man.display === 'standalone' && man.start_url === './' + file,
+      JSON.stringify({ icon: iconRef, man: man && [man.display, man.start_url] }));
+  }
   const browser = await chromium.launch();
   for (const [file, app] of FILES) {
     const ctx = await browser.newContext();
@@ -79,7 +95,8 @@ function check(name, ok, extra) {
     const b = r.beat || {};
     check(file + ' : 起動時に sf_devices へ台帳1件（全フィールド＋_w）＋版の getDoc',
       okW(b) && b.app === app && b.ver === r.ver && typeof b.garden === 'string' && typeof b.ua === 'string'
-      && typeof b.iosVersion === 'string' && isFinite(Date.parse(b.lastSeen)) && b.tabsHint >= 1 && r.verGet,
+      && typeof b.iosVersion === 'string' && isFinite(Date.parse(b.lastSeen)) && b.tabsHint >= 1 && r.verGet
+      && b.standalone === false,   /* SF-HOMESCREEN-20261016 : 通常起動は standalone:false */
       JSON.stringify(b).slice(0, 160) + ' verGet=' + r.verGet);
     let extraOk = okW(r.bw) && r.bw.date === '2026-10-15' && r.bw.name === 'テスト';
     let extraWhat = 'reconcile';
@@ -91,6 +108,24 @@ function check(name, ok, extra) {
       r.diffSame === 0 && r.diffReal === 1 && r.beat2 === true,
       JSON.stringify({ s: r.diffSame, r: r.diffReal, b2: r.beat2 }));
     check(file + ' : pageerror なし', errors.length === 0, errors.join(' | ').slice(0, 160));
+    await ctx.close();
+  }
+  // SF-HOMESCREEN-20261016 : standalone 起動の模擬（timely）— バッジ「アプリ版」と台帳の standalone:true
+  {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await installStubs(page);
+    await page.addInitScript(() => { Object.defineProperty(window.navigator, 'standalone', { get: () => true }); });
+    await page.goto('file://' + path.join(APPS, 'timely.html'));
+    await page.waitForFunction(() => window.__fs && window.__fs.writes.some(w => w.path.indexOf('sf_devices/') === 0), null, { timeout: 15000 });
+    const r = await page.evaluate(() => {
+      const dev = localStorage.getItem('sf_device_id_v1');
+      const beat = window.__fs.writes.find(w => w.path === 'sf_devices/' + dev);
+      const b = document.getElementById('sfPwaBadge');
+      return { st: window.__sfStandalone, beat: beat && beat.data.standalone, badge: b ? b.textContent : null };
+    });
+    check('timely.html : standalone 起動で台帳に standalone:true・バッジ「アプリ版」',
+      r.st === true && r.beat === true && r.badge === 'アプリ版', JSON.stringify(r));
     await ctx.close();
   }
   await browser.close();

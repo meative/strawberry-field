@@ -623,6 +623,21 @@ test_singletab.js（19項目）＋既存11本 ALL PASS。本番 E2E は Mac で 
 2タブで開き、両タブが各自サーバー snapshot を受信（REST で入れた変更が両方に届く）・「同期待ち」なし・
 2タブ目にバッジ・書き込み1件到達を確認。
 
+### 2026-10-16 に入った機能（SF-HOMESCREEN：ホーム画面に追加＝独立アプリ化）
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-HOMESCREEN-20261016` | iPad の「ホーム画面に追加」で各アプリが独立アプリ（standalone）として開く。head に apple-mobile-web-app-capable / status-bar-style / **title（受付・ボード・サロン・通知＋園名）** / apple-touch-icon（`apps/icons/` の4色アイコン：受=ティファニー・ボ=藍・サ=茜・通=若葉）/ **manifest（`<base>.manifest.json`、display:standalone・start_url=自分自身）**。timely は capable / status-bar-style 既設のため title 以降のみ追加。standalone 起動は `navigator.standalone` / `display-mode: standalone` で検知し、**台帳（sf_devices）に standalone:true を記録**・ヘッダーに小バッジ「アプリ版」。アプリ間リンクは12本に `<a href>` / window.open / target=_blank / location 遷移が**存在しない**ことを確認（今後足すときは同一ウィンドウ遷移 `location.href` のみ。standalone で別窓は Safari に抜ける） | 12本 |
+
+**領収書印刷（sfPrintReceipt）の standalone 実機確認手順**（未実施。iPad 実機が要る）：
+1) iPad の Safari で timely を開き、共有 →「ホーム画面に追加」 2) ホームのアイコン（受）から起動し、
+ヘッダーに「アプリ版」が出ることを確認 3) 会計済みの明細から領収書を開き「印刷」をタップ
+4) AirPrint のダイアログが出て印刷できれば OK。**無反応・ダイアログが出ない場合は standalone の
+window.print 非対応**（sfPrintReceipt は隠し iframe → print の作り）。その端末は Safari 版で印刷する
+運用に戻し、結果を報告すること（NG なら印刷ボタンだけ Safari で開く代替を別タスクで入れる）。
+検証は test_fleet.js に追加（12本のソース検査＝メタ5点・manifest 内容・アイコン実在、
+standalone 模擬で台帳 standalone:true＋バッジ「アプリ版」、通常起動は standalone:false）＋既存12本 ALL PASS。
+
 ---
 
 ## 10. 作業の進め方（このプロジェクトの約束事）

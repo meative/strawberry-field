@@ -2,6 +2,12 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<!-- SF-HOMESCREEN-20261016 : iPad「ホーム画面に追加」で独立アプリ（standalone）として開く -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="通知白石">
+<link rel="apple-touch-icon" href="icons/notify.png">
+<link rel="manifest" href="notify_sp_shiraishi.manifest.json">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>お迎え・遅延 通知連携 ・ Strawberry Field</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -538,6 +544,34 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
   })();
   const SF_TAB_ID = 'T' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   window.SF_APP_VER = SF_APP_VER; window.SF_DEV_ID = SF_DEV_ID;
+  /* SF-HOMESCREEN-20261016 : 「ホーム画面に追加」からの起動（standalone）を検知。
+     台帳（sf_devices）に standalone を記録し、ヘッダーに小さく「アプリ版」を出して
+     現場が Safari 版と見分けられるようにする。 */
+  const SF_STANDALONE = (() => {
+    try {
+      if (window.navigator.standalone === true) return true;   // iOS Safari
+      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+    } catch (e) {}
+    return false;
+  })();
+  window.__sfStandalone = SF_STANDALONE;
+  if (SF_STANDALONE) {
+    const mkPwa = () => {
+      try {
+        if (document.getElementById('sfPwaBadge')) return;
+        const b = document.createElement('span');
+        b.id = 'sfPwaBadge';
+        b.textContent = 'アプリ版';
+        b.style.cssText = 'display:inline-block;font-size:11px;letter-spacing:.04em;line-height:1;padding:4px 9px;'
+          + 'border-radius:999px;border:1px solid #0ABAB5;color:#067F7B;background:#E9FAF9;white-space:nowrap;'
+          + 'vertical-align:middle;margin-left:6px;';
+        const w = document.getElementById('sfWakeBadge');
+        if (w && w.parentNode) { w.parentNode.insertBefore(b, w.nextSibling); }
+        else { b.style.position = 'fixed'; b.style.top = '6px'; b.style.left = '8px'; b.style.zIndex = '9999'; document.body.appendChild(b); }
+      } catch (e) {}
+    };
+    if (document.body) mkPwa(); else document.addEventListener('DOMContentLoaded', mkPwa);
+  }
   const sfStamp = (rec) => {
     try { return Object.assign({}, rec, { _w: { dev: SF_DEV_ID, ver: SF_APP_VER, at: new Date().toISOString() } }); }
     catch (e) { return rec; }
@@ -559,7 +593,7 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
         tabsHint = Object.keys(m).length;
       } catch (e) {}
       setDoc(doc(db, 'sf_devices', SF_DEV_ID), sfStamp({
-        garden: sfGardenHint(), app: SF_APP_NAME, ver: SF_APP_VER, ua: ua.slice(0, 200),
+        garden: sfGardenHint(), app: SF_APP_NAME, ver: SF_APP_VER, standalone: SF_STANDALONE, ua: ua.slice(0, 200),   /* SF-HOMESCREEN-20261016 */
         iosVersion: ios, lastSeen: new Date().toISOString(), tabsHint: tabsHint,
       })).catch((e) => console.warn('[SF-DEVICES-20261015] 台帳の更新に失敗', e));
     } catch (e) {}

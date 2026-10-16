@@ -1,0 +1,16 @@
+{
+  "name": "サロン（STRAWBERRY FIELD）",
+  "short_name": "サロン",
+  "display": "standalone",
+  "start_url": "./salon.html",
+  "scope": "./",
+  "background_color": "#FBF7F0",
+  "theme_color": "#C0553F",
+  "icons": [
+    {
+      "src": "icons/salon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

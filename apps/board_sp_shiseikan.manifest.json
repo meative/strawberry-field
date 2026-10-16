@@ -1,0 +1,16 @@
+{
+  "name": "ボード資生館（STRAWBERRY FIELD）",
+  "short_name": "ボード資生館",
+  "display": "standalone",
+  "start_url": "./board_sp_shiseikan.html",
+  "scope": "./",
+  "background_color": "#FBF7F0",
+  "theme_color": "#4A6FA5",
+  "icons": [
+    {
+      "src": "icons/board.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}
