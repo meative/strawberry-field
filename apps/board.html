@@ -1058,6 +1058,16 @@ body {
       snap.docs.forEach(d => { map[d.id] = d.data(); });
       if (typeof window.capApplySnapshot === 'function') window.capApplySnapshot(map);
     }, (e) => console.error('[onSnapshot capacity] subscribe failed', e));
+    /* SF-BOARDROSTER-20261022 : 「予約を追加」の氏名候補。2026-07-22 のサンプル名簿削除以降、
+       候補の源（REGISTERED）が空配列のままで「この行に登録者はいません」が常時出ていた。
+       サロン（SF-SALON-ROSTER-20260722）と同じ軽量名簿 sf_roster/all（timely が発行。
+       住所・電話・アレルギーは載らない）を購読してつなぐ。単一ドキュメントなので
+       読み取りは1セッションあたり1リードで済む。 */
+    onSnapshot(doc(db, 'sf_roster', 'all'), (snap) => {
+      const d = snap.exists() ? snap.data() : null;
+      const items = (d && Array.isArray(d.items)) ? d.items : [];
+      if (typeof window.boardRosterApply === 'function') window.boardRosterApply(items);
+    }, (e) => console.error('[SF-BOARDROSTER-20261022] roster subscribe failed', e));
   }).catch((e) => console.error('[signInAnonymously] failed', e));
 </script>
 <style>
@@ -2291,7 +2301,30 @@ function updateZoneLabels() {
 }
 
 // ===== 登録済み顧客名簿（本番では受付アプリの顧客データと連携） =====
-const REGISTERED = []; // サンプル顧客名簿は削除（本番は受付アプリの顧客データと連携）
+/* SF-BOARDROSTER-20261022 : 2026-07-22 のサンプル名簿削除以降ここが空配列のままで、
+   氏名候補が常に0件だった。サロンと同じ sf_roster/all（軽量名簿）で埋める。 */
+let REGISTERED = [];
+let ROSTER_LOADED = false;   // 未受信（同期中）と本当の0件を区別する
+window.boardRosterApply = function (items) {
+  REGISTERED = (items || [])
+    .filter(function (r) { return r && (r.name || r.kana); })
+    .map(function (r) {
+      return {
+        id: String(r.id || ''),
+        name: String(r.name || r.kana || ''),
+        kana: String(r.kana || r.name || ''),
+        birthY: r.birthY || null,
+        birthM: r.birthM || null,
+      };
+    });
+  ROSTER_LOADED = true;
+  console.log('[SF-BOARDROSTER-20261022] 名簿を受信: ' + REGISTERED.length + '名');
+  /* 入力中の内容を消さないため、モーダルが閉じているときだけ五十音索引を描き直す */
+  try {
+    var m = document.getElementById('modal');
+    if (m && !m.classList.contains('show') && document.getElementById('kanaIndex')) renderKanaIndex();
+  } catch (e) {}
+};
 
 // カタカナ五十音 行マップ
 const KANA_ROWS = {
@@ -3087,19 +3120,32 @@ function onNameInput() {
   box.innerHTML = hits.map(c => suggestItemHtml(c)).join('');
   box.classList.add('show');
 }
+/* SF-BOARDROSTER-20261022 : 名簿の実生年月から表示用の年齢を出す（無ければ空のまま） */
+function rosterAgeLabel(c) {
+  if (!c || !c.birthY || !c.birthM) return '';
+  const now = new Date();
+  const m = (now.getFullYear() - c.birthY) * 12 + (now.getMonth() + 1 - c.birthM);
+  if (m < 0 || m > 12 * 15) return '';
+  return m < 12 ? m + 'ヶ月' : Math.floor(m / 12) + '歳';
+}
 function suggestItemHtml(c) {
-  const ageLabel = c.age === '3' ? '3歳〜' : c.age + '歳';
+  const ageLabel = rosterAgeLabel(c);   /* SF-BOARDROSTER-20261022 : 丸め年齢ではなく実生年月から */
   const initial = c.name.charAt(0);
-  return `<div class="suggest-item" onclick="pickCustomer('${c.name}','${c.age}')">
+  return `<div class="suggest-item" onclick="pickCustomer('${c.id}')">
     <div class="suggest-avatar">${initial}</div>
     <div class="suggest-info"><div class="suggest-name">${c.name}</div><div class="suggest-kana">${c.kana}</div></div>
     <span class="suggest-age">${ageLabel}</span>
   </div>`;
 }
 // 顧客を選択 → 氏名と年齢を自動セット
-function pickCustomer(name, age) {
-  document.getElementById('mName').value = name;
-  { const _d = birthYMFromAgeMonths(age, null); setBirthYM(_d.by, _d.bm); } // 顧客の丸め年齢から近似生年月
+/* SF-BOARDROSTER-20261022 : 従来は丸め年齢からの近似生年月だったが、名簿（sf_roster）が
+   実生年月を持つのでそのままセットする。無ければ未選択のまま（保存時に選択必須は従来どおり）。 */
+function pickCustomer(id) {
+  const c = REGISTERED.find(x => x && x.id === id);
+  if (!c) return;
+  document.getElementById('mName').value = c.name;
+  if (c.birthY && c.birthM) setBirthYM(c.birthY, c.birthM);
+  else setBirthYM(null, null);
   document.getElementById('nameSuggest').classList.remove('show');
   document.getElementById('kanaResult').innerHTML = '';
   document.querySelectorAll('#kanaIndex .kana-btn').forEach(b => b.classList.remove('active'));
@@ -3124,7 +3170,9 @@ function filterByKana(row) {
   const hits = REGISTERED.filter(c => kanaRowOf(c) === row);
   const res = document.getElementById('kanaResult');
   if (hits.length === 0) {
-    res.innerHTML = '<div style="font-family:var(--serif-jp); font-size:12px; color:var(--ink-soft); padding:6px 0;">この行に登録者はいません</div>';
+    res.innerHTML = '<div style="font-family:var(--serif-jp); font-size:12px; color:var(--ink-soft); padding:6px 0;">'
+      + (ROSTER_LOADED ? 'この行に登録者はいません' : '名簿を同期中です。少し待ってからもう一度お試しください')
+      + '</div>';   /* SF-BOARDROSTER-20261022 : 未受信（同期中）と本当の0件を区別する */
   } else {
     res.innerHTML = hits.map(c => suggestItemHtml(c)).join('');
   }
