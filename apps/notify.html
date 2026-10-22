@@ -739,6 +739,92 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
     if (document.visibilityState === 'visible') window.sfWakeSync('visibilitychange');
   });
   window.addEventListener('pageshow', (e) => { if (e && e.persisted) window.sfWakeSync('pageshow'); });
+  /* ============================================================
+     SF-NETWATCH-20261022 : 接続の見張り番。
+     10/22 に月寒 board（アプリ版）が前面のまま Firestore と通信できなくなり、
+     ボードが空に見える状態が90分続いた。SF-WAKESYNC は前面復帰イベントでしか
+     動かないため、「前面のまま静かに死ぬ」凍結は誰も検知できなかった。
+     30秒ごと：最終サーバー確認から2分以上あいていたら、
+       段階1) 確認リスナー（購読中と同じクエリ＝追加読み取りなし）を張って15秒待つ
+       段階2) 届かなければ sfWakeSync（接続の張り直し）をしてさらに15秒待つ
+     それでも届かない失敗が2回続いたら、大きな赤帯「通信が止まっています」を出す
+     （タップで即再試行・サーバー確認が取れた瞬間に自動で消える）。
+     生存確認が取れるたび、10分に1回を上限に sfDeviceBeat で lastSeen を進める
+     （本部の端末一覧 apps/fleet.html が「進まない端末」を見つけるため）。
+     画面が隠れている間は何もしない（スリープ中の空振り・無駄な書き込みを避ける）。
+     ============================================================ */
+  const SF_NW = {
+    staleMs: 2 * 60 * 1000,   // これだけサーバー確認が無ければ「怪しい」
+    checkMs: 30 * 1000,       // 見張りの周期
+    waitMs: 15 * 1000,        // 各段階で確認を待つ時間
+    failMax: 2,               // 連続この回数失敗したら大赤帯
+    beatMs: 10 * 60 * 1000,   // lastSeen ハートビートの最短間隔
+    fails: 0, probing: false, lastBeat: 0, lastAttempt: 0,
+  };
+  window.SF_NW = SF_NW;   // テストから閾値を縮める・状態を覗くために公開
+  const sfNetBannerSet = (on) => {
+    try {
+      let b = document.getElementById('sfNetBanner');
+      if (!on) { if (b) b.style.display = 'none'; return; }
+      if (!b) {
+        b = document.createElement('div');
+        b.id = 'sfNetBanner';
+        b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:10000;cursor:pointer;'
+          + 'background:#C0553F;color:#fff;text-align:center;padding:14px 16px;'
+          + 'box-shadow:0 2px 12px rgba(0,0,0,.3);letter-spacing:.04em;';
+        b.innerHTML = '<b style="font-size:19px">⚠ 通信が止まっています</b>'
+          + '<span style="display:block;font-size:13px;opacity:.95;margin-top:3px">'
+          + 'アプリを開き直してください（この画面の予定は古い可能性があります）。タップで再接続を試します</span>';
+        b.onclick = function () { window.__sfNetWatchTick(true); };
+        if (document.body) document.body.appendChild(b);
+        else document.addEventListener('DOMContentLoaded', function () { try { document.body.appendChild(b); } catch (e) {} });
+      }
+      b.style.display = 'block';
+    } catch (e) {}
+  };
+  const sfNetOk = () => {
+    SF_NW.fails = 0;
+    sfNetBannerSet(false);
+    const now = Date.now();
+    if (now - SF_NW.lastBeat >= SF_NW.beatMs) {
+      SF_NW.lastBeat = now;
+      try { sfDeviceBeat('netwatch'); } catch (e) {}
+    }
+  };
+  /* サーバー確認が取れた瞬間に大赤帯を消す（既存の刻印をラップ。元の動きは不変） */
+  {
+    const _mark = window.sfWakeMarkSnapshot;
+    window.sfWakeMarkSnapshot = function () { _mark(); sfNetOk(); };
+  }
+  window.__sfNetWatchTick = function (force) {
+    try {
+      if (!db) return 'nodb';
+      if (!force && document.visibilityState !== 'visible') return 'hidden';
+      const now = Date.now();
+      if ((now - sfWakeLastSnap) < SF_NW.staleMs) { sfNetOk(); return 'fresh'; }
+      if (SF_NW.probing) return 'probing';
+      if (!force && (now - SF_NW.lastAttempt) < SF_NW.checkMs * 2) return 'cooldown';
+      SF_NW.probing = true;
+      SF_NW.lastAttempt = now;
+      const t0 = sfWakeLastSnap;
+      sfWakeConfirm();   // 段階1：確認リスナーだけ（追加読み取りなし・接続はいじらない）
+      setTimeout(() => {
+        if (sfWakeLastSnap > t0) { SF_NW.probing = false; return; }   // 生きていた（sfNetOk はラップ済み刻印が実施）
+        window.sfWakeSync('netwatch');   // 段階2：張り直し（確認リスナーも張り直される）
+        setTimeout(() => {
+          SF_NW.probing = false;
+          if (sfWakeLastSnap > t0) return;
+          SF_NW.fails += 1;
+          console.warn('[SF-NETWATCH-20261022] サーバー確認が取れません fails=' + SF_NW.fails
+            + ' 最終確認=' + new Date(t0).toISOString());
+          if (SF_NW.fails >= SF_NW.failMax) sfNetBannerSet(true);
+        }, SF_NW.waitMs);
+      }, SF_NW.waitMs);
+      return 'probe';
+    } catch (e) { SF_NW.probing = false; console.warn('[SF-NETWATCH-20261022]', e); return 'error'; }
+  };
+  setInterval(function () { window.__sfNetWatchTick(); }, SF_NW.checkMs);
+  /* ===== SF-NETWATCH-20261022 ここまで ===== */
   (function () {   // 「同期待ち」バッジの見た目（ヘッダー内の小さなピル）
     const s = document.createElement('style');
     s.textContent = '.sf-wake-badge{display:none;font-family:Inter,"Noto Serif JP",sans-serif;font-size:11px;'

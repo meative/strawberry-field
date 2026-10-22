@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>端末一覧 | STRAWBERRY FIELD</title>
+<!-- ============================================================
+     SF-FLEETVIEW-20261022 : 本部用の端末一覧（読み取り専用）。
+     sf_devices（SF-DEVICES-20261015 の台帳）を購読して一覧表示する。
+     SF-NETWATCH-20261022 で各端末は「画面が点いていて接続が生きている間、
+     10分に1回 lastSeen を進める」ので、lastSeen が15分以上進まない端末は
+     「スリープ（画面オフ）か、凍結・圏外」のどちらか。営業時間中に
+     進んでいないボード端末は現場へ声かけする、が運用の見かた。
+     このページは一切書き込みをしない（sf_devices にも自分を登録しない）。
+     ============================================================ -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital@1&family=Noto+Serif+JP:wght@400;500;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --tiffany: #0ABAB5;
+    --gold: #C9A961;
+    --ink: #1A1F26;
+    --ink-soft: #4A5158;
+    --paper: #FAF8F4;
+    --line: #EEE6D8;
+    --alert: #B23E4C;
+    --warn: #C0553F;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Noto Serif JP', serif; background: var(--paper); color: var(--ink); padding: 28px 16px 60px; }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  .page-title-en { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 15px; color: var(--gold); letter-spacing: .12em; }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: .06em; margin: 2px 0 4px; }
+  .sub { font-size: 12.5px; color: var(--ink-soft); line-height: 1.8; }
+  .section-card { background: #fff; border: 1px solid var(--line); border-top: 3px solid var(--tiffany); margin-top: 22px; padding: 18px 18px 22px; }
+  .section-header { margin-bottom: 12px; }
+  .section-title { font-size: 15px; font-weight: 700; letter-spacing: .06em; }
+  .section-title .en { font-family: 'Cormorant Garamond', serif; font-style: italic; font-weight: 400; font-size: 12.5px; color: var(--gold); margin-right: 8px; letter-spacing: .1em; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 500; color: var(--ink-soft); font-size: 11.5px; letter-spacing: .06em; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 8px; border-bottom: 1px solid #F5F0E6; white-space: nowrap; vertical-align: middle; }
+  tr.stale td { color: #9A938A; }
+  .badge { display: inline-block; font-size: 11px; line-height: 1; padding: 4px 9px; border-radius: 999px; border: 1px solid; letter-spacing: .04em; }
+  .b-ok    { color: #067F7B; border-color: var(--tiffany); background: #E9FAF9; }
+  .b-warn  { color: #8B3A28; border-color: var(--warn);   background: #FDF2E9; }
+  .b-sleep { color: #6B6459; border-color: #D8D1C5;       background: #F6F2EA; }
+  .b-pwa   { color: #5B5330; border-color: var(--gold);   background: #FBF6E9; }
+  .verNg { color: var(--alert); font-weight: 700; }
+  .mono { font-family: 'Inter', sans-serif; font-size: 12px; }
+  .age { font-family: 'Inter', sans-serif; }
+  #summary { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  .sum-tile { border: 1px solid var(--line); background: #fff; padding: 10px 16px; min-width: 120px; }
+  .sum-tile .en { font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 11px; color: var(--gold); letter-spacing: .1em; }
+  .sum-tile .n { font-size: 22px; font-weight: 700; }
+  .sum-tile .lbl { font-size: 11.5px; color: var(--ink-soft); }
+  .sum-tile.ng .n { color: var(--alert); }
+  #verLine { font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+  #verLine b { font-family: 'Inter', sans-serif; }
+  @media (max-width: 720px) { body { padding: 18px 8px 40px; } td, th { padding: 6px 5px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-title-en">Device Fleet</div>
+  <h1>端末一覧</h1>
+  <div class="sub">各端末は画面が点いていて接続が生きている間、10分に1回 lastSeen を更新します（SF-NETWATCH-20261022）。<br>
+    営業時間中に「15分以上 進んでいない」ボード・受付端末は、スリープ（画面オフ）か、凍結・圏外のどちらかです。現場へ声かけしてください。</div>
+  <div id="summary"></div>
+  <div id="verLine">配信中の版：読み込み中…</div>
+  <div class="section-card">
+    <div class="section-header">
+      <div class="section-title"><span class="en">Devices</span>端末（lastSeen の新しい順）</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th>状態</th><th>園</th><th>アプリ</th><th>最終確認 (lastSeen)</th><th>版</th><th>形態</th><th>タブ</th><th>iOS/Safari</th><th>端末ID</th>
+        </tr></thead>
+        <tbody id="rows"><tr><td colspan="9" style="color:var(--ink-soft)">読み込み中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+  import { getFirestore, collection, doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+  import { getAuth, signInAnonymously } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBbOBEVWgMIx03QVjc2wOwjZCDlyZM2Kzc",
+    authDomain: "strawberry-field-timely.firebaseapp.com",
+    projectId: "strawberry-field-timely",
+    storageBucket: "strawberry-field-timely.firebasestorage.app",
+    messagingSenderId: "327783600315",
+    appId: "1:327783600315:web:e630f23d4f10fc747b599e",
+  };
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+
+  /* 園IDの表示名（board.html の GARDEN_ZONE_NAME と同じ考え方。value は変えない：Method X） */
+  const GARDEN_LABEL = { tsukisamu: '月寒園', shiraishi: '白石園', factory: 'ファクトリー園', shiseikan: '資生館園' };
+  const APP_LABEL = { board: 'ボード', salon: 'サロン', notify: '通知', timely: '受付' };
+  const STALE_WARN_MS = 15 * 60 * 1000;   // これを超えて lastSeen が進まなければ「進んでいません」
+  const STALE_OFF_MS = 60 * 60 * 1000;    // これを超えたら「長時間オフ」扱い（グレー）
+
+  let DEVICES = [];
+  let LATEST_VER = null;
+
+  function gardenLabel(g) { return GARDEN_LABEL[g] || g || '（未設定）'; }
+  function ageText(ms) {
+    if (ms < 60e3) return Math.round(ms / 1e3) + '秒前';
+    if (ms < 3600e3) return Math.round(ms / 60e3) + '分前';
+    if (ms < 48 * 3600e3) return (ms / 3600e3).toFixed(1) + '時間前';
+    return Math.round(ms / 86400e3) + '日前';
+  }
+  function jstText(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    const z = (n) => String(n).padStart(2, '0');
+    return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + z(d.getHours()) + ':' + z(d.getMinutes());
+  }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  function render() {
+    const now = Date.now();
+    const rows = DEVICES.slice().sort((a, b) => String(b.lastSeen || '').localeCompare(String(a.lastSeen || '')));
+    const tb = document.getElementById('rows');
+    tb.innerHTML = rows.map((d) => {
+      const age = d.lastSeen ? (now - new Date(d.lastSeen).getTime()) : Infinity;
+      let badge, cls = '';
+      if (age < STALE_WARN_MS) badge = '<span class="badge b-ok">稼働中</span>';
+      else if (age < STALE_OFF_MS) badge = '<span class="badge b-warn">進んでいません</span>';
+      else { badge = '<span class="badge b-sleep">オフ</span>'; cls = 'stale'; }
+      const verNg = LATEST_VER && d.ver && d.ver !== LATEST_VER;
+      return '<tr class="' + cls + '">'
+        + '<td>' + badge + '</td>'
+        + '<td>' + esc(gardenLabel(d.garden)) + '</td>'
+        + '<td>' + esc(APP_LABEL[d.app] || d.app || '-') + '</td>'
+        + '<td class="age">' + ageText(age) + '<span style="color:#9A938A"> · ' + jstText(d.lastSeen) + '</span></td>'
+        + '<td class="mono' + (verNg ? ' verNg' : '') + '">' + esc(d.ver || '-') + (verNg ? ' ← 旧版' : '') + '</td>'
+        + '<td>' + (d.standalone === true ? '<span class="badge b-pwa">アプリ版</span>' : 'Safari') + '</td>'
+        + '<td class="mono">' + esc(d.tabsHint != null ? d.tabsHint : '-') + '</td>'
+        + '<td class="mono">' + esc(d.iosVersion || '-') + '</td>'
+        + '<td class="mono">' + esc(String(d.id).slice(0, 8)) + '…</td>'
+        + '</tr>';
+    }).join('') || '<tr><td colspan="9">端末がありません</td></tr>';
+
+    // サマリー：直近15分に生きている端末数（園ごと）と、注意（15〜60分停止）の数
+    const fresh = rows.filter((d) => d.lastSeen && now - new Date(d.lastSeen).getTime() < STALE_WARN_MS);
+    const warns = rows.filter((d) => {
+      const a = d.lastSeen ? now - new Date(d.lastSeen).getTime() : Infinity;
+      return a >= STALE_WARN_MS && a < STALE_OFF_MS;
+    });
+    const byGarden = {};
+    fresh.forEach((d) => { const g = gardenLabel(d.garden); byGarden[g] = (byGarden[g] || 0) + 1; });
+    const sum = document.getElementById('summary');
+    sum.innerHTML = '<div class="sum-tile' + (warns.length ? ' ng' : '') + '"><div class="en">Attention</div><div class="n">' + warns.length + '</div><div class="lbl">進んでいない端末（15〜60分）</div></div>'
+      + Object.keys(byGarden).sort().map((g) =>
+        '<div class="sum-tile"><div class="en">Active</div><div class="n">' + byGarden[g] + '</div><div class="lbl">' + esc(g) + '・稼働中</div></div>').join('');
+  }
+  window.__fleetRender = render;   // テスト用
+
+  signInAnonymously(auth).then(() => {
+    onSnapshot(collection(db, 'sf_devices'), (snap) => {
+      DEVICES = snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+      render();
+    }, (e) => {
+      document.getElementById('rows').innerHTML = '<tr><td colspan="9" style="color:var(--alert)">読み込みに失敗しました：' + esc(e && e.message) + '</td></tr>';
+    });
+    onSnapshot(doc(db, 'sf_config', 'version'), (snap) => {
+      const d = (snap && snap.exists()) ? snap.data() : null;
+      LATEST_VER = d && d.ver ? String(d.ver) : null;
+      document.getElementById('verLine').innerHTML = '配信中の版：<b>' + esc(LATEST_VER || '未設定') + '</b>'
+        + (d && d.updatedAt ? '（' + esc(jstText(d.updatedAt)) + ' 配信）' : '');
+      render();
+    }, () => {});
+  }).catch((e) => {
+    document.getElementById('rows').innerHTML = '<tr><td colspan="9" style="color:var(--alert)">サインインに失敗しました：' + esc(e && e.message) + '</td></tr>';
+  });
+
+  setInterval(render, 60 * 1000);   // 相対表示（◯分前）の更新
+</script>
+</body>
+</html>

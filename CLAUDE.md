@@ -1,7 +1,7 @@
 # CLAUDE.md — Claude Code 向け開発ガイド
 
 STRAWBERRY FIELD 予約システムを Claude Code で扱うときに、最初に読んでください。
-（最終更新 2026-10-16 / 全面改訂は 2026-08-28）
+（最終更新 2026-10-22 / 全面改訂は 2026-08-28）
 
 ---
 
@@ -127,6 +127,7 @@ strawberry-field/
 | `salon_sp_{shiraishi,tsukisamu}.html` | 上記の**園固定版** | 各店 iPad |
 | `notify.html` (147KB) | お迎え遅延通知（双方向） | 双方 |
 | `notify_sp_{shiraishi,tsukisamu}.html` | 上記の**園固定版** | 各店 iPad |
+| `fleet.html` | **端末一覧（本部用・読み取り専用）**。sf_devices を購読し lastSeen が進まない端末を可視化（SF-FLEETVIEW-20261022）。**同期12本には数えない**（SF_MIRROR 等の同期骨格を持たない13本目） | 本部 |
 
 `_sp_` 版との差分は基本 **`CURRENT_GARDEN` の固定と、園切替UIの非表示だけ**（board はモバイルCSSも追加）。
 
@@ -656,6 +657,23 @@ standalone 模擬で台帳 standalone:true＋バッジ「アプリ版」、通�
 アイコンを**削除→再追加**すると通常タブ起動に戻る。結果を報告すること。
 検証：キーボードは実機でしか出ないため Mac では回帰のみ（test_fleet に CSS 存在と退避フラグの
 動作＝capable反転・manifest除去・赤バッジを追加）。全12スイート ALL PASS。
+
+### 2026-10-22 に入った機能（SF-NETWATCH：接続の見張り番＋本部の端末一覧）
+
+発端：10/22 15:01〜16:30、月寒 board（アプリ版）が**前面のまま** Firestore と通信できなくなり、
+ボードが空に見え9月の読み込みも失敗（クラウドのデータは無事）。SF-WAKESYNC は前面復帰
+イベント駆動のため「前面のまま静かに死ぬ」凍結を誰も検知できず、sf_devices の lastSeen も
+起動/復帰時にしか打たれないので本部からも見えなかった。復旧は端末の再起動。
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-NETWATCH-20261022` | **接続の見張り番**。30秒ごとに最終サーバー確認（sfWakeLastSnap）を見て、2分以上あいたら 段階1=確認リスナーのみ（購読中と同じクエリ＝**追加読み取りなし**）→15秒待つ → 段階2=sfWakeSync（張り直し）→15秒待つ。連続2回失敗で大赤帯「⚠ 通信が止まっています／アプリを開き直してください」（タップで即再試行・サーバー確認が取れた瞬間に自動で消える＝sfWakeMarkSnapshot をラップ）。生存確認のたび **10分に1回を上限に sfDeviceBeat で lastSeen を進める**（ハートビート）。画面が隠れている間は何もしない（スリープ中の空振り・書き込みを避ける）。閾値・状態は `window.SF_NW`、tick は `window.__sfNetWatchTick(force)` | 12本 |
+| `SF-FLEETVIEW-20261022` | **本部用の端末一覧 `apps/fleet.html`**（新規・読み取り専用・一切書き込まない）。sf_devices を購読し、lastSeen 15分未満=稼働中／15〜60分=**「進んでいません」**（スリープか凍結・圏外）／60分超=オフ に振り分け。配信中の版（sf_config/version）と違う端末は「旧版」で強調。standalone バッジ・tabsHint・iOS 版も表示。index.html にリンク（本部用） | fleet.html + index.html |
+
+**lastSeen の読みかた（NETWATCH 以降）**：画面が点いていて接続が生きている端末は最長10分ごとに
+進む。**営業時間中に15分以上進まないボード・受付端末は現場へ声かけ**（スリープか凍結）。
+パッチは `apps/sf_netwatch_20261022.py`（12本・アンカー一意検証・node --check）。
+検証は test_netwatch.js（board 完全シナリオ＋残り11本＋fleet.html の 23項目）＋既存12スイート ALL PASS。
 
 ---
 
