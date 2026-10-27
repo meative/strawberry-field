@@ -52,6 +52,9 @@ node tests/playwright/test_archive_timely.js                                    
   で時刻だけ進め snapshot は届かない）で判定なし・sf_notify 書き込みゼロ・他端末の waiting が届けばそのまま、対照（本当に
   未到着なら確認後に判定）、waiting / done / late-hold への reserved / no-show 受信は stTs が新しくても無視して waiting を
   即書き戻す、前進（done）は受け入れる、古い doc は従来の stTs ガードで拒否、hidden では判定しない
+- `test_cxlack.js` … SF-CXLACK-20261027 : notify 3本。美容室キャンセルのカードがキャンセル後に起動した端末でも「確認しました」で消え
+  （c に done・n 削除）、リロード後も消えたまま、通知の ts は cancelledAt に固定され起動端末が n を書き直さない、NFGUARD2 の B が
+  cancelled を守る、取り消しで reserved に戻る
 - `stubs.js` の `getDocs` は `window.__cloud[コレクション]` を where 条件で絞って返す。`window.__cloudFail = true` で失敗させられる。
   `getDoc` も同様に `window.__cloud` から id 一致の1件を返す。`window.__fsHang = true` で setDoc / updateDoc / deleteDoc を永遠に未決着にできる
 

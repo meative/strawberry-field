@@ -702,6 +702,23 @@ B により他端末は戻らず即書き戻すので収束する（アラート
 前進は受け入れる／古い doc は従来どおり stTs で拒否／hidden では判定しない）＋既存スイート ALL PASS。
 test_wakesync.js は確認リスナーの数え方を sf_bookings 限定に変更（notify の sf_notify 購読にも metadata が付いたため）。
 
+### 2026-10-27 に入った機能（SF-CXLACK：キャンセル通知の「確認しました」が効かない・再着信する）
+
+発端：10/27 月寒。美容室がキャンセルした予約のカード（07:09）が 15:24 に再着信し、「確認しました」を押しても消えない。
+原因：(1) キャンセル済み予約は取り込まれないため、キャンセル後に起動した端末には子が無く、`ackCancel` が `nfChild()` の
+null で return してカードも n も消えなかった（SF-CANCELFLAG-20260926 の欠陥）。(2) 起動端末は `__nfCxlSeen` が空で、
+sf_bookings が sf_notify より先に届くと Date.now() の ts でカードを作り直し、n ドキュメント（key 収束）を上書き→全端末で再着信。
+15:24 の再着信は本番 smoke の新規コンテキストが起こした。(3) NFGUARD2 の B に cancelled が無かった。
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-CXLACK-20261027` | `nfHandleCancelledBooking`：sf_notify 初回受信前は何もしない（`nfApplySnapshot` が初回受信後に `importSharedBookings` を呼び直す）／クラウドの c が done なら積まない／子が無ければ **cancelled の子を作る**（表示・確認・c の共有が同じ経路に）／通知と子の時刻は **予約の `cancelledAt` に固定**（端末ごとに ts が違わない＝n / c を書き直さない・再着信しない）。`ackCancel`：子が無ければ予約（または通知）から done の子を作って従来経路へ（c に done が残り、起動端末がカードを再生成しない）、通知は sfId でも消す。`NF_ARRIVED_STATUS` に cancelled を追加 | notify 3本 |
+
+パッチは `apps/sf_cxlack_20261027.py`（notify 3本・4編集・アンカー一意検証・node --check）。検証は test_cxlack.js
+（3本×9項目：bookings 先着でも sf_notify 到着後に1枚だけ・ts=cancelledAt／確認しました→カード消滅・c done・n 削除／
+childIdx -1 の旧カードからの確認／リロード後（c=done）はカード無し・n を書かない／他端末の n がある起動で書き直し無し／
+B：cancelled に reserved・no-show は効かず done は通る／取り消しで reserved に戻る）＋ test_nfguard2・test_wakesync ALL PASS。
+
 ### 2026-10-27 に入った機能（SF-NFSERVER-S1：お迎え通知の状態をサーバーで決める・影運転）
 
 設計・経緯・手順は **`DESIGN-nfserver.md`** が正。端末（notify 3本）は無改変。
