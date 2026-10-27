@@ -1,7 +1,7 @@
 # CLAUDE.md — Claude Code 向け開発ガイド
 
 STRAWBERRY FIELD 予約システムを Claude Code で扱うときに、最初に読んでください。
-（最終更新 2026-10-22 / 全面改訂は 2026-08-28）
+（最終更新 2026-10-27 / 全面改訂は 2026-08-28）
 
 ---
 
@@ -677,6 +677,30 @@ standalone 模擬で台帳 standalone:true＋バッジ「アプリ版」、通�
 検証は test_netwatch.js（board 完全シナリオ＋残り11本＋fleet.html の 23項目）・
 test_boardroster.js（board 5本 × 7項目）＋既存12スイート ALL PASS。
 パッチは `apps/sf_boardroster_20261022.py`（board 5本・アンカー一意検証・node --check）。
+
+### 2026-10-27 に入った機能（SF-NFGUARD2：お迎え通知の「復帰直後の誤判定」を止める）
+
+発端：10/26 月寒。12:30〜15:00 の予約の子が 12:29「お預かりしました」のあと 14:25 / 14:30 / 15:18 に
+「まだ来園されていません」へ3回戻り、完了後もアラートが出続けた。sf_notify は翌朝の日またぎ nfSave で
+当日分が消えるため履歴は残っていないが、sf_devices の lastSeen 14:30:35 と 15:18:26 がアラート時刻と一致
+（その瞬間に起動または前面復帰した端末がある）。時計ずれは全端末 ±2 秒で無関係。
+原因は**背面で凍っていた端末の復帰直後**：期限切れの `setInterval(checkArrivals)` がサーバー snapshot より
+先に走り、停止前の 'reserved' を根拠に no-show を判定して新しい stTs で `c` を書く。SF-NFGUARD-20260925 の
+版ガードは「決定の新しさ」しか比べないので、古いデータに基づく新しい決定は自端末でも他端末でも通る。
+standalone（Safari と別インスタンス）と single-tab で、独立に凍って独立に判定するインスタンスが増えていた。
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-NFGUARD2-20261027` | **A**：sf_notify の購読に `includeMetadataChanges` を付け、サーバー確定（fromCache=false）の受信時刻を `window.__nfSrvAt` に残す。`checkArrivals` の自動判定（no-show＋未到着アラート）は `nfCanAutoJudge()`＝**前面 かつ __nfSrvAt あり かつ 最終受信（__sfWakeLastSnap）から5分以内**のときだけ。復帰直後は最終受信が数時間前なのでサーバー snapshot が届くまで判定しない（静かな時間帯は NETWATCH が2分超で確認を取って進めるので正常時は止まらない）。刻印 sfWakeMarkSnapshot もサーバー確定のときだけ（metadata だけの fromCache=true で刻印すると「同期待ち」と NETWATCH が誤って fresh になる）。**B**：`nfApplyChildStates` で、届いた status が reserved / no-show、手元が late-hold / waiting / picking / done なら **stTs に関係なく適用しない**（`NF_ARRIVED_STATUS`）。拒否したら `__nfRejected` を立て、適用直後に nfSave で自分の前進側の状態を書き戻す（クラウドが reserved のまま残り、起動してきた端末が再アラートするのを防ぐ） | notify 3本 |
+
+残る経路：永続キャッシュが古いまま起動した端末の「初回アップロード」が 'reserved' を書くことはありうるが、
+B により他端末は戻らず即書き戻すので収束する（アラートは出ない）。
+パッチは `apps/sf_nfguard2_20261027.py`（notify 3本・5編集・アンカー一意検証・node --check）。
+検証は test_nfguard2.js（3本×17項目：配線／起動時 fromCache のみでは判定せず fromCache=false 後に判定／
+復帰模擬（時刻だけ 14:25 へ・snapshot 無し）で判定なし・書き込みゼロ・waiting 受信後も不変／対照（本当に
+未到着なら確認後に判定）／waiting・done・late-hold への reserved・no-show は無視して waiting を書き戻す／
+前進は受け入れる／古い doc は従来どおり stTs で拒否／hidden では判定しない）＋既存スイート ALL PASS。
+test_wakesync.js は確認リスナーの数え方を sf_bookings 限定に変更（notify の sf_notify 購読にも metadata が付いたため）。
 
 ---
 

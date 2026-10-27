@@ -1,4 +1,5 @@
 // SF-WAKESYNC-20260930 : 12本すべてで、前面復帰 → disableNetwork→enableNetwork、
+// SF-NFGUARD2-20261027 : 確認リスナーは sf_bookings 限定で数える（notify の sf_notify 購読にも includeMetadataChanges が付いたため）
 // 90秒以上未受信なら「同期待ち」バッジ、サーバー確定 snapshot で消える、を検証する。
 const path = require('path');
 const { chromium } = require('playwright');
@@ -46,7 +47,7 @@ function check(file, name, ok, extra) {
       await new Promise(res => setTimeout(res, 0)); await new Promise(res => setTimeout(res, 0));
       const seq = window.__fs.calls.slice(before).map(c => c[0]).filter(x => x === 'disableNetwork' || x === 'enableNetwork');   /* SF-DEVICES-20261015 : 前面復帰では版確認(getDoc)と台帳更新も走るため、再接続の並びだけを見る */
       return { seq, shown: document.getElementById('sfWakeBadge').classList.contains('show'), count: window.__sfWakeCount, vis: document.visibilityState,
-        confirm: window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges).length };
+        confirm: window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges && l.name === 'sf_bookings').length };
     });
     check(file, '(A) visible after 10s: disableNetwork→enableNetwork called, no badge, no confirm listener',
       r.vis === 'visible' && r.seq.join('>') === 'disableNetwork>enableNetwork' && !r.shown && r.count === 1 && r.confirm === 0, r.seq.join('>'));
@@ -58,7 +59,7 @@ function check(file, name, ok, extra) {
       document.dispatchEvent(new Event('visibilitychange'));
       await new Promise(res => setTimeout(res, 0)); await new Promise(res => setTimeout(res, 0));
       const seq = window.__fs.calls.slice(before).map(c => c[0]).filter(x => x === 'disableNetwork' || x === 'enableNetwork');   /* SF-DEVICES-20261015 : 前面復帰では版確認(getDoc)と台帳更新も走るため、再接続の並びだけを見る */
-      const conf = window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges);
+      const conf = window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges && l.name === 'sf_bookings');
       const b = document.getElementById('sfWakeBadge');
       return { seq, shown: b.classList.contains('show'), display: getComputedStyle(b).display, text: b.textContent.trim(),
         confirm: conf.length, confirmName: conf.length ? conf[0].name : null,
@@ -70,7 +71,7 @@ function check(file, name, ok, extra) {
 
     // (B2) キャッシュ由来（fromCache=true）の snapshot ではまだ消えない
     r = await page.evaluate(() => {
-      const conf = window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges)[0];
+      const conf = window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges && l.name === 'sf_bookings')[0];
       conf.cb({ docs: [], size: 0, metadata: { fromCache: true } });
       return { shown: document.getElementById('sfWakeBadge').classList.contains('show'), active: conf.active };
     });
@@ -78,7 +79,7 @@ function check(file, name, ok, extra) {
 
     // (B3) サーバー確定（fromCache=false）で消える・確認リスナーは解除される
     r = await page.evaluate(() => {
-      const conf = window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges)[0];
+      const conf = window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges && l.name === 'sf_bookings')[0];
       conf.cb({ docs: [], size: 0, metadata: { fromCache: false } });
       return { shown: document.getElementById('sfWakeBadge').classList.contains('show'), active: conf.active, last: window.__sfWakeLastSnap };
     });
@@ -91,7 +92,7 @@ function check(file, name, ok, extra) {
       await new Promise(res => setTimeout(res, 0)); await new Promise(res => setTimeout(res, 0));
       const shownBefore = document.getElementById('sfWakeBadge').classList.contains('show');
       window.__emit('sf_bookings', [], true);   // 通常の購読リスナー経由（fromCache に関係なく受信＝刻印）
-      const conf = window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges).length;
+      const conf = window.__fs.listeners.filter(l => l.active && l.opts && l.opts.includeMetadataChanges && l.name === 'sf_bookings').length;
       return { shownBefore, shownAfter: document.getElementById('sfWakeBadge').classList.contains('show'), conf };
     });
     check(file, '(C) regular data snapshot clears the badge and drops the confirm listener', r.shownBefore && !r.shownAfter && r.conf === 0);

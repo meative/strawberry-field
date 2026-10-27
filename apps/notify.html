@@ -887,8 +887,14 @@ body.garden-shiraishi .report-salon.salon-woodstock { background: var(--buddybro
     }, (e) => console.error('[onSnapshot] subscribe failed', e));
 
     /* SF-NOTIFY-CLOUD-20260723 : 受信ボード・様子ログ・子の状態を端末間で共有する */
-    onSnapshot(collection(db, NFCOL), (snap) => {
-      window.sfWakeMarkSnapshot();   /* SF-WAKESYNC-20260930 : 受信の刻印 */
+    /* SF-NFGUARD2-20261027 : metadata 付きで購読し、サーバー確定（fromCache=false）の受信時刻を
+       window.__nfSrvAt に残す。checkArrivals の自動判定はこれが立ち、かつ最終受信が新しいときだけ動く。
+       刻印（sfWakeMarkSnapshot）もサーバー確定のときだけ：includeMetadataChanges を付けると
+       disableNetwork 直後などに fromCache=true の metadata だけの snapshot が届くため、それで刻印すると
+       「同期待ち」と NETWATCH の生存判定が誤って fresh になる。 */
+    onSnapshot(collection(db, NFCOL), { includeMetadataChanges: true }, (snap) => {
+      const srv = !(snap.metadata && snap.metadata.fromCache);
+      if (srv) { window.__nfSrvAt = Date.now(); window.sfWakeMarkSnapshot(); }   /* SF-WAKESYNC-20260930 : 受信の刻印（サーバー確定のみ） */
       const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
       if (typeof window.nfApplySnapshot === 'function') window.nfApplySnapshot(arr);
     }, (e) => console.error('[onSnapshot sf_notify] subscribe failed', e));
@@ -2399,6 +2405,9 @@ const NF_SALONS = ['woodstock', 'janis'];
 const NF_CHILD_FIELDS = ['status', 'lateMin', 'expectedEnd', 'sentComing', 'lastLateTime',
                          'callConfirmed', 'callLateMin', 'cancelTs', 'cancelTime', 'cancelled',
                          'stTs' /* SF-NFGUARD-20260925 : 状態を最後に変えた時刻（版ガード用） */];
+/* SF-NFGUARD2-20261027 : 来園後の状態。届いた 'reserved' / 'no-show' でここから戻すことは stTs の新旧に関係なく拒否する。 */
+const NF_ARRIVED_STATUS = { 'late-hold': 1, waiting: 1, picking: 1, done: 1 };
+let __nfRejected = false;   // SF-NFGUARD2-20261027 : 直近の適用で後退を拒否したか（拒否したら自分の状態を書き戻す）
 
 function nfDocId(kind, key) {
   // ドキュメントIDに使えない文字（/ など）を避ける
@@ -2424,6 +2433,10 @@ function nfApplyChildStates() {
       const s = w.data;
       const docTs = Math.max(w.ts || 0, s.stTs || 0);
       if ((c.stTs || 0) > docTs) return;
+      /* SF-NFGUARD2-20261027 : 来園後の状態（late-hold / waiting / picking / done）を、届いた 'reserved' / 'no-show' で
+         戻さない（stTs の新旧に関係なく）。来園前へ戻す正規の経路は無く、戻ってくるのは古いデータに基づく
+         他端末の判定だけ。拒否した側は want≠mirror となり自分の状態を書き直すので、クラウドは前進側に収束する。 */
+      if ((s.status === 'reserved' || s.status === 'no-show') && NF_ARRIVED_STATUS[c.status]) { __nfRejected = true; return; }
       NF_CHILD_FIELDS.forEach(f => { if (s[f] !== undefined) c[f] = s[f]; });
     });
   });
@@ -2547,6 +2560,10 @@ window.nfApplySnapshot = function (arr) {
   } finally {
     __nfApplying = false;
   }
+  /* SF-NFGUARD2-20261027 : 後退を拒否したら、自分の（前進側の）状態をすぐ書き戻す。次の描画まで待つと
+     その間クラウドが 'reserved' / 'no-show' のままになり、起動してきた端末がそれを見て再アラートしうる。
+     書き戻しは差分方式（nfSave）なので、相手が前進側を受け入れれば往復は止まる。 */
+  if (__nfRejected) { __nfRejected = false; if (NF_BOOKINGS_SEEN) { try { nfSave(); } catch (e) {} } }
   /* SF-NOTIFYRECV-20260830 : 受け取った端末で音と点滅を出す。
      これまで playSound / flashAlert は「送った端末」でしか呼ばれておらず（sendNotify の中だけ）、
      保育園の iPad は黙って一覧が書き換わるだけだった。画面には
@@ -2660,9 +2677,26 @@ function allChildren() {
   return out;
 }
 
+/* SF-NFGUARD2-20261027 : 自動判定は「この端末がいま最新を見ている」ときだけ。
+   10/26 月寒：背面で凍っていた端末が前面復帰した瞬間、期限切れの setInterval がサーバー snapshot より先に
+   走り、停止前の 'reserved' を根拠に no-show を判定 → 新しい stTs で c を書き、他端末の 'waiting' / 'done' を
+   3回戻した。版ガード（stTs）は「決定の新しさ」しか比べないので、古いデータに基づく新しい決定は通ってしまう。
+   条件：画面が前面 ／ 起動後にサーバー確定の sf_notify を1回以上受信（__nfSrvAt）／
+   最終受信（__sfWakeLastSnap。静かな時間帯は NETWATCH が2分超で確認を取って進める）から5分以内。
+   復帰直後は最終受信が数時間前のままなので、サーバー snapshot が届くまで判定しない。 */
+const NF_JUDGE_MAX_AGE_MS = 5 * 60 * 1000;
+function nfCanAutoJudge() {
+  try {
+    if (document.visibilityState !== 'visible') return false;
+    if (!(window.__nfSrvAt > 0)) return false;
+    if ((Date.now() - (window.__sfWakeLastSnap || 0)) > NF_JUDGE_MAX_AGE_MS) return false;
+    return true;
+  } catch (e) { return false; }
+}
 // 未到着の自動判定（予約開始+5分を過ぎてreservedのままなら no-show）
 function checkArrivals() {
   let changed = false;
+  if (!nfCanAutoJudge()) { renderArrivalList(); return; }   /* SF-NFGUARD2-20261027 : 最新を見ていない間は判定しない */
   allChildren().forEach(({c, salonKey}) => {
     if (c.status === 'reserved' && nowMin() >= timeStrToMin(c.start) + 5) {
       c.status = 'no-show';
