@@ -3,6 +3,37 @@
 作成 2026-10-27（設計のみ・コード無改変）。対象は notify 3本（notify.html / notify_sp_tsukisamu.html /
 notify_sp_shiraishi.html）と、新設する Cloud Functions・Firestore ルール。
 
+## 2026-10-27 の作業ログ（手順1〜2・SF-NFSERVER-S1-20261027）
+
+- **functions/**（eye405-app と同構成・v2・asia-northeast1・Node 22・firebase-admin ^14.5 / firebase-functions ^7.4）
+  - `lib/nfstate.js`：純粋関数 `reduce(booking, events, {cur, now, graceMin, markNoShowAt})`。(at, id) で並べ直し・id で重複除去・
+    終端以降は無効。`stateChanged` / `isNoShowCandidate` / `inScanHours` / JST ヘルパ。
+  - `lib/legacy.js`：旧→新 `legacyToEvents`（c: waiting→arrived / late-hold→call / cancelled→cancel / done→done（cancelled 付きは
+    cancel + cancel_ack）。**reserved / no-show は翻訳しない**。n: coming→pickup / call / cancel / late・early・soon・soon-early・
+    handoff→msg。`_w.dev === 'fn'` は無視）。新→旧 `buildLegacyC`（live 専用）。s（様子ログ）は bookingId が引けないため未翻訳（未決）。
+  - `test/`：node:test 21項目（順序入替 20 通り・重複・同一時刻・後退イベント・call / cancel / cancel_ack・no-show の印と
+    引き継ぎ・予約時刻変更で reserved に戻る・at の型・翻訳→reduce の一致）ALL PASS。
+  - `index.js`：4本。`onNotifyEventCreated`（events onCreate → トランザクションで予約＋全イベント＋state を読み reduce → 変化が
+    あれば set）、`notifyNoShowScan`（every 1 minutes・JST 7〜20 時のみ・`date == today && status == reserved && dueAt <= now` →
+    1件ずつトランザクションで再確認して印。live では `noshow_{bookingId}_{dueAt}` を create）、`onBookingWrittenForNotify`
+    （サロン予約だけ・過去日は無視・削除で state 削除）、`onLegacyNotifyWritten`（旧→新ブリッジ・決定的 id で create・既存は無視）。
+    モードは `sf_config/nfserver.mode`（off / shadow / live、30秒メモ）。shadow では state を `sf_notify_state_shadow` に書き、
+    旧 sf_notify には書かず、no-show のアラートイベントも作らない。
+- **決定を反映**：call / cancel は独立イベント、no-show 後に予約時刻が変わったら reserved に戻る（dueAt が変わると印を捨てる）、
+  events の TTL 90日（state 30日）。TTL は `firestore.indexes.json` の fieldOverrides（`ttl: true`）で設定。
+- **インデックス**：state / state_shadow の (date, status, dueAt)、events の (garden, date, at)。READY 確認済み。
+- **設定**：`sf_config/nfserver` = {mode:'shadow', graceMin:5, scanHours:[7,20], legacyBridge:true, eventsTtlDays:90, stateTtlDays:30}。
+- **検証用 `sf_notify_events/e_rulescheck_20261027` を削除**（所有者トークンの REST＝Admin 相当。`tests/nfserver/setup_shadow.mjs`）。
+- **デプロイ**：`firebase deploy --only functions,firestore:indexes`。初回は Eventarc サービスエージェントの権限伝播待ちで
+  Firestore トリガー3本が失敗（2nd gen 初回の既知事象）→ 2分半後の再デプロイで4本とも作成。
+  Artifact Registry の掃除ポリシー（1日）を `functions:artifacts:setpolicy` で設定。
+  スキャンは最初の2分だけ「インデックス構築中」で失敗、以後は毎分正常（0件＝ログ無し）。
+- **影運転の初期化**：`tests/nfserver/backfill_shadow.mjs`（当日の旧 c / n → events、state を reduce で計算して shadow へ）。
+  当日（10/27）のサロン予約は1件（月寒・09:30〜11:00・美容室がキャンセル）。旧 n の cancel → イベント1件、shadow = cancelled。
+- **初回比較**（`tests/nfserver/compare_shadow.mjs`・読み取り専用）：一致 1 / 不一致 0 / state なし 0。
+  当日は1件しか無いので判断材料としては薄い。翌営業日以降、毎日 compare を流して 2〜3 営業日の一致を見る。
+- 端末（notify 3本）は無改変。
+
 ## 2026-10-27 の作業ログ（手順0・ルール適用）
 
 - 「ルール変更 OK」の承認を受け、**手順0**：`firebase init firestore` でコンソールの現行ルール
@@ -277,9 +308,9 @@ onDocumentWritten({ document: 'sf_bookings/{id}', region })
 | 手順 | 内容 | 戻し方 |
 |---|---|---|
 | 0 | **済（10/27・545abb0）** `firebase.json` / `.firebaserc` / `firestore.rules`（現行）/ `firestore.indexes.json` を追加。`functions/` は手順2で。GitHub Pages 配信には影響しない（hosting は使わない） | ファイル削除 |
-| 1 | `sf_config/nfserver` を作る：`{graceMin:5, scanHours:[7,20], legacyBridge:true, enabled:false}`。`enabled:false` の間、端末の新コードは出さない | — |
-| 2 | **Functions デプロイ**（3本＋ブリッジ）。この時点で動くのは 4-3（予約→state）と 旧→新ブリッジだけ＝**影運転**。既存端末は何も変わらない。fleet のように `apps/nfstate.html`（読み取り専用の確認ページ・任意）か REST で、state と旧 c doc が一致するかを 2〜3 営業日見る。4-2 も走るが、state の no-show と旧端末のアラートの時刻が一致するかを見る材料になる（旧形式へは書かない設定で始める：`legacyBridge:'readonly'`） | `firebase functions:delete` 3本（state は残っても誰も読まない） |
-| 3 | 影運転の差分がゼロ → `legacyBridge:true`（新→旧も書く）。旧端末の画面が Functions 由来の c/n/s で描かれることを確認（_w.dev='fn'） | `legacyBridge:'readonly'` |
+| 1 | **済（10/27）** `sf_config/nfserver` = {mode:'shadow', graceMin:5, scanHours:[7,20], legacyBridge:true, eventsTtlDays:90, stateTtlDays:30}。mode が live になるまで端末の新コードは出さない | mode:'off' |
+| 2 | **済（10/27・SF-NFSERVER-S1）** Functions 4本をデプロイ（shadow）。state は `sf_notify_state_shadow`、旧 sf_notify には書かない、旧→新ブリッジは動く。`tests/nfserver/compare_shadow.mjs` で state と旧 c doc の一致を 2〜3 営業日見る | `sf_config/nfserver.mode = 'off'`（即時）／`firebase functions:delete` 4本 |
+| 3 | 影運転の差分がゼロ → `mode:'live'`（state を本番コレクションへ・新→旧の c も書く）。旧端末の画面が Functions 由来の c で描かれることを確認（_w.dev='fn'）。n / s の新→旧は S2 で | `mode:'shadow'` |
 | 4 | **済（10/27・前倒し）** ルール適用（§7）。REST `projects.test` 20項目＋本番裏取りで確認。新コレクションはまだ誰も使わないので先に入れても既存に影響しない | 545abb0 の `firestore.rules` を再デプロイ（Firebase はルールの履歴も保持） |
 | 5 | **端末配信**：notify 3本の新コード（§5）をコミット → 版の刻印 → push → 本番 smoke → `sf_config/version`。新端末は events/state だけを見る。旧端末はブリッジで新端末の操作が見える（新→旧）、旧端末の操作も新端末に見える（旧→新・前進だけ） | notify 3本を前の版へ戻して版の刻印（旧形式はブリッジが書き続けているので旧端末は即復帰） |
 | 6 | fleet.html で notify 全端末が新版になったのを確認（個人スマホは本人に開き直してもらう）。1週間の経過観察 | — |

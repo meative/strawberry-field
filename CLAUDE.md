@@ -702,6 +702,18 @@ B により他端末は戻らず即書き戻すので収束する（アラート
 前進は受け入れる／古い doc は従来どおり stTs で拒否／hidden では判定しない）＋既存スイート ALL PASS。
 test_wakesync.js は確認リスナーの数え方を sf_bookings 限定に変更（notify の sf_notify 購読にも metadata が付いたため）。
 
+### 2026-10-27 に入った機能（SF-NFSERVER-S1：お迎え通知の状態をサーバーで決める・影運転）
+
+設計・経緯・手順は **`DESIGN-nfserver.md`** が正。端末（notify 3本）は無改変。
+
+| マーカー | 内容 | 対象 |
+|---|---|---|
+| `SF-NFSERVER-S1-20261027` | **Cloud Functions 4本**（`functions/`・v2・asia-northeast1・Node 22）：`onNotifyEventCreated`（sf_notify_events の onCreate → 予約＋全イベントから state を再計算）／`notifyNoShowScan`（毎分・JST 7〜20時・reserved のまま dueAt を過ぎた子に1回だけ no-show）／`onBookingWrittenForNotify`（予約 → reserved の state・時刻追従）／`onLegacyNotifyWritten`（旧 sf_notify の c / n を前進イベントに翻訳）。判定は `functions/lib/nfstate.js` の純粋関数 `reduce`（node:test 21項目）。モードは `sf_config/nfserver.mode`：いまは **shadow**（state は `sf_notify_state_shadow`、旧 sf_notify には書かない）。ルールは `firestore.rules`（events は create のみ・state は Functions のみ）。運用スクリプトは `tests/nfserver/`（所有者トークンの REST＝Admin 相当。compare_shadow は読み取り専用） | functions/ + firestore.* |
+
+**Functions を触るときの約束**：`firebase deploy --only functions --project strawberry-field-timely`（`--force` は使わない。
+掃除ポリシーは設定済み）。2nd gen の Firestore トリガーは初回デプロイで Eventarc の権限伝播待ちに失敗することがある→数分後に再実行。
+`firebase functions:log` でログ。`mode:'off'` にすれば4本とも何もしない（即時の退避）。
+
 ---
 
 ## 10. 作業の進め方（このプロジェクトの約束事）
