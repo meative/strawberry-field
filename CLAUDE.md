@@ -388,6 +388,21 @@ git --git-dir=/tmp/sf_check show main:apps/timely.html | grep -c "SF-<マーカ�
 
 別マシンで gh を使う場合はそちらでも `gh auth login` → `gh auth setup-git` が要る。
 
+### 本番 smoke は読み取り専用（2026-10-27 の事故から・★厳守）
+
+2026-10-27、リリース確認の smoke（Playwright で本番 URL を開くだけ）が **本番に書き込んだ**。notify は起動時の初回
+nfSave で sf_notify の n ドキュメント（キャンセル通知・key 収束）を新しい ts で書き直し、現場の全端末に
+「15:24 受信」のキャンセルカードを再着信させた（SF-CXLACK-20261027）。本番ページを開けば端末台帳（sf_devices）の
+setDoc も走る。**「開くだけ」は書き込みである。**
+
+- 本番 URL を開く確認は **`tests/prod/smoke_notify_readonly.mjs`**（Firestore SDK の setDoc / updateDoc / deleteDoc /
+  addDoc / writeBatch / runTransaction を SDK の層で無効化してから開く。遮った件数を `blocked` に出す）だけを使う。
+  board / salon / timely の smoke を作るときも同じ仕組みで書き込みを遮ること
+- **書き込みを伴う確認**（E2E・ルールの裏取り・Functions の発火確認）は、**テスト園 `gardenId='smoke'` の予約**か、
+  **存在しない bookingId（`probe-…`）** だけで行う。本番の園・本番の予約・本番の sf_notify には触らない
+- 本番 URL を手元のブラウザで開くときも同じ（端末台帳に Mac の端末が増え、notify は初回 nfSave を書く）。
+  見るだけなら REST の読み取り（`tests/nfserver/compare_shadow.mjs` 方式）で代替する
+
 ### コミットメッセージ
 
 日本語で「何を直したか」＋「なぜそれが問題だったか」を書き、末尾に機能マーカーを付けます。
@@ -743,6 +758,7 @@ B：cancelled に reserved・no-show は効かず done は通る／取り消し�
 - 作業前に `pwd` 確認（別プロジェクト `strawberry-tuition` への迷い込み防止）
 - Edit は「適用したつもりで未適用」が起きるので、**必ず grep / sed で実物を確認**する
 - **リモート SHA は `git ls-remote` で直接確認する。** ローカルの `origin/main` は古いことがある
+- **本番に書くテストをしない。** smoke は `tests/prod/smoke_notify_readonly.mjs`（書き込み遮断）、書き込みが要る確認はテスト園 `gardenId='smoke'` か存在しない bookingId だけ（§7）
 
 ### 環境
 
