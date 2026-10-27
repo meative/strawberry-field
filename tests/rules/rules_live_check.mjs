@@ -1,0 +1,21 @@
+// 本番ルールの裏取り（匿名 idToken・Firestore REST）。読み1件、events の create（serverTimestamp）、update/delete 拒否、端末時計の create 拒否、state 書き込み拒否。
+const API_KEY='AIzaSyBbOBEVWgMIx03QVjc2wOwjZCDlyZM2Kzc', PROJ='strawberry-field-timely';
+const DB=`projects/${PROJ}/databases/(default)`, BASE=`https://firestore.googleapis.com/v1/${DB}/documents`;
+const r=await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({returnSecureToken:true})});
+const tok=(await r.json()).idToken; const H={authorization:`Bearer ${tok}`,'content-type':'application/json'};
+const ID='e_rulescheck_20261027';
+const fields={bookingId:{stringValue:'rulescheck'},garden:{stringValue:'tsukisamu'},date:{stringValue:'2026-10-27'},salon:{stringValue:'woodstock'},type:{stringValue:'msg'},kind:{stringValue:'report'},by:{stringValue:'Drulescheck'},ver:{stringValue:'290f1c7'},clientAt:{integerValue:'1'}};
+const commit=(writes)=>fetch(`https://firestore.googleapis.com/v1/${DB}/documents:commit`,{method:'POST',headers:H,body:JSON.stringify({writes})}).then(async x=>({status:x.status,msg:(await x.json()).error?.message?.slice(0,80)}));
+const out={};
+out.readConfig=(await fetch(`${BASE}/sf_config/version`,{headers:H})).status;
+out.createServerTs=await commit([{update:{name:`${DB}/documents/sf_notify_events/${ID}`,fields},updateTransforms:[{fieldPath:'at',setToServerValue:'REQUEST_TIME'}],currentDocument:{exists:false}}]);
+out.createAgain=await commit([{update:{name:`${DB}/documents/sf_notify_events/${ID}`,fields},updateTransforms:[{fieldPath:'at',setToServerValue:'REQUEST_TIME'}],currentDocument:{exists:false}}]);
+out.updateEvent=await commit([{update:{name:`${DB}/documents/sf_notify_events/${ID}`,fields:{type:{stringValue:'done'}}},updateMask:{fieldPaths:['type']}}]);
+out.deleteEvent=await commit([{delete:`${DB}/documents/sf_notify_events/${ID}`}]);
+out.createClientTs=await commit([{update:{name:`${DB}/documents/sf_notify_events/${ID}_client`,fields:{...fields,at:{timestampValue:'2026-10-27T06:00:00Z'}}},currentDocument:{exists:false}}]);
+out.stateWrite=await commit([{update:{name:`${DB}/documents/sf_notify_state/rulescheck`,fields:{status:{stringValue:'waiting'}}}}]);
+out.readEvent=(await fetch(`${BASE}/sf_notify_events/${ID}`,{headers:H})).status;
+out.oldNotifyRead=(await fetch(`${BASE}/sf_notify/tsukisamu__s__janis`,{headers:H})).status;
+console.log(JSON.stringify(out,null,1));
+const ok= out.readConfig===200 && out.createServerTs.status===200 && out.createAgain.status!==200 && out.updateEvent.status===403 && out.deleteEvent.status===403 && out.createClientTs.status===403 && out.stateWrite.status===403 && out.readEvent===200 && out.oldNotifyRead===200;
+console.log(ok?'LIVE RULES OK':'LIVE RULES NG'); process.exit(ok?0:1);

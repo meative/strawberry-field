@@ -1,19 +1,66 @@
 rules_version = '2';
 
+// ============================================================
+// STRAWBERRY FIELD Firestore セキュリティルール
+//
+// 2026-10-27 までコンソールにしか無かった現行ルールは
+//   match /{document=**} { allow read, write: if request.auth != null; }
+// の1本（匿名サインイン済みなら全部読み書き可）。545abb0 で無改変のままリポジトリに取り込んだ。
+//
+// SF-NFSERVER（DESIGN-nfserver.md §7・2026-10-27 承認）：
+//   お迎え通知の状態はサーバー（Cloud Functions）が決め、端末はイベントを追記するだけにする。
+//   - sf_notify_events : 端末は create だけ（update / delete 不可）。at は serverTimestamp 必須
+//   - sf_notify_state  : 端末は read だけ（書くのは Functions＝Admin SDK。ルールの対象外）
+//   ★ Firestore のルールは「どれか1つの match が allow なら許可」なので、従来の全体 match を
+//     そのまま残すと上の制限が効かない。全体 match の方に「この2コレクションは除く」を入れてある。
+//   旧 sf_notify（c/s/n）は互換期間中は従来どおり読み書き可（ブリッジ停止後に書き込み禁止へ・手順7）。
+// ============================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+    function signedIn() {
+      return request.auth != null;
+    }
+    // SF-NFSERVER : サーバーが状態を決めるコレクション（全体 match から除外する）
+    function nfServerOwned(collection) {
+      return collection in ['sf_notify_events', 'sf_notify_state'];
+    }
+
+    // 従来どおり：サインイン済みなら読み書き可（上の2コレクションを除く）
+    match /{collection}/{document=**} {
+      allow read, write: if signedIn() && !nfServerOwned(collection);
+    }
+
+    // SF-NFSERVER : お迎え通知のイベント（追記のみ）
+    function nfEventOk() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['bookingId', 'garden', 'date', 'salon', 'type', 'kind', 'data',
+                               'at', 'clientAt', 'by', 'ver', 'expireAt'])
+          && d.keys().hasAll(['bookingId', 'garden', 'date', 'salon', 'type', 'at', 'by'])
+          && d.bookingId is string && d.bookingId.size() > 0 && d.bookingId.size() < 64
+          && d.garden in ['tsukisamu', 'shiraishi', 'factory', 'shiseikan']
+          && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && d.salon in ['woodstock', 'janis']
+          && d.type in ['arrived', 'pickup', 'done', 'call', 'cancel', 'cancel_ack', 'msg']
+          && d.at == request.time                       // serverTimestamp() 以外は拒否（端末の時計を持ち込ませない）
+          && d.by is string && d.by.size() > 0 && d.by.size() < 40 && d.by != 'fn'   // 端末は fn を名乗れない
+          && (!('kind' in d) || (d.kind is string && d.kind.size() < 24))
+          && (!('data' in d) || d.data is map)
+          && (!('clientAt' in d) || d.clientAt is number)
+          && (!('ver' in d) || (d.ver is string && d.ver.size() < 16))
+          && (!('expireAt' in d) || d.expireAt is timestamp);
+    }
+    match /sf_notify_events/{id} {
+      allow read:   if signedIn();
+      allow create: if signedIn() && nfEventOk();
+      allow update, delete: if false;
+    }
+
+    // SF-NFSERVER : お迎え通知の状態（Functions だけが書く）
+    match /sf_notify_state/{id} {
+      allow read:  if signedIn();
+      allow write: if false;
     }
   }
 }
