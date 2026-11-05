@@ -1133,7 +1133,7 @@ function seed(age, start, end) { for (let i=slotIdx(start); i<slotIdx(end); i++)
 var PARTY_DEM = null;
 function rebuildUsed() {
   const g = normGarden(CURRENT_GARDEN);
-  const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+  const _d = currentDate();   /* SF-DATECONFIRM-20261105 : 表示と同じ基準（DATE_BASE）にそろえる */
   const ds = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
   const grid = {}; AGES.forEach(a => grid[a.key] = new Array(N).fill(0));
   sfLoad().forEach(r => {
@@ -1352,8 +1352,8 @@ function blockedAt(garden, age, slotTime) {
   /* SF-SALON-DAYBLOCK-20260706 : 基本(毎日)＋その予約日の日別、両方の _blocks を見る（厳しい方が勝つ） */
   const g = normGarden(garden);
   const a = Number(age);
-  // 予約日：checkAvailability/confirmReserve の判定日と同一式（new Date()+dayOffset）
-  const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+  // 予約日：SF-DATECONFIRM-20261105 表示・判定・保存すべて currentDate() に統一
+  const _d = currentDate();
   const _ds = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
   let lim = null;
   const _scan = (blocks) => {
@@ -1380,7 +1380,7 @@ function blockedAt(garden, age, slotTime) {
    dayOffset は下方で let 宣言されるため、初期化前に呼ばれても落ちないよう try で囲む。 */
 function capEffAge(age) {
   try {
-    var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + dayOffset);
+    var d = currentDate();   /* SF-DATECONFIRM-20261105 */
     var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     var c = capEffective(CURRENT_GARDEN, age, ds);
     if (c != null) return Number(c);
@@ -1423,8 +1423,8 @@ function checkAvailability() {
   const ageJp = ageMonthLabel(selectedAge, selectedMonths, selectedRealAge, selectedRealMonths);
 
   // 年齢別1日定員の満員チェック（confirmReserve のガードと同一ロジック）。満員なら時間帯判定の前に専用表示
-  // 日付は予約書き込みと同一式（new Date() + dayOffset）で算出し、判定日と予約日を一致させる
-  const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+  // SF-DATECONFIRM-20261105 : 日付は currentDate() に統一し、表示日・判定日・予約日を一致させる
+  const _d = currentDate();
   const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
   /* SF-CAP-CONCURRENT-20260724 : 日単位の満員ブロックを撤去。
      定員は「同時に何名まで」の意味になり、rangeAvailable が30分スロットごとに
@@ -1454,6 +1454,22 @@ function checkAvailability() {
   } else {
     // 予約不可 → 同じ長さで入れる近い時間を探す
     const alts = findAlternatives(_slots, dur, sIdx);
+    /* SF-DATECONFIRM-20261105 : 時間帯制限で入れないときは「満員」とせず、その旨を出して止める。
+       予約ボタンは出さない。候補は同じ日の時間だけ（別の日へ勝手に動かさない）。 */
+    const _bh = sfBlockHit(_slots, sIdx, eIdx);
+    if (_bh) {
+      const _bAlt = alts.length ? `<div class="alt-title">同じ日の、以下の時間なら空いています：</div>
+        <div class="alt-chips">${alts.map(alt => {
+          const e = minToTime(timeToMin(alt)+dur);
+          return `<span class="alt-chip" role="button" tabindex="0" onclick="openReserve('${alt}','${e}')">${alt} 〜 ${e}</span>`;
+        }).join('')}</div>` : `<div class="alt-none">別の日をご希望の場合は、上の日付を選び直してください。</div>`;
+      area.innerHTML = `<div class="result-ng">
+      <div class="result-headline">${sfBlockHeadline(alts.length > 0)}</div>
+      <div class="result-detail">${ageJp} ・ ${sfBlockDetail(_bh)}</div>
+      ${_bAlt}
+    </div>${_pnote}`;
+      return;
+    }
     let altHtml;
     if (alts.length) {
       altHtml = `<div class="alt-title">近い時間で、以下が空いています：</div>
@@ -1486,8 +1502,12 @@ function findAlternatives(slots, dur, aroundIdx) {
 
 // ===== 予約モーダル =====
 let pendingStart = '', pendingEnd = '';
+let pendingDateStr = '';      /* SF-DATECONFIRM-20261105 : 確認画面に出した日付（保存の直前に照合する） */
+var partyPendingDate = '';    /* 同・組（きょうだい）の名前入力画面 */
 function openReserve(start, end) {
+  sfDateTick();
   pendingStart = start; pendingEnd = end;
+  pendingDateStr = sfDs(currentDate());
   const ageJp = ageMonthLabel(selectedAge, selectedMonths, selectedRealAge, selectedRealMonths);
   const isBook = reserveMode === 'book';
   // モーダルのモード別表示切替
@@ -1495,7 +1515,8 @@ function openReserve(start, end) {
   document.getElementById('nextFields').style.display = isBook ? 'none' : '';
   if (isBook) {
     document.getElementById('modalTitle').textContent = '予約のお名前';
-    document.getElementById('modalCtx').innerHTML = `${ageJp} ・ <span class="time">${start} 〜 ${end}</span> でお預かり`;
+    /* SF-DATECONFIRM-20261105 : 保存する日付を確認画面で必ず見せる */
+    document.getElementById('modalCtx').innerHTML = `<div class="sf-date-confirm" style="font-size:16px; font-weight:600; color:var(--ink); margin-bottom:4px;">ご予約日：${sfDateJp(pendingDateStr)}</div>${ageJp} ・ <span class="time">${start} 〜 ${end}</span> でお預かり`;
     document.getElementById('mName').value = '';
     const note = document.getElementById('newNote'); if (note) note.style.display = 'none';
     resetNameSearch();
@@ -1820,6 +1841,12 @@ function renderPartyPanel() {
     } else if (res && res.reason === 'time') {
       stt.className = 'party-status ng';
       stt.innerHTML = '<span class="ps-mk">×</span><span><b>' + partyStart + '〜' + partyEnd() + '</b> は受付時間の外です。開始時刻か長さを変えてください</span>';
+    } else if (res && res.reason === 'block') {
+      /* SF-DATECONFIRM-20261105 : 時間帯制限は「いっぱい」と分けて案内する */
+      var _pAlts = [];
+      try { _pAlts = partyAlternatives(); } catch (e3b) { _pAlts = []; }
+      stt.className = 'party-status ng';
+      stt.innerHTML = '<span class="ps-mk">×</span><span><b>' + sfBlockHeadline(_pAlts.length > 0) + '</b>（' + partyAgeJp(res.age) + '・' + sfDateJp(partyResvDateStr()) + ' ' + SLOTS[res.slot] + '）</span>';
     } else {
       stt.className = 'party-status ng';
       var _a = (res && res.age != null) ? partyAgeJp(res.age) : '';
@@ -2021,20 +2048,28 @@ function partyPickAlt(t) {
 
 /* ---------- ④ 名前は最後にまとめて ---------- */
 function partyResvDateStr() {
-  var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + dayOffset);
+  var d = currentDate();   /* SF-DATECONFIRM-20261105 */
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
 function partyOpenNames() {
+  sfDateTick();   /* SF-DATECONFIRM-20261105 */
   if (!partyKidsReady()) { showToast('お子様の生年月を、人数分すべて選んでください'); return; }
   if (!partyStart) { showToast('開始時刻を選んでください'); return; }
   rebuildUsed();
   var ms = partyMembersAt(partyStart);
   var chk = partyGroupCheck(ms);
-  if (!chk.ok) { renderPartyPanel(); showToast('この時間では、この組の全員をお預かりできません'); return; }
+  if (!chk.ok) {
+    renderPartyPanel();
+    /* SF-DATECONFIRM-20261105 : 制限なら制限と伝える */
+    if (chk.reason === 'block') showToast(sfBlockHeadline(partyAlternatives().length > 0) + '。予約は作成していません', 6000);
+    else showToast('この時間では、この組の全員をお預かりできません');
+    return;
+  }
   var box = document.getElementById('pfNameModal');
   if (!box) return;
-  var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + dayOffset);
+  var d = currentDate();   /* SF-DATECONFIRM-20261105 */
+  partyPendingDate = sfDs(d);   /* この画面に出す日付＝保存する日付、を保存の直前に確かめるため控える */
   var ctx = document.getElementById('pfNameCtx');
   if (ctx) ctx.textContent = (d.getMonth() + 1) + '月' + d.getDate() + '日(' + WD_JP[d.getDay()] + ') ' +
     partyStart + '〜' + partyEnd() + ' ／ この組 ' + ms.length + '名';
@@ -2082,11 +2117,19 @@ function partyConfirmNames() {
     if (!r) { showToast('登録のないお子様は、カタカナでご入力ください（' + full + '）'); if (gEl) gEl.focus(); return; }
     people.push({ m: ms[i], name: r.name, kana: r.kana, provisional: r.provisional });
   }
+  /* SF-DATECONFIRM-20261105 : 名前入力画面に出した日付と保存日が違うなら作らない */
+  sfDateTick();
+  if (partyPendingDate && partyResvDateStr() !== partyPendingDate) {
+    partyCloseNames(); renderPartyPanel();
+    showToast('日付が変わりました。日付を確かめて、もう一度お手続きください', 6000);
+    return;
+  }
   rebuildUsed();
   var chk = partyGroupCheck(ms);
   if (!chk.ok) {
     partyCloseNames(); renderPartyPanel();
-    showToast('たったいま埋まりました。時間を選び直してください');
+    if (chk.reason === 'block') showToast(sfBlockHeadline(partyAlternatives().length > 0) + '。予約は作成していません', 6000);
+    else showToast('たったいま埋まりました。時間を選び直してください');
     return;
   }
   var pid = 'pty_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
@@ -2127,7 +2170,8 @@ function partyConfirmNames() {
   if (typeof renderMyBookings === 'function') renderMyBookings();
   if (typeof buildStartOptions === 'function') buildStartOptions();
   if (typeof checkAvailability === 'function') checkAvailability();
-  showToast('✓ 組（' + cnt + '名）を予約しました。保育園に通知しました');
+  /* SF-DATECONFIRM-20261105 : 実際に保存した dateStr を出す */
+  showToast('✓ ' + sfDateJp(dateStr) + ' に組（' + cnt + '名）を予約しました。保育園に通知しました', 6000);
 }
 
 try { ensurePartyUI(); } catch (e) {}
@@ -2382,6 +2426,7 @@ try { ensureSplitUI(); sfSplitRender(); } catch (e) {}
 
 
 function confirmReserve() {
+  if (!sfDateGuard()) return;   /* SF-DATECONFIRM-20261105 : 制限・日付の食い違いなら作らない（次回予約も同じ） */
   // ===== 次回予約モード =====
   if (reserveMode === 'next') {
     if (!nextCustId) { showToast('本日のお客様を選んでください'); return; }
@@ -2423,9 +2468,9 @@ function confirmReserve() {
      組の予約は組パネル（partyConfirmNames）だけで行うため、ここは1人ずつの通常予約に専念する。
      partyDraft は常に空になり、PARTY_DEM も null のままなので通常の空き判定は従来どおり。 */
   // ===== 年齢別定員の満員チェック（満員なら予約不可でブロック。既存予約・時間帯空き判定には触らない） =====
-  // 予約日は下の dateStr と同一式（new Date() + dayOffset）で算出し、カウント日と予約日を一致させる
+  // SF-DATECONFIRM-20261105 : 予約日は下の dateStr と同じ currentDate() で算出し、カウント日と予約日を一致させる
   {
-    const _d = new Date(); _d.setHours(0,0,0,0); _d.setDate(_d.getDate() + dayOffset);
+    const _d = currentDate();
     const _capDate = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
     /* SF-CAP-CONCURRENT-20260724 : 日単位ではなく、予約する時間帯で判定する。
        checkAvailability と同じ rangeAvailable を使い、判断がぶれないようにする。 */
@@ -2448,7 +2493,7 @@ function confirmReserve() {
   // 使用数を反映
   for (let i = slotIdx(pendingStart); i < slotIdx(pendingEnd); i++) if(i>=0) used[selectedAge][i]++;
   // 共有ストレージへ書き込み → 予約管理システム・通知モデルに自動反映
-  const today = new Date(); today.setHours(0,0,0,0); today.setDate(today.getDate()+dayOffset);
+  const today = currentDate();   /* SF-DATECONFIRM-20261105 : 保存日も表示と同じ基準。ここが実時刻基準だと、開きっぱなしで日をまたいだ画面で1日あとに入った */
   const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   /* SF-SALONSPLIT-UI-20260726/C2 : 「2つのサロンを続けて使う」がONのときは、
      1件ではなく区間ぶん（2件）書き込む。時間は隙間なく連続させる。
@@ -2471,9 +2516,11 @@ function confirmReserve() {
   renderMyBookings();
   buildStartOptions();
   checkAvailability();
+  /* SF-DATECONFIRM-20261105 : 完了メッセージは実際に保存した dateStr から作る */
+  const _doneAt = `${sfDateJp(dateStr)} ${pendingStart}〜${pendingEnd}`;
   showToast(saved
-    ? (provisional ? `✓ ${name}さんを一時予約しました。保育園の受付で正式情報が反映されます` : '✓ 予約しました。保育園に通知しました')
-    : '✓ 予約しました（連携保存は不可：単体表示）');
+    ? (provisional ? `✓ ${_doneAt} で ${name}さんを一時予約しました。保育園の受付で正式情報が反映されます` : `✓ ${_doneAt} で予約しました。保育園に通知しました`)
+    : `✓ ${_doneAt} で予約しました（連携保存は不可：単体表示）`, 6000);
 }
 
 // ===== 自店予約一覧 =====
@@ -2630,7 +2677,8 @@ function switchSalon(s) {
   renderMyBookings();
 }
 
-function showToast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2800); }
+/* SF-DATECONFIRM-20261105 : 日付入りの案内は読み切れる長さで出せるよう ms を追加。前のタイマーに消されないよう止める */
+function showToast(msg, ms) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(window.__sfToastTimer); window.__sfToastTimer = setTimeout(()=>t.classList.remove('show'), ms || 2800); }
 let dayOffset = 0;
 const WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DATE_BASE = new Date(); DATE_BASE.setHours(0,0,0,0); // 実時刻の今日（深夜0時基準）
@@ -2640,6 +2688,92 @@ function updateDateLabel() {
   document.getElementById('curDate').innerHTML = `${base.getMonth()+1}月${base.getDate()}日 <span class="wd">${WD[base.getDay()]}</span><span class="cal-caret">▾</span>`;
 }
 function changeDay(d){ dayOffset += d; updateDateLabel(); }
+
+/* ===== SF-DATECONFIRM-20261105 : 予約日のズレ止めと、制限日の停止 =====
+   2026-11-05 月寒：11/16 を選んだ予約が 11/17 に入った。DATE_BASE は読み込み時に1回だけ計算する一方、
+   判定と保存は実時刻＋dayOffset で動いていたため、アプリ版を開いたまま日をまたぐと表示より後ろへずれた。
+   判定も 11/17 で行われたので 11/16 の受け入れ制限をすり抜けた。
+   board の SF-BOARDBASE-ROLL と同じく DATE_BASE の中身だけを進め、選んでいる日付は保つ。
+   スリープ中は setInterval が止まるので、前面復帰・bfcache 復帰・予約操作の入り口でも見る。 */
+function sfDateTick() {
+  try {
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const diff = Math.round((now.getTime() - DATE_BASE.getTime()) / 86400000);
+    if (diff === 0) return false;
+    DATE_BASE.setTime(now.getTime());
+    if (dayOffset !== 0) dayOffset -= diff;   // 選んでいた日付を保つ
+    updateDateLabel();
+    if (typeof renderMyBookings === 'function') renderMyBookings();
+    console.log('[SF-DATECONFIRM-20261105] 日付が変わったので基準日を更新しました');
+    return true;
+  } catch (e) { console.error('[SF-DATECONFIRM-20261105]', e); return false; }
+}
+setInterval(sfDateTick, 60 * 1000);
+document.addEventListener('visibilitychange', function () { if (!document.hidden) sfDateTick(); });
+window.addEventListener('pageshow', function () { sfDateTick(); });
+
+function sfDs(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+/* 'YYYY-MM-DD' → '11月16日（月）'。表示日ではなく実際に保存する文字列から作る（画面の言葉と保存が食い違わないように） */
+function sfDateJp(ds) {
+  const p = String(ds).split('-').map(Number);
+  const d = new Date(p[0], p[1] - 1, p[2]);
+  return (p[1]) + '月' + p[2] + '日（' + WD_JP[d.getDay()] + '）';
+}
+/* 予約したい範囲が時間帯制限（_blocks）で入れないときだけ、どの制限かを返す。満員（同時定員）は対象外。
+   入れるかどうかの条件は rangeAvailable と同じ（used + 組の分 >= limit で不可）。 */
+function sfBlockHit(slots, sIdx, eIdx) {
+  const g = normGarden(CURRENT_GARDEN);
+  const ds = sfDs(currentDate());
+  const base = CAP_MIRROR.base && CAP_MIRROR.base[g];
+  const day = CAP_MIRROR[ds] && CAP_MIRROR[ds][g];
+  const blocks = [].concat((base && base._blocks) || [], (day && day._blocks) || []);
+  for (let k = 0; k < slots.length; k++) {
+    const s = slots[k];
+    for (let i = Math.max(sIdx, 0); i < eIdx && i < N; i++) {
+      const lim = blockedAt(CURRENT_GARDEN, s, SLOTS[i]);
+      if (lim == null) continue;
+      const pd = (typeof PARTY_DEM !== 'undefined' && PARTY_DEM && PARTY_DEM[s]) ? PARTY_DEM[s][i] : 0;
+      if (used[s][i] + pd < lim) continue;
+      const b = blocks.filter(function (x) {
+        return x && Array.isArray(x.ages) && x.ages.map(Number).indexOf(Number(s)) !== -1 && SLOTS[i] >= x.from && SLOTS[i] < x.to;
+      })[0];
+      return { date: ds, age: s, limit: lim, from: b ? b.from : SLOTS[i], to: b ? b.to : minToTime(timeToMin(SLOTS[i]) + SLOT_MIN) };
+    }
+  }
+  return null;
+}
+/* 同じ日に入れる時間が無いなら「この日は」、あるなら「この時間帯は」。事実と違う案内を出さないため分ける。 */
+function sfBlockHeadline(hasSameDayAlt) {
+  return hasSameDayAlt ? 'この時間帯はこの年齢の受け入れができません' : 'この日はこの年齢の受け入れができません';
+}
+function sfBlockDetail(hit) {
+  return sfDateJp(hit.date) + ' ' + hit.from + '〜' + hit.to + ' は受け入れ制限中です' + (hit.limit > 0 ? '（定員' + hit.limit + '名）' : '');
+}
+/* 予約を作る直前の最終確認。日付が確認画面と変わっていたら、または制限に当たったら作らない。 */
+function sfDateGuard() {
+  sfDateTick();
+  if (pendingDateStr && sfDs(currentDate()) !== pendingDateStr) {
+    showToast('日付が変わりました。日付を確かめて、もう一度お手続きください', 6000);
+    try { closeModal(); } catch (_e) {}
+    try { checkAvailability(); } catch (_e) {}
+    return false;
+  }
+  rebuildUsed();
+  const _slots = selConsumedSlots();
+  const _s = slotIdx(pendingStart);
+  let _e = slotIdx(pendingEnd);
+  if (_e < 0) _e = _s + Math.round((timeToMin(pendingEnd) - timeToMin(pendingStart)) / SLOT_MIN);
+  const hit = sfBlockHit(_slots, _s, _e);
+  if (hit) {
+    const _dur = timeToMin(pendingEnd) - timeToMin(pendingStart);
+    showToast(sfBlockHeadline(findAlternatives(_slots, _dur, _s).length > 0) + '。' + sfBlockDetail(hit) + '。予約は作成していません', 6000);
+    try { closeModal(); } catch (_e2) {}
+    try { checkAvailability(); } catch (_e2) {}
+    return false;
+  }
+  return true;
+}
+/* ===== SF-DATECONFIRM-20261105 ここまで ===== */
 
 /* ============================================================
    SF-DATESYNC-20260726/D1 : 日付を変えたら空き状況も引き直す
@@ -2663,6 +2797,8 @@ if (!window.__SF_DATESYNC_20260726 && typeof updateDateLabel === 'function') {
     try { if (typeof updateAcceptInfo === 'function') updateAcceptInfo(); } catch (e) {}
     try { if (typeof buildStartOptions === 'function') buildStartOptions(); } catch (e) {}
     try { if (typeof checkAvailability === 'function') checkAvailability(); } catch (e) {}
+    /* SF-DATECONFIRM-20261105 : 組パネルの ◎/× も、選び直した日付で出し直す */
+    try { if (typeof partyMode !== 'undefined' && partyMode && typeof renderPartyPanel === 'function') renderPartyPanel(); } catch (e) {}
     return r;
   };
 }
@@ -2670,6 +2806,7 @@ if (!window.__SF_DATESYNC_20260726 && typeof updateDateLabel === 'function') {
 // ===== 自作カレンダー =====
 let calViewYear, calViewMonth; // 表示中の年・月（0始まり）
 function toggleCalendar() {
+  sfDateTick();   /* SF-DATECONFIRM-20261105 : 「本日」の印を正しい日にしてから開く */
   const ov = document.getElementById('calOverlay');
   if (ov.classList.contains('show')) { closeCalendar(); return; }
   const cur = currentDate();

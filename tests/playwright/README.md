@@ -9,6 +9,7 @@ cd ~/Documents/strawberry-field
 npm i -D playwright && npx playwright install chromium   # node_modules は .gitignore 済み
 node tests/playwright/test_wakesync.js    # SF-WAKESYNC-20260930 : 12本すべて
 node tests/playwright/test_resmatch.js    # SF-RESMATCH-20260930 : timely.html
+node tests/playwright/test_dateconfirm.js # SF-DATECONFIRM-20261105 : salon 3本（page.clock で日またぎを再現）
 SF_PRISTINE=/path/to/HEAD-copies node tests/playwright/test_archive_board.js   # SF-ARCHIVE-BOARD-20260930 : board 5本
 node tests/playwright/test_archive_timely.js                                    # SF-ARCHIVE-TIMELY-20260930 : timely.html
 ```
