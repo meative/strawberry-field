@@ -44,7 +44,9 @@ for (const f of FILES) {
   try { await page.waitForFunction(() => window.__sfWakeLastSnap > 0 && typeof window.sfDateTick === 'function', null, { timeout: 20000 }); ok = true; } catch (e) {}
   const r = await page.evaluate(() => ({ ver: window.SF_APP_VER, srvAt: window.__sfWakeLastSnap || 0, mode: window.__sfCacheMode,
     hdr: document.getElementById('curDate').textContent.trim(), blocked: (window.__sfBlocked || []).length,
-    blockedSample: (window.__sfBlocked || []).slice(0, 4) }));
+    blockedSample: (window.__sfBlocked || []).slice(0, 4),
+    slotMin: (typeof SLOT_MIN !== 'undefined' ? SLOT_MIN : null),   // SF-TIME10-20261119 の確認用（判定には使わない）
+    feat: ['sfBdPickDate', 'sfSlotTime', 'sfSlotSpan', 'sfDateTick'].filter((k) => typeof window[k] === 'function') }));
   const good = ok && r.ver === VER && errors.length === 0 && cerr.length === 0;
   if (!good) fails++;
   console.log((good ? 'PASS ' : 'FAIL ') + f + ' ' + JSON.stringify({ ...r, ms: Date.now() - t0, errors, cerr: cerr.slice(0, 3) }));

@@ -1103,13 +1103,22 @@ function sfAdd(rec) {
 // サンプル種まきは本番運用のため廃止（seedSampleBookings 削除済み。掃除は読込時の purge で実施）
 
 // ===== 設定 =====
-const START_HOUR = 8, END_HOUR = 18, SLOT_MIN = 30;
+/* SF-TIME10-20261119 : 開始時刻を10分刻みに（ボードと揃える）。従来は30分スロット。
+   空き判定・候補・制限は SLOTS / N / SLOT_MIN で書かれているので、そのまま10分単位で判定される。 */
+const START_HOUR = 8, END_HOUR = 18, SLOT_MIN = 10;
 const SLOTS = [];
-for (let h = START_HOUR; h < END_HOUR; h++) { SLOTS.push(`${String(h).padStart(2,'0')}:00`); SLOTS.push(`${String(h).padStart(2,'0')}:30`); }
+for (let _m = START_HOUR * 60; _m < END_HOUR * 60; _m += SLOT_MIN) { SLOTS.push(`${String(Math.floor(_m / 60)).padStart(2,'0')}:${String(_m % 60).padStart(2,'0')}`); }
 const N = SLOTS.length;
 function timeToMin(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
 function minToTime(min){ return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`; }
 function slotIdx(t){ return SLOTS.indexOf(t); }
+/* SF-TIME10-20261119 : 予約 [start, end) が分で重なるスロットの範囲 [s, e)。占有数を数えるときに使う。
+   slotIdx の完全一致だと、ボード由来の 11:45 開始・18:00 終了などがスロットに乗らず定員計算から漏れていた。 */
+function sfSlotSpan(start, end) {
+  const S = START_HOUR * 60;
+  const a = timeToMin(String(start || '00:00')), b = timeToMin(String(end || '00:00'));
+  return [Math.max(0, Math.floor((a - S) / SLOT_MIN)), Math.min(N, Math.ceil((b - S) / SLOT_MIN))];
+}
 
 const AGES = [
   { key:'0', jp:'0歳', en:'Age 0' }, { key:'1', jp:'1歳', en:'Age 1' },
@@ -1146,7 +1155,7 @@ function rebuildUsed() {
     if (r.cancelled) return;   /* SF-CANCELMARK-20260926 : キャンセル済みは数えない */
     const slots = consumedSlots(totalMonths(r.age, r.months));
     if (!slots.length) return;
-    const si = slotIdx(r.start), ei = slotIdx(r.end);
+    const [si, ei] = sfSlotSpan(r.start, r.end);   /* SF-TIME10-20261119 */
     for (let i = si; i < ei; i++) { if (i < 0) continue; slots.forEach(s => { if (grid[s]) grid[s][i]++; }); }
   });
   used = grid;
@@ -1578,7 +1587,7 @@ function partyDemand(members) {
   var dem = { '0': new Array(N).fill(0), '1': new Array(N).fill(0), '2': new Array(N).fill(0), '3': new Array(N).fill(0) };
   (members || []).forEach(function (m) {
     var slots = (m.consumed && m.consumed.length) ? m.consumed : [];
-    var s = slotIdx(m.start), e = slotIdx(m.end);
+    var _sp = sfSlotSpan(m.start, m.end), s = _sp[0], e = _sp[1];   /* SF-TIME10-20261119 */
     slots.forEach(function (age) {
       if (!dem[age]) return;
       for (var i = s; i < e; i++) if (i >= 0 && i < N) dem[age][i]++;
@@ -2479,7 +2488,7 @@ function confirmReserve() {
        checkAvailability と同じ rangeAvailable を使い、判断がぶれないようにする。 */
     rebuildUsed();
     var _cSlots = selConsumedSlots();
-    var _cS = slotIdx(pendingStart), _cE = slotIdx(pendingEnd);
+    var _cSp = sfSlotSpan(pendingStart, pendingEnd), _cS = _cSp[0], _cE = _cSp[1];   /* SF-TIME10-20261119 */
     if (!_cSlots.every(function (s) { return rangeAvailable(s, _cS, _cE); })) {
       /* SF-DATESYNC-20260726/D2 : 満員でとめたときは、画面の空き状況も最新に描き直す。
          そのままだと「◎ お預かりできます」が残ってしまい、
@@ -2494,7 +2503,7 @@ function confirmReserve() {
   const booking = { name, age: selectedAge, months, start: pendingStart, end: pendingEnd, provisional };
   myBookings[salon].push(booking);
   // 使用数を反映
-  for (let i = slotIdx(pendingStart); i < slotIdx(pendingEnd); i++) if(i>=0) used[selectedAge][i]++;
+  { const _sp = sfSlotSpan(pendingStart, pendingEnd); for (let i = _sp[0]; i < _sp[1]; i++) used[selectedAge][i]++; }   /* SF-TIME10-20261119 */
   // 共有ストレージへ書き込み → 予約管理システム・通知モデルに自動反映
   const today = currentDate();   /* SF-DATECONFIRM-20261105 : 保存日も表示と同じ基準。ここが実時刻基準だと、開きっぱなしで日をまたいだ画面で1日あとに入った */
   const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;

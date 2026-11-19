@@ -2354,7 +2354,19 @@ function kanaRowOf(cust) {
   return null;
 }
 
-function slotIndex(t) { return SLOTS.indexOf(t); }
+function slotIndex(t) {
+  const i = SLOTS.indexOf(t);
+  if (i >= 0) return i;
+  /* SF-TIME10-20261119 : 開始時刻は10分刻み（11:40 など）。盤面の目盛り（SLOTS）は15分のままなので、
+     目盛りに無い時刻は分から小数の位置を返す（バーの位置・幅・レーン判定がそのまま使える）。
+     閉園（20:00）以降・形式外は従来どおり -1（呼び出し側は「終端＝N」として扱う）。 */
+  if (typeof t !== 'string' || !/^\d{1,2}:\d{2}$/.test(t)) return -1;
+  const m = timeToMin(t) - START_HOUR * 60;
+  if (m < 0 || m >= (END_HOUR - START_HOUR) * 60) return -1;
+  return m / SLOT_MIN;
+}
+/* SF-TIME10-20261119 : 位置（小数可）→ 時刻。ドラッグ用（SLOTS[小数] は undefined になるため） */
+function sfSlotTime(i) { return minToTime(START_HOUR * 60 + Math.round(i * SLOT_MIN)); }
 // ===== 昼食判定: 11:00以降にかかり、かつ3時間以上 =====
 function needsLunch(b) {
   const durMin = timeToMin(b.end) - timeToMin(b.start);
@@ -2781,8 +2793,8 @@ function onDragMove(e) {
     en = Math.max(dragState.origEnd + slotDelta, dragState.origStart + 1);
     en = Math.min(N, en);
   }
-  b.start = SLOTS[s];
-  b.end = en >= N ? minToTime(END_HOUR*60) : SLOTS[en];
+  b.start = sfSlotTime(s);   /* SF-TIME10-20261119 */
+  b.end = en >= N ? minToTime(END_HOUR*60) : sfSlotTime(en);
   renderBoardLive(dragState.idx);
 }
 
@@ -2831,8 +2843,10 @@ function onSlotTap(zoneKey, lane, slotIdx) {
   document.getElementById('mMemo').value = '';
   /* SF-EXT-SHARE-20260824 : 早朝・延長は自園生徒専用なので最初からチェックを入れておく */
   document.getElementById('mYouchisha').checked = (zoneKey === 'ext_am' || zoneKey === 'ext_pm');
-  document.getElementById('mDateField').style.display = 'none'; // 新規は現在のボード日付
+  /* SF-BOARDDATE-20261119 : 空きコマからの新規も日付欄を出す（初期値は表示日。変えればその日に入る） */
+  document.getElementById('mDateField').style.display = '';
   document.getElementById('mDate').value = boardDateStr();
+  sfBdSaveLabel();
   setBirthYM(null, null); // 新規は生年月未選択（保存時に選択必須）
   resetNameSearch();
   buildStartSelect(SLOTS[slotIdx]);
@@ -2858,6 +2872,7 @@ function onBarTap(gidx) {
   document.getElementById('mYouchisha').checked = (b.affiliation === 'youchisha');
   document.getElementById('mDateField').style.display = ''; // 編集時は日付変更可
   document.getElementById('mDate').value = b.date || boardDateStr();
+  sfBdSaveLabel();   /* SF-BOARDDATE-20261119 */
   prefillBirthFrom(b); // birthがあればそれ、旧レコードは age/months から逆算して近似表示
   resetNameSearch();
   setTimeFromRange(b.start, b.end);
@@ -3061,7 +3076,12 @@ function minToTime(min) { const h=Math.floor(min/60), m=min%60; return `${String
 
 function buildStartSelect(start) {
   const s = document.getElementById('mStart');
-  s.innerHTML = SLOTS.map(t => `<option ${t===start?'selected':''}>${t}</option>`).join('');
+  /* SF-TIME10-20261119 : 開始時刻は10分刻み。旧予約の 11:45 や15分の空きコマのタップなど、
+     10分刻みに無い時刻はその時刻を選択肢に足して保つ（勝手に丸めない）。 */
+  const opts = [];
+  for (let m = START_HOUR * 60; m < END_HOUR * 60; m += 10) opts.push(minToTime(m));
+  if (start && /^\d{2}:\d{2}$/.test(start) && opts.indexOf(start) === -1) { opts.push(start); opts.sort(); }
+  s.innerHTML = opts.map(t => `<option ${t===start?'selected':''}>${t}</option>`).join('');
 }
 function setDuration(dur) {
   document.querySelectorAll('#mDurTabs .dur-tab').forEach(t => {
@@ -3190,6 +3210,11 @@ function openModal() {
   document.getElementById('mZone').value = 'woodstock';
   document.getElementById('mMemo').value = '';
   document.getElementById('mYouchisha').checked = false;
+  /* SF-BOARDDATE-20261119 : 新規でも日付欄を出し、表示日で初期化する。従来は表示も値も初期化せず、
+     直前に開いた予約の日付欄が残って見えていた（選んでも保存では捨てられていた）。 */
+  document.getElementById('mDateField').style.display = '';
+  document.getElementById('mDate').value = boardDateStr();
+  sfBdSaveLabel();
   setBirthYM(null, null);
   resetNameSearch();
   buildStartSelect('10:00');
@@ -3240,6 +3265,10 @@ function sfCapFull(age, start, end, date, months) {
   }
   /* (b) 予約の時間帯と重なる時間帯制限(_blocks: 基本＋その日)。SF-BLOCKSLOT-20260710: 対象年齢を消費枠(consumedSlots)ベースで判定（≤18ヶ月は0・1両枠を枠ごとに独立判定）。枠の写像は減員(part-a)と同一。数える母集団は従来どおり bookings 全件(ゾーン非フィルタ、ext含む)で、本パッチでは変更しない。 */
   var sMin = timeToMin(start), eMin = timeToMin(end);
+  /* SF-BOARDDATE-20261119 : 表示日以外の日に入れるときは、その日の予約（sfLoad）で数える。
+     bookings は表示中の日しか持っていないため、従来のままだと別の日の制限が常に「0人使用」になる。 */
+  var _bkPool = (date === boardDateStr()) ? bookings
+    : sfLoad().filter(function (r) { return r && r.date === date && ZONE_LANES[r.salon]; });
   var blocks = [];
   var base = CAP_MIRROR.base && CAP_MIRROR.base[g];
   if (base && Array.isArray(base._blocks)) blocks = blocks.concat(base._blocks);
@@ -3258,8 +3287,8 @@ function sfCapFull(age, start, end, date, months) {
       var _slot = String(_bkSlots[_bk]);
       if (_bAges.indexOf(_slot) === -1) continue; /* 新規予約はこの制限枠を消費しない */
       var used = 0;
-      for (var j = 0; j < bookings.length; j++) {
-        var x = bookings[j];
+      for (var j = 0; j < _bkPool.length; j++) {
+        var x = _bkPool[j];
         if (!x) continue;
         if (x.cancelled) continue;   /* SF-CANCELMARK-20260926 : キャンセル済みは数えない */
         if ((x.date || boardDateStr()) !== date) continue;
@@ -3289,6 +3318,46 @@ function sfZoneChanged() {
   if (z === 'ext_am' || z === 'ext_pm') document.getElementById('mYouchisha').checked = true;
 }
 window.sfZoneChanged = sfZoneChanged;
+/* SF-BOARDDATE-20261119 : 予約モーダルの日付まわり。
+   保存する日付＝日付欄の値（空ならボードの表示日）。押す前に見えるよう確定ボタンにも日付を出す。 */
+function sfBdDateJp(ds) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ds || ''));
+  if (!m) return String(ds || '');
+  const d = new Date(+m[1], +m[2] - 1, +m[3]);
+  return (+m[2]) + '月' + (+m[3]) + '日（' + '日月火水木金土'.charAt(d.getDay()) + '）';
+}
+function sfBdSaveLabel() {
+  try {
+    const btn = document.getElementById('mSave'); if (!btn) return;
+    const v = (document.getElementById('mDate') || {}).value || boardDateStr();
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (!m) { btn.textContent = '確定'; return; }
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    btn.textContent = (+m[2]) + '/' + (+m[3]) + '（' + '日月火水木金土'.charAt(d.getDay()) + '）で確定';
+  } catch (e) {}
+}
+(function () {
+  const el = document.getElementById('mDate');
+  if (el) { el.addEventListener('input', sfBdSaveLabel); el.addEventListener('change', sfBdSaveLabel); }
+})();
+/* 新規の予約日を決める。形式が壊れていれば止める。過去月で編集可能にしていない月には作らない */
+function sfBdPickDate() {
+  const v = document.getElementById('mDate').value || boardDateStr();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { sfAlert('予約日を選んでください'); return null; }
+  if (v !== boardDateStr() && sfArchiveMode(v) === 'readonly') {
+    sfAlert(sfBdDateJp(v) + ' は過去の月のため、ここからは予約を入れられません。\nその日を表示して「この月を編集可能にする」を押してから追加してください。');
+    return null;
+  }
+  return v;
+}
+/* 表示中のボードと違う日に入れるときは、保存する日付を大きく出して確かめる */
+function sfBdConfirmDate(ds, start, end, moving) {
+  const msg = (moving ? 'この予約を ' : '') + sfBdDateJp(ds) + '\n' + start + ' 〜 ' + end + '\n'
+    + (moving ? 'に移します。' : 'に予約を入れます。')
+    + '\n（いま表示中の ' + sfBdDateJp(boardDateStr()) + ' とは別の日です）';
+  if (typeof sfConfirm === 'function') return sfConfirm(msg, { okText: sfBdDateJp(ds) + ' に入れる' });
+  return Promise.resolve(window.confirm(msg));
+}
 async function saveBooking() {
   if (!sfArchiveCanEdit('save')) return;   /* SF-ARCHIVE-BOARD-20260930 */
   const name = document.getElementById('mName').value.trim();
@@ -3312,6 +3381,7 @@ async function saveBooking() {
     // 編集時は日付欄から予約日を取得（未入力なら元の日付を維持）
     const newDate = document.getElementById('mDate').value || prev.date || boardDateStr();
     const movedToOtherDay = (newDate !== (prev.date || boardDateStr()));
+    if (movedToOtherDay && !(await sfBdConfirmDate(newDate, start, end, true))) return;   /* SF-BOARDDATE-20261119 */
     const updated = { ...prev, name, zone, age, months, birthY, birthM, memo, start, end, date: newDate,
       affiliation: sfExtAffiliation(zone, youchisha, prev.gardenId || CURRENT_GARDEN),  /* SF-EXT-SHARE-20260824 */
       lane: findFreeLane(zone, start, end, editingIdx) };
@@ -3324,15 +3394,21 @@ async function saveBooking() {
       bookings[editingIdx] = updated;
     }
   } else {
-    const lane = findFreeLane(zone, start, end, -1);
+    /* SF-BOARDDATE-20261119 : 予約日は日付欄の値。従来は boardDateStr() 固定で、日付欄を変えても今日に入った */
+    const newDate = sfBdPickDate();
+    if (!newDate) return;
+    const onBoardDay = (newDate === boardDateStr());
+    /* レーンは表示中の日の bookings でしか判定できない。別の日は取り込み時に採番し直されるので 0 で保存する */
+    const lane = onBoardDay ? findFreeLane(zone, start, end, -1) : 0;
     if (lane < 0) { sfAlert('この時間帯はこの区分の枠が満員です'); return; }
     /* SF-CAPWARN-UI-20260707 : 満員/受け入れ制限中なら確認（アプリUIのダイアログ） */
-    if (typeof sfCapFull === 'function' && sfCapFull(age, start, end, boardDateStr(), months)) {
+    if (typeof sfCapFull === 'function' && sfCapFull(age, start, end, newDate, months)) {
       var _cwLbl = (age === '3' ? '3歳〜' : age + '歳');
       var _cwMsg = _cwLbl + ' の ' + start + ' 〜 ' + end + ' は満員（受け入れ制限）です。';
       if (!(await sfCapConfirm(_cwMsg))) return;
     }
-    const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, birthY, birthM, memo, start, end, date: boardDateStr(),
+    if (!onBoardDay && !(await sfBdConfirmDate(newDate, start, end, false))) return;   /* SF-BOARDDATE-20261119 */
+    const nb = { zone, lane, gardenId: CURRENT_GARDEN, name, age, months, birthY, birthM, memo, start, end, date: newDate,
       affiliation: sfExtAffiliation(zone, youchisha) };
     /* SF-EXT-SHARE-20260824 : 早朝・延長も共有ストレージに保存する。
        従来は ext_am/ext_pm だけ除外していたため、モーダル（空きコマのタップ）から作った
@@ -3345,8 +3421,10 @@ async function saveBooking() {
          timely.html … importBoardReservations() が youchisha の ext を除外するので予約には出ない
        ext は上の sfExtAffiliation で必ず youchisha になるため、漏れ出す経路は残らない。 */
     nb.sfId = sfWriteNew(nb);
-    bookings.push(nb);
-    if (zone === 'woodstock' || zone === 'janis') {
+    /* SF-BOARDDATE-20261119 : 別の日に入れた予約は、いま見ているボードには置かない（その日を開けば出る） */
+    if (onBoardDay) bookings.push(nb);
+    else showNotify(`${name} さん<br>${sfBdDateJp(newDate)} ${start} 〜 ${end} ・ ${zoneJp(zone)}`, sfBdDateJp(newDate) + ' に予約を入れました');
+    if (onBoardDay && (zone === 'woodstock' || zone === 'janis')) {
       showNotify(`${name} さん（${age==='3'?'3歳〜':age+'歳'}）<br>${start} 〜 ${end} ・ ${zoneJp(zone)}`);
     }
   }
@@ -3364,7 +3442,7 @@ function sfWriteNew(b) {
     salon: b.zone, // temp / woodstock / janis（ext は呼び出し側で除外済み）
     name: b.name, kana: b.kana || '', age: b.age, months: b.months != null ? b.months : null,
     birthY: (b.birthY != null ? b.birthY : null), birthM: (b.birthM != null ? b.birthM : null), /* SF-BIRTH-WRITEBACK-20260721 */
-    start: b.start, end: b.end, date: boardDateStr(),
+    start: b.start, end: b.end, date: (b.date || boardDateStr()),   /* SF-BOARDDATE-20261119 : 選んだ日付で保存 */
     nextReservation: null, provisional: false, info: null, memo: b.memo || '',
     affiliation: b.affiliation || CURRENT_GARDEN,
     homePark: (b.homePark != null ? b.homePark : null),   /* SF-XPARK-20260901 */
